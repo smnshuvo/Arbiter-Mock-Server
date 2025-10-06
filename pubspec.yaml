@@ -1,0 +1,48 @@
+name: spartan_mock_server
+description: A Flutter app for intercepting and mocking network requests
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_bloc: ^8.1.3
+  equatable: ^2.0.5
+
+  # Local Server
+  shelf: ^1.4.1
+  shelf_router: ^1.1.4
+
+  # HTTP Client
+  http: ^1.1.0
+
+  # Storage
+  sqflite: ^2.3.0
+  path_provider: ^2.1.1
+  path: ^1.8.3
+
+  # JSON
+  json_annotation: ^4.8.1
+
+  # File Picker
+  file_picker: ^6.1.1
+  share_plus: ^7.2.1
+
+  # UI
+  cupertino_icons: ^1.0.6
+  intl: ^0.18.1
+
+  # Dependency Injection
+  get_it: ^7.6.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.6
+  json_serializable: ^6.7.1
