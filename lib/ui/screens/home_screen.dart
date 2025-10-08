@@ -136,8 +136,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         context.read<ServerBloc>().add(StartServerEvent(port));
                       }
                     },
-              icon: Icon(isRunning ? Icons.stop : Icons.play_arrow),
-              label: Text(isRunning ? 'Stop Server' : 'Start Server'),
+              icon: Icon(
+                isRunning ? Icons.stop : Icons.play_arrow,
+                color: Colors.white,
+              ),
+              label: Text(
+                isRunning ? 'Stop Server' : 'Start Server',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: isRunning ? Colors.red : Colors.green,
                 padding:
