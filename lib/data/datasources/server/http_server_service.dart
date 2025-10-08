@@ -98,7 +98,9 @@ class HttpServerService {
       // Find matching endpoint
       final matchedEndpoint = _findMatchingEndpoint(request.url.toString(), endpoints);
 
-      Response response;
+      String responseBody;
+      int statusCode;
+      Map<String, String> responseHeaders;
       LogType logType;
       String? matchedEndpointId;
 
@@ -125,26 +127,30 @@ class HttpServerService {
             await Future.delayed(Duration(milliseconds: matchedEndpoint.delayMs));
           }
 
-          response = Response.ok(
-            mockResponseToUse ?? '{}',
-            headers: {'Content-Type': 'application/json'},
-          );
+          responseBody = mockResponseToUse ?? '{}';
+          statusCode = 200;
+          responseHeaders = {'Content-Type': 'application/json'};
           logType = LogType.mock;
         } else {
           // Pass through to actual server
-          response = await _passThrough(request, matchedEndpoint, requestBody);
+          final passThroughResult = await _passThrough(request, matchedEndpoint, requestBody);
+          responseBody = passThroughResult['body'] as String;
+          statusCode = passThroughResult['statusCode'] as int;
+          responseHeaders = passThroughResult['headers'] as Map<String, String>;
           logType = LogType.passThrough;
         }
       } else if (_autoPassThrough && _globalPassThroughUrl != null) {
         // Auto pass-through for unmatched endpoints
-        response = await _autoPassThroughRequest(request, requestBody);
+        final passThroughResult = await _autoPassThroughRequest(request, requestBody);
+        responseBody = passThroughResult['body'] as String;
+        statusCode = passThroughResult['statusCode'] as int;
+        responseHeaders = passThroughResult['headers'] as Map<String, String>;
         logType = LogType.passThrough;
       } else {
         // No matching endpoint, return 404
-        response = Response.notFound(
-          jsonEncode({'error': 'No matching endpoint configured'}),
-          headers: {'Content-Type': 'application/json'},
-        );
+        responseBody = jsonEncode({'error': 'No matching endpoint configured'});
+        statusCode = 404;
+        responseHeaders = {'Content-Type': 'application/json'};
         logType = LogType.mock;
       }
 
@@ -156,13 +162,15 @@ class HttpServerService {
         requestId,
         request,
         requestBody,
-        response,
+        responseBody,
+        statusCode,
         responseTimeMs,
         logType,
         matchedEndpointId,
       );
 
-      return response;
+      // Return the response
+      return Response(statusCode, body: responseBody, headers: responseHeaders);
     } catch (e) {
       print('Error handling request: $e');
       return Response.internalServerError(
@@ -202,16 +210,17 @@ class HttpServerService {
     return null; // No condition matched, use default
   }
 
-  Future<Response> _autoPassThroughRequest(
+  Future<Map<String, dynamic>> _autoPassThroughRequest(
       Request request,
       String requestBody,
       ) async {
     try {
       if (_globalPassThroughUrl == null || _globalPassThroughUrl!.isEmpty) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'No global pass-through URL configured'}),
-          headers: {'Content-Type': 'application/json'},
-        );
+        return {
+          'body': jsonEncode({'error': 'No global pass-through URL configured'}),
+          'statusCode': 400,
+          'headers': {'Content-Type': 'application/json'},
+        };
       }
 
       // Build the full URL by appending the request path to the base URL
@@ -256,23 +265,25 @@ class HttpServerService {
           response = await http.head(uri, headers: headers);
           break;
         default:
-          return Response.badRequest(
-            body: jsonEncode({'error': 'Unsupported HTTP method'}),
-            headers: {'Content-Type': 'application/json'},
-          );
+          return {
+            'body': jsonEncode({'error': 'Unsupported HTTP method'}),
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json'},
+          };
       }
 
-      return Response(
-        response.statusCode,
-        body: response.body,
-        headers: Map<String, String>.from(response.headers),
-      );
+      return {
+        'body': response.body,
+        'statusCode': response.statusCode,
+        'headers': Map<String, String>.from(response.headers),
+      };
     } catch (e) {
       print('Error in auto pass-through: $e');
-      return Response.internalServerError(
-        body: jsonEncode({'error': 'Auto pass-through failed: $e'}),
-        headers: {'Content-Type': 'application/json'},
-      );
+      return {
+        'body': jsonEncode({'error': 'Auto pass-through failed: $e'}),
+        'statusCode': 500,
+        'headers': {'Content-Type': 'application/json'},
+      };
     }
   }
 
@@ -302,7 +313,7 @@ class HttpServerService {
     return null;
   }
 
-  Future<Response> _passThrough(
+  Future<Map<String, dynamic>> _passThrough(
       Request request,
       Endpoint endpoint,
       String requestBody,
@@ -310,10 +321,11 @@ class HttpServerService {
     try {
       final targetUrl = endpoint.targetUrl;
       if (targetUrl == null || targetUrl.isEmpty) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'No target URL configured'}),
-          headers: {'Content-Type': 'application/json'},
-        );
+        return {
+          'body': jsonEncode({'error': 'No target URL configured'}),
+          'statusCode': 400,
+          'headers': {'Content-Type': 'application/json'},
+        };
       }
 
       final uri = Uri.parse(targetUrl);
@@ -345,23 +357,25 @@ class HttpServerService {
           response = await http.head(uri, headers: headers);
           break;
         default:
-          return Response.badRequest(
-            body: jsonEncode({'error': 'Unsupported HTTP method'}),
-            headers: {'Content-Type': 'application/json'},
-          );
+          return {
+            'body': jsonEncode({'error': 'Unsupported HTTP method'}),
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json'},
+          };
       }
 
-      return Response(
-        response.statusCode,
-        body: response.body,
-        headers: Map<String, String>.from(response.headers),
-      );
+      return {
+        'body': response.body,
+        'statusCode': response.statusCode,
+        'headers': Map<String, String>.from(response.headers),
+      };
     } catch (e) {
       print('Error in pass-through: $e');
-      return Response.internalServerError(
-        body: jsonEncode({'error': 'Pass-through failed: $e'}),
-        headers: {'Content-Type': 'application/json'},
-      );
+      return {
+        'body': jsonEncode({'error': 'Pass-through failed: $e'}),
+        'statusCode': 500,
+        'headers': {'Content-Type': 'application/json'},
+      };
     }
   }
 
@@ -369,14 +383,13 @@ class HttpServerService {
       String id,
       Request request,
       String requestBody,
-      Response response,
+      String responseBody,
+      int statusCode,
       int responseTimeMs,
       LogType logType,
       String? matchedEndpointId,
       ) async {
     try {
-      final responseBody = await response.readAsString();
-
       final log = RequestLog(
         id: id,
         timestamp: DateTime.now(),
@@ -384,7 +397,7 @@ class HttpServerService {
         url: request.url.toString(),
         headers: Map<String, String>.from(request.headers),
         requestBody: requestBody.isNotEmpty ? requestBody : null,
-        statusCode: response.statusCode,
+        statusCode: statusCode,
         responseBody: responseBody.isNotEmpty ? responseBody : null,
         responseTimeMs: responseTimeMs,
         logType: logType,
