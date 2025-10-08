@@ -70,7 +70,10 @@ class HttpServerService {
         }
 
         final response = await handler(request);
-        return response.change(headers: _corsHeaders());
+        // Merge CORS headers with existing headers instead of replacing
+        final mergedHeaders = Map<String, String>.from(response.headers);
+        mergedHeaders.addAll(_corsHeaders());
+        return response.change(headers: mergedHeaders);
       };
     };
   }
@@ -136,7 +139,7 @@ class HttpServerService {
           final passThroughResult = await _passThrough(request, matchedEndpoint, requestBody);
           responseBody = passThroughResult['body'] as String;
           statusCode = passThroughResult['statusCode'] as int;
-          responseHeaders = passThroughResult['headers'] as Map<String, String>;
+          responseHeaders = Map<String, String>.from(passThroughResult['headers'] as Map);
           logType = LogType.passThrough;
         }
       } else if (_autoPassThrough && _globalPassThroughUrl != null) {
@@ -144,7 +147,7 @@ class HttpServerService {
         final passThroughResult = await _autoPassThroughRequest(request, requestBody);
         responseBody = passThroughResult['body'] as String;
         statusCode = passThroughResult['statusCode'] as int;
-        responseHeaders = passThroughResult['headers'] as Map<String, String>;
+        responseHeaders = Map<String, String>.from(passThroughResult['headers'] as Map);
         logType = LogType.passThrough;
       } else {
         // No matching endpoint, return 404
@@ -153,6 +156,22 @@ class HttpServerService {
         responseHeaders = {'Content-Type': 'application/json'};
         logType = LogType.mock;
       }
+
+      // Clean up headers that can cause conflicts with Shelf
+      responseHeaders.remove('transfer-encoding');
+      responseHeaders.remove('Transfer-Encoding');
+      responseHeaders.remove('content-encoding');
+      responseHeaders.remove('Content-Encoding');
+
+      // Ensure Content-Type is set
+      if (!responseHeaders.containsKey('content-type') &&
+          !responseHeaders.containsKey('Content-Type')) {
+        responseHeaders['Content-Type'] = 'application/json';
+      }
+
+      // Set proper Content-Length
+      final bodyBytes = utf8.encode(responseBody);
+      responseHeaders['Content-Length'] = bodyBytes.length.toString();
 
       // Log the request
       final endTime = DateTime.now();
@@ -169,7 +188,7 @@ class HttpServerService {
         matchedEndpointId,
       );
 
-      // Return the response
+      // Return the response with proper headers
       return Response(statusCode, body: responseBody, headers: responseHeaders);
     } catch (e) {
       print('Error handling request: $e');
@@ -272,8 +291,11 @@ class HttpServerService {
           };
       }
 
+      // Ensure we have a proper response body (empty string for HEAD requests)
+      final body = method == 'HEAD' ? '' : response.body;
+
       return {
-        'body': response.body,
+        'body': body,
         'statusCode': response.statusCode,
         'headers': Map<String, String>.from(response.headers),
       };
@@ -364,8 +386,11 @@ class HttpServerService {
           };
       }
 
+      // Ensure we have a proper response body (empty string for HEAD requests)
+      final body = method == 'HEAD' ? '' : response.body;
+
       return {
-        'body': response.body,
+        'body': body,
         'statusCode': response.statusCode,
         'headers': Map<String, String>.from(response.headers),
       };
