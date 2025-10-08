@@ -12,6 +12,8 @@ import '../local/log_local_datasource.dart';
 class HttpServerService {
   HttpServer? _server;
   int _port = 8080;
+  String? _globalPassThroughUrl;
+  bool _autoPassThrough = false;
   final LogLocalDataSource logDataSource;
   final Function() onEndpointsNeeded;
 
@@ -27,6 +29,14 @@ class HttpServerService {
   int get port => _port;
 
   set port(int value) => _port = value;
+
+  String? get globalPassThroughUrl => _globalPassThroughUrl;
+
+  set globalPassThroughUrl(String? value) => _globalPassThroughUrl = value;
+
+  bool get autoPassThrough => _autoPassThrough;
+
+  set autoPassThrough(bool value) => _autoPassThrough = value;
 
   Future<void> start(int port) async {
     if (_server != null) {
@@ -96,13 +106,27 @@ class HttpServerService {
         matchedEndpointId = matchedEndpoint.id;
 
         if (matchedEndpoint.mode == EndpointMode.mock) {
+          // Check for conditional mocks
+          String? mockResponseToUse;
+
+          if (matchedEndpoint.useConditionalMock && matchedEndpoint.conditionalMocks.isNotEmpty) {
+            mockResponseToUse = _findConditionalMock(
+              request,
+              requestBody,
+              matchedEndpoint.conditionalMocks,
+            );
+          }
+
+          // Use conditional mock or default mock response
+          mockResponseToUse ??= matchedEndpoint.mockResponse;
+
           // Return mock response
           if (matchedEndpoint.delayMs > 0) {
             await Future.delayed(Duration(milliseconds: matchedEndpoint.delayMs));
           }
 
           response = Response.ok(
-            matchedEndpoint.mockResponse ?? '{}',
+            mockResponseToUse ?? '{}',
             headers: {'Content-Type': 'application/json'},
           );
           logType = LogType.mock;
@@ -111,6 +135,10 @@ class HttpServerService {
           response = await _passThrough(request, matchedEndpoint, requestBody);
           logType = LogType.passThrough;
         }
+      } else if (_autoPassThrough && _globalPassThroughUrl != null) {
+        // Auto pass-through for unmatched endpoints
+        response = await _autoPassThroughRequest(request, requestBody);
+        logType = LogType.passThrough;
       } else {
         // No matching endpoint, return 404
         response = Response.notFound(
@@ -139,6 +167,110 @@ class HttpServerService {
       print('Error handling request: $e');
       return Response.internalServerError(
         body: jsonEncode({'error': 'Internal server error: $e'}),
+        headers: {'Content-Type': 'application/json'},
+      );
+    }
+  }
+
+  String? _findConditionalMock(
+      Request request,
+      String requestBody,
+      List<ConditionalMock> conditionalMocks,
+      ) {
+    for (final conditionalMock in conditionalMocks) {
+      if (conditionalMock.type == ConditionalMatchType.queryParam) {
+        // Check query parameters
+        final queryValue = request.url.queryParameters[conditionalMock.fieldName];
+        if (queryValue == conditionalMock.fieldValue) {
+          return conditionalMock.mockResponse;
+        }
+      } else if (conditionalMock.type == ConditionalMatchType.bodyField) {
+        // Check request body field
+        if (requestBody.isNotEmpty) {
+          try {
+            final Map<String, dynamic> body = jsonDecode(requestBody);
+            final fieldValue = body[conditionalMock.fieldName]?.toString();
+            if (fieldValue == conditionalMock.fieldValue) {
+              return conditionalMock.mockResponse;
+            }
+          } catch (e) {
+            print('Error parsing request body for conditional mock: $e');
+          }
+        }
+      }
+    }
+    return null; // No condition matched, use default
+  }
+
+  Future<Response> _autoPassThroughRequest(
+      Request request,
+      String requestBody,
+      ) async {
+    try {
+      if (_globalPassThroughUrl == null || _globalPassThroughUrl!.isEmpty) {
+        return Response.badRequest(
+          body: jsonEncode({'error': 'No global pass-through URL configured'}),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
+
+      // Build the full URL by appending the request path to the base URL
+      String baseUrl = _globalPassThroughUrl!;
+      if (baseUrl.endsWith('/')) {
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      }
+
+      final path = request.url.path;
+      final query = request.url.query;
+      String fullUrl = '$baseUrl/$path';
+      if (query.isNotEmpty) {
+        fullUrl += '?$query';
+      }
+
+      final uri = Uri.parse(fullUrl);
+      final method = request.method.toUpperCase();
+
+      // Prepare headers
+      final headers = Map<String, String>.from(request.headers);
+      headers.remove('host');
+
+      http.Response response;
+
+      switch (method) {
+        case 'GET':
+          response = await http.get(uri, headers: headers);
+          break;
+        case 'POST':
+          response = await http.post(uri, headers: headers, body: requestBody);
+          break;
+        case 'PUT':
+          response = await http.put(uri, headers: headers, body: requestBody);
+          break;
+        case 'DELETE':
+          response = await http.delete(uri, headers: headers, body: requestBody);
+          break;
+        case 'PATCH':
+          response = await http.patch(uri, headers: headers, body: requestBody);
+          break;
+        case 'HEAD':
+          response = await http.head(uri, headers: headers);
+          break;
+        default:
+          return Response.badRequest(
+            body: jsonEncode({'error': 'Unsupported HTTP method'}),
+            headers: {'Content-Type': 'application/json'},
+          );
+      }
+
+      return Response(
+        response.statusCode,
+        body: response.body,
+        headers: Map<String, String>.from(response.headers),
+      );
+    } catch (e) {
+      print('Error in auto pass-through: $e');
+      return Response.internalServerError(
+        body: jsonEncode({'error': 'Auto pass-through failed: $e'}),
         headers: {'Content-Type': 'application/json'},
       );
     }

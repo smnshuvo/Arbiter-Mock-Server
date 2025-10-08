@@ -28,6 +28,22 @@ class SetServerPortEvent extends ServerEvent {
   List<Object?> get props => [port];
 }
 
+class SetGlobalPassThroughUrlEvent extends ServerEvent {
+  final String? url;
+  SetGlobalPassThroughUrlEvent(this.url);
+
+  @override
+  List<Object?> get props => [url];
+}
+
+class SetAutoPassThroughEvent extends ServerEvent {
+  final bool enabled;
+  SetAutoPassThroughEvent(this.enabled);
+
+  @override
+  List<Object?> get props => [enabled];
+}
+
 // States
 abstract class ServerState extends Equatable {
   @override
@@ -41,20 +57,33 @@ class ServerLoading extends ServerState {}
 class ServerRunning extends ServerState {
   final String url;
   final int port;
+  final String? globalPassThroughUrl;
+  final bool autoPassThrough;
 
-  ServerRunning(this.url, this.port);
+  ServerRunning(
+      this.url,
+      this.port, {
+        this.globalPassThroughUrl,
+        this.autoPassThrough = false,
+      });
 
   @override
-  List<Object?> get props => [url, port];
+  List<Object?> get props => [url, port, globalPassThroughUrl, autoPassThrough];
 }
 
 class ServerStopped extends ServerState {
   final int port;
+  final String? globalPassThroughUrl;
+  final bool autoPassThrough;
 
-  ServerStopped(this.port);
+  ServerStopped(
+      this.port, {
+        this.globalPassThroughUrl,
+        this.autoPassThrough = false,
+      });
 
   @override
-  List<Object?> get props => [port];
+  List<Object?> get props => [port, globalPassThroughUrl, autoPassThrough];
 }
 
 class ServerError extends ServerState {
@@ -73,6 +102,10 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
   final GetServerStatus getServerStatus;
   final GetServerUrl getServerUrl;
   final SetServerPort setServerPort;
+  final SetGlobalPassThroughUrl setGlobalPassThroughUrl;
+  final GetGlobalPassThroughUrl getGlobalPassThroughUrl;
+  final SetAutoPassThrough setAutoPassThrough;
+  final GetAutoPassThrough getAutoPassThrough;
 
   ServerBloc({
     required this.startServer,
@@ -80,11 +113,17 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     required this.getServerStatus,
     required this.getServerUrl,
     required this.setServerPort,
+    required this.setGlobalPassThroughUrl,
+    required this.getGlobalPassThroughUrl,
+    required this.setAutoPassThrough,
+    required this.getAutoPassThrough,
   }) : super(ServerInitial()) {
     on<StartServerEvent>(_onStartServer);
     on<StopServerEvent>(_onStopServer);
     on<CheckServerStatusEvent>(_onCheckServerStatus);
     on<SetServerPortEvent>(_onSetServerPort);
+    on<SetGlobalPassThroughUrlEvent>(_onSetGlobalPassThroughUrl);
+    on<SetAutoPassThroughEvent>(_onSetAutoPassThrough);
   }
 
   Future<void> _onStartServer(
@@ -95,7 +134,14 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     try {
       await startServer(event.port);
       final url = getServerUrl();
-      emit(ServerRunning(url, event.port));
+      final passThroughUrl = getGlobalPassThroughUrl();
+      final autoPassThrough = getAutoPassThrough();
+      emit(ServerRunning(
+        url,
+        event.port,
+        globalPassThroughUrl: passThroughUrl,
+        autoPassThrough: autoPassThrough,
+      ));
     } catch (e) {
       emit(ServerError(e.toString()));
     }
@@ -108,8 +154,14 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     emit(ServerLoading());
     try {
       final port = (state is ServerRunning) ? (state as ServerRunning).port : 8080;
+      final passThroughUrl = getGlobalPassThroughUrl();
+      final autoPassThrough = getAutoPassThrough();
       await stopServer();
-      emit(ServerStopped(port));
+      emit(ServerStopped(
+        port,
+        globalPassThroughUrl: passThroughUrl,
+        autoPassThrough: autoPassThrough,
+      ));
     } catch (e) {
       emit(ServerError(e.toString()));
     }
@@ -121,11 +173,23 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
       ) async {
     try {
       final isRunning = getServerStatus();
+      final passThroughUrl = getGlobalPassThroughUrl();
+      final autoPassThrough = getAutoPassThrough();
+
       if (isRunning) {
         final url = getServerUrl();
-        emit(ServerRunning(url, 8080)); // Default port
+        emit(ServerRunning(
+          url,
+          8080,
+          globalPassThroughUrl: passThroughUrl,
+          autoPassThrough: autoPassThrough,
+        ));
       } else {
-        emit(ServerStopped(8080));
+        emit(ServerStopped(
+          8080,
+          globalPassThroughUrl: passThroughUrl,
+          autoPassThrough: autoPassThrough,
+        ));
       }
     } catch (e) {
       emit(ServerError(e.toString()));
@@ -139,7 +203,73 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     try {
       await setServerPort(event.port);
       if (state is ServerStopped) {
-        emit(ServerStopped(event.port));
+        final passThroughUrl = getGlobalPassThroughUrl();
+        final autoPassThrough = getAutoPassThrough();
+        emit(ServerStopped(
+          event.port,
+          globalPassThroughUrl: passThroughUrl,
+          autoPassThrough: autoPassThrough,
+        ));
+      }
+    } catch (e) {
+      emit(ServerError(e.toString()));
+    }
+  }
+
+  Future<void> _onSetGlobalPassThroughUrl(
+      SetGlobalPassThroughUrlEvent event,
+      Emitter<ServerState> emit,
+      ) async {
+    try {
+      await setGlobalPassThroughUrl(event.url);
+      final isRunning = getServerStatus();
+      final autoPassThrough = getAutoPassThrough();
+
+      if (isRunning && state is ServerRunning) {
+        final currentState = state as ServerRunning;
+        emit(ServerRunning(
+          currentState.url,
+          currentState.port,
+          globalPassThroughUrl: event.url,
+          autoPassThrough: autoPassThrough,
+        ));
+      } else if (state is ServerStopped) {
+        final currentState = state as ServerStopped;
+        emit(ServerStopped(
+          currentState.port,
+          globalPassThroughUrl: event.url,
+          autoPassThrough: autoPassThrough,
+        ));
+      }
+    } catch (e) {
+      emit(ServerError(e.toString()));
+    }
+  }
+
+  Future<void> _onSetAutoPassThrough(
+      SetAutoPassThroughEvent event,
+      Emitter<ServerState> emit,
+      ) async {
+    try {
+      await setAutoPassThrough(event.enabled);
+      final isRunning = getServerStatus();
+      final passThroughUrl = getGlobalPassThroughUrl();
+
+      if (isRunning && state is ServerRunning) {
+        final currentState = state as ServerRunning;
+        emit(ServerRunning(
+          currentState.url,
+          currentState.port,
+          globalPassThroughUrl: passThroughUrl,
+          autoPassThrough: event.enabled,
+        ));
+      } else if (state is ServerStopped) {
+        final currentState = state as ServerStopped;
+        emit(ServerStopped(
+          currentState.port,
+          globalPassThroughUrl: passThroughUrl,
+          autoPassThrough: event.enabled,
+        ));
       }
     } catch (e) {
       emit(ServerError(e.toString()));

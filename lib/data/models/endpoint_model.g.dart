@@ -18,6 +18,8 @@ EndpointModel _$EndpointModelFromJson(Map<String, dynamic> json) =>
       createdAt: json['createdAt'] as String,
       updatedAt: json['updatedAt'] as String,
       isEnabled: (json['isEnabled'] as num).toInt(),
+      conditionalMocksJson: json['conditionalMocksJson'] as String?,
+      useConditionalMock: (json['useConditionalMock'] as num).toInt(),
     );
 
 Map<String, dynamic> _$EndpointModelToJson(EndpointModel instance) =>
@@ -32,4 +34,6 @@ Map<String, dynamic> _$EndpointModelToJson(EndpointModel instance) =>
       'createdAt': instance.createdAt,
       'updatedAt': instance.updatedAt,
       'isEnabled': instance.isEnabled,
+      'conditionalMocksJson': instance.conditionalMocksJson,
+      'useConditionalMock': instance.useConditionalMock,
     };

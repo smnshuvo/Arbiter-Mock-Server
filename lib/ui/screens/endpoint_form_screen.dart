@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/entities/endpoint.dart';
 import '../bloc/endpoint/endpoint_bloc.dart';
+import 'conditional_mock_screen.dart';
 
 class EndpointFormScreen extends StatefulWidget {
   final Endpoint? endpoint;
@@ -21,6 +22,8 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
 
   late MatchType _matchType;
   late EndpointMode _mode;
+  late bool _useConditionalMock;
+  late List<ConditionalMock> _conditionalMocks;
 
   @override
   void initState() {
@@ -39,6 +42,8 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
     );
     _matchType = widget.endpoint?.matchType ?? MatchType.exact;
     _mode = widget.endpoint?.mode ?? EndpointMode.mock;
+    _useConditionalMock = widget.endpoint?.useConditionalMock ?? false;
+    _conditionalMocks = List.from(widget.endpoint?.conditionalMocks ?? []);
   }
 
   @override
@@ -125,12 +130,58 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
               ),
               const SizedBox(height: 16),
               if (_mode == EndpointMode.mock) ...[
+                SwitchListTile(
+                  title: const Text('Use Conditional Mock'),
+                  subtitle: const Text('Return different responses based on query params or body fields'),
+                  value: _useConditionalMock,
+                  onChanged: (value) {
+                    setState(() {
+                      _useConditionalMock = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                if (_useConditionalMock) ...[
+                  Card(
+                    color: Colors.blue.shade50,
+                    child: ListTile(
+                      leading: const Icon(Icons.rule, color: Colors.blue),
+                      title: Text(
+                        '${_conditionalMocks.length} Conditional Mock(s)',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: const Text('Tap to manage conditional mocks'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () async {
+                        final result = await Navigator.push<List<ConditionalMock>>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ConditionalMockScreen(
+                              conditionalMocks: _conditionalMocks,
+                            ),
+                          ),
+                        );
+                        if (result != null) {
+                          setState(() {
+                            _conditionalMocks = result;
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 TextFormField(
                   controller: _mockResponseController,
-                  decoration: const InputDecoration(
-                    labelText: 'Mock Response (JSON)',
+                  decoration: InputDecoration(
+                    labelText: _useConditionalMock
+                        ? 'Default Mock Response (JSON)'
+                        : 'Mock Response (JSON)',
                     hintText: '{"message": "Success"}',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
+                    helperText: _useConditionalMock
+                        ? 'Used when no conditional mock matches'
+                        : null,
                   ),
                   maxLines: 8,
                   validator: (value) {
@@ -209,6 +260,8 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
         createdAt: widget.endpoint?.createdAt ?? now,
         updatedAt: now,
         isEnabled: widget.endpoint?.isEnabled ?? true,
+        useConditionalMock: _mode == EndpointMode.mock ? _useConditionalMock : false,
+        conditionalMocks: _mode == EndpointMode.mock && _useConditionalMock ? _conditionalMocks : [],
       );
 
       if (widget.endpoint == null) {

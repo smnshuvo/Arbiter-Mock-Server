@@ -30,8 +30,9 @@ dependencies:
   json_annotation: ^4.8.1
 
   # File Picker
-  file_picker: ^6.1.1
+  file_picker: ^10.3.3
   share_plus: ^7.2.1
+  cross_file: ^0.3.4+2
 
   # UI
   cupertino_icons: ^1.0.6

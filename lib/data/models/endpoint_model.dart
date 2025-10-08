@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:json_annotation/json_annotation.dart';
 import '../../domain/entities/endpoint.dart';
 
@@ -15,6 +16,8 @@ class EndpointModel {
   final String createdAt;
   final String updatedAt;
   final int isEnabled;
+  final String? conditionalMocksJson;
+  final int useConditionalMock;
 
   EndpointModel({
     required this.id,
@@ -27,6 +30,8 @@ class EndpointModel {
     required this.createdAt,
     required this.updatedAt,
     required this.isEnabled,
+    this.conditionalMocksJson,
+    required this.useConditionalMock,
   });
 
   factory EndpointModel.fromJson(Map<String, dynamic> json) =>
@@ -46,10 +51,26 @@ class EndpointModel {
       createdAt: endpoint.createdAt.toIso8601String(),
       updatedAt: endpoint.updatedAt.toIso8601String(),
       isEnabled: endpoint.isEnabled ? 1 : 0,
+      conditionalMocksJson: endpoint.conditionalMocks.isEmpty
+          ? null
+          : jsonEncode(endpoint.conditionalMocks.map((m) => m.toJson()).toList()),
+      useConditionalMock: endpoint.useConditionalMock ? 1 : 0,
     );
   }
 
   Endpoint toEntity() {
+    List<ConditionalMock> conditionalMocks = [];
+    if (conditionalMocksJson != null && conditionalMocksJson!.isNotEmpty) {
+      try {
+        final List<dynamic> jsonList = jsonDecode(conditionalMocksJson!);
+        conditionalMocks = jsonList
+            .map((json) => ConditionalMock.fromJson(json as Map<String, dynamic>))
+            .toList();
+      } catch (e) {
+        print('Error parsing conditional mocks: $e');
+      }
+    }
+
     return Endpoint(
       id: id,
       pattern: pattern,
@@ -67,6 +88,8 @@ class EndpointModel {
       createdAt: DateTime.parse(createdAt),
       updatedAt: DateTime.parse(updatedAt),
       isEnabled: isEnabled == 1,
+      conditionalMocks: conditionalMocks,
+      useConditionalMock: useConditionalMock == 1,
     );
   }
 
@@ -82,6 +105,8 @@ class EndpointModel {
       'createdAt': createdAt,
       'updatedAt': updatedAt,
       'isEnabled': isEnabled,
+      'conditionalMocksJson': conditionalMocksJson,
+      'useConditionalMock': useConditionalMock,
     };
   }
 
@@ -97,6 +122,8 @@ class EndpointModel {
       createdAt: map['createdAt'],
       updatedAt: map['updatedAt'],
       isEnabled: map['isEnabled'],
+      conditionalMocksJson: map['conditionalMocksJson'],
+      useConditionalMock: map['useConditionalMock'] ?? 0,
     );
   }
 }

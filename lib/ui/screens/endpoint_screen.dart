@@ -163,6 +163,13 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
                     Colors.purple,
                   ),
                 ],
+                if (endpoint.useConditionalMock && endpoint.conditionalMocks.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  _buildChip(
+                    '${endpoint.conditionalMocks.length} Conditions',
+                    Colors.teal,
+                  ),
+                ],
               ],
             ),
           ],

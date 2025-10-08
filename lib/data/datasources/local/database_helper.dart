@@ -36,7 +36,9 @@ class DatabaseHelper {
         targetUrl TEXT,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
-        isEnabled INTEGER NOT NULL
+        isEnabled INTEGER NOT NULL,
+        conditionalMocksJson TEXT,
+        useConditionalMock INTEGER NOT NULL DEFAULT 0
       )
     ''');
 

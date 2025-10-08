@@ -15,6 +15,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _portController =
       TextEditingController(text: '8080');
+  final TextEditingController _passThroughUrlController =
+      TextEditingController();
 
   @override
   void initState() {
@@ -25,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _portController.dispose();
+    _passThroughUrlController.dispose();
     super.dispose();
   }
 
@@ -45,6 +48,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             );
           }
+
+          // Update pass-through URL controller when state changes
+          if (state is ServerRunning || state is ServerStopped) {
+            final url = state is ServerRunning
+                ? state.globalPassThroughUrl
+                : (state as ServerStopped).globalPassThroughUrl;
+            if (url != null && url != _passThroughUrlController.text) {
+              _passThroughUrlController.text = url;
+            }
+          }
         },
         builder: (context, state) {
           return SingleChildScrollView(
@@ -55,6 +68,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildServerStatusCard(state),
                 const SizedBox(height: 16),
                 _buildPortConfiguration(state),
+                const SizedBox(height: 16),
+                _buildAutoPassThroughConfig(state),
                 const SizedBox(height: 24),
                 _buildNavigationButtons(),
               ],
@@ -182,6 +197,91 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAutoPassThroughConfig(ServerState state) {
+    final isRunning = state is ServerRunning;
+    final autoPassThrough = state is ServerRunning
+        ? state.autoPassThrough
+        : (state is ServerStopped ? state.autoPassThrough : false);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Auto Pass-Through',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Forward unmatched requests to base URL',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: autoPassThrough,
+                  onChanged: (value) {
+                    context
+                        .read<ServerBloc>()
+                        .add(SetAutoPassThroughEvent(value));
+                  },
+                ),
+              ],
+            ),
+            if (autoPassThrough) ...[
+              const SizedBox(height: 16),
+              TextField(
+                controller: _passThroughUrlController,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: 'Global Pass-Through Base URL',
+                  hintText: 'https://api.example.com',
+                  helperText:
+                      'Requests will be forwarded as: base_url + request_path',
+                  suffixIcon: isRunning
+                      ? const Icon(Icons.lock, color: Colors.grey)
+                      : null,
+                ),
+                enabled: !isRunning,
+                onChanged: (value) {
+                  context
+                      .read<ServerBloc>()
+                      .add(SetGlobalPassThroughUrlEvent(value));
+                },
+              ),
+              if (isRunning)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Stop the server to change the pass-through URL',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+            ],
           ],
         ),
       ),

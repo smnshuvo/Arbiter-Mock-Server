@@ -35,4 +35,24 @@ class ServerRepositoryImpl implements ServerRepository {
   Future<void> setPort(int port) async {
     serverService.port = port;
   }
+
+  @override
+  Future<void> setGlobalPassThroughUrl(String? url) async {
+    serverService.globalPassThroughUrl = url;
+  }
+
+  @override
+  String? getGlobalPassThroughUrl() {
+    return serverService.globalPassThroughUrl;
+  }
+
+  @override
+  Future<void> setAutoPassThrough(bool enabled) async {
+    serverService.autoPassThrough = enabled;
+  }
+
+  @override
+  bool isAutoPassThroughEnabled() {
+    return serverService.autoPassThrough;
+  }
 }

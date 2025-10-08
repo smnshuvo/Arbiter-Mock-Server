@@ -4,6 +4,44 @@ enum EndpointMode { mock, passThrough }
 
 enum MatchType { exact, wildcard, regex }
 
+enum ConditionalMatchType { queryParam, bodyField }
+
+class ConditionalMock extends Equatable {
+  final ConditionalMatchType type;
+  final String fieldName;
+  final String fieldValue;
+  final String mockResponse;
+
+  const ConditionalMock({
+    required this.type,
+    required this.fieldName,
+    required this.fieldValue,
+    required this.mockResponse,
+  });
+
+  @override
+  List<Object?> get props => [type, fieldName, fieldValue, mockResponse];
+
+  Map<String, dynamic> toJson() => {
+    'type': type.name,
+    'fieldName': fieldName,
+    'fieldValue': fieldValue,
+    'mockResponse': mockResponse,
+  };
+
+  factory ConditionalMock.fromJson(Map<String, dynamic> json) {
+    return ConditionalMock(
+      type: ConditionalMatchType.values.firstWhere(
+            (e) => e.name == json['type'],
+        orElse: () => ConditionalMatchType.queryParam,
+      ),
+      fieldName: json['fieldName'],
+      fieldValue: json['fieldValue'],
+      mockResponse: json['mockResponse'],
+    );
+  }
+}
+
 class Endpoint extends Equatable {
   final String id;
   final String pattern;
@@ -15,6 +53,8 @@ class Endpoint extends Equatable {
   final DateTime createdAt;
   final DateTime updatedAt;
   final bool isEnabled;
+  final List<ConditionalMock> conditionalMocks;
+  final bool useConditionalMock;
 
   const Endpoint({
     required this.id,
@@ -27,6 +67,8 @@ class Endpoint extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     this.isEnabled = true,
+    this.conditionalMocks = const [],
+    this.useConditionalMock = false,
   });
 
   Endpoint copyWith({
@@ -40,6 +82,8 @@ class Endpoint extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? isEnabled,
+    List<ConditionalMock>? conditionalMocks,
+    bool? useConditionalMock,
   }) {
     return Endpoint(
       id: id ?? this.id,
@@ -52,6 +96,8 @@ class Endpoint extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isEnabled: isEnabled ?? this.isEnabled,
+      conditionalMocks: conditionalMocks ?? this.conditionalMocks,
+      useConditionalMock: useConditionalMock ?? this.useConditionalMock,
     );
   }
 
@@ -67,5 +113,7 @@ class Endpoint extends Equatable {
     createdAt,
     updatedAt,
     isEnabled,
+    conditionalMocks,
+    useConditionalMock,
   ];
 }

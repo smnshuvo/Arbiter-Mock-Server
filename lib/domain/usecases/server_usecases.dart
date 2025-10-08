@@ -49,3 +49,43 @@ class SetServerPort {
     await repository.setPort(port);
   }
 }
+
+class SetGlobalPassThroughUrl {
+  final ServerRepository repository;
+
+  SetGlobalPassThroughUrl(this.repository);
+
+  Future<void> call(String? url) async {
+    await repository.setGlobalPassThroughUrl(url);
+  }
+}
+
+class GetGlobalPassThroughUrl {
+  final ServerRepository repository;
+
+  GetGlobalPassThroughUrl(this.repository);
+
+  String? call() {
+    return repository.getGlobalPassThroughUrl();
+  }
+}
+
+class SetAutoPassThrough {
+  final ServerRepository repository;
+
+  SetAutoPassThrough(this.repository);
+
+  Future<void> call(bool enabled) async {
+    await repository.setAutoPassThrough(enabled);
+  }
+}
+
+class GetAutoPassThrough {
+  final ServerRepository repository;
+
+  GetAutoPassThrough(this.repository);
+
+  bool call() {
+    return repository.isAutoPassThroughEnabled();
+  }
+}
