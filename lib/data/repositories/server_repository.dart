@@ -1,5 +1,6 @@
 import '../../domain/repositories/server_repository.dart';
 import '../datasources/server/http_server_service.dart';
+import '../../core/utils/network_utils.dart';
 
 class ServerRepositoryImpl implements ServerRepository {
   final HttpServerService serverService;
@@ -7,8 +8,8 @@ class ServerRepositoryImpl implements ServerRepository {
   ServerRepositoryImpl(this.serverService);
 
   @override
-  Future<void> startServer(int port) async {
-    await serverService.start(port);
+  Future<void> startServer(int port, {bool useDeviceIp = false}) async {
+    await serverService.start(port, useDeviceIp: useDeviceIp);
   }
 
   @override
@@ -54,5 +55,20 @@ class ServerRepositoryImpl implements ServerRepository {
   @override
   bool isAutoPassThroughEnabled() {
     return serverService.autoPassThrough;
+  }
+
+  @override
+  Future<void> setUseDeviceIp(bool enabled) async {
+    serverService.useDeviceIp = enabled;
+  }
+
+  @override
+  bool isUsingDeviceIp() {
+    return serverService.useDeviceIp;
+  }
+
+  @override
+  Future<String?> getDeviceIpAddress() async {
+    return await NetworkUtils.getDeviceIpAddress();
   }
 }

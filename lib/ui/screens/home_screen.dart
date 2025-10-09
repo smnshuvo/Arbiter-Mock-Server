@@ -13,10 +13,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _portController =
-      TextEditingController(text: '8080');
-  final TextEditingController _passThroughUrlController =
-      TextEditingController();
+  final TextEditingController _portController = TextEditingController(text: '8080');
+  final TextEditingController _passThroughUrlController = TextEditingController();
 
   @override
   void initState() {
@@ -129,27 +127,73 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: isLoading
                   ? null
                   : () {
-                      if (isRunning) {
-                        context.read<ServerBloc>().add(StopServerEvent());
-                      } else {
-                        final port = int.tryParse(_portController.text) ?? 8080;
-                        context.read<ServerBloc>().add(StartServerEvent(port));
-                      }
-                    },
-              icon: Icon(
-                isRunning ? Icons.stop : Icons.play_arrow,
-                color: Colors.white,
-              ),
-              label: Text(
-                isRunning ? 'Stop Server' : 'Start Server',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold),
-              ),
+                if (isRunning) {
+                  context.read<ServerBloc>().add(StopServerEvent());
+                } else {
+                  final port = int.tryParse(_portController.text) ?? 8080;
+                  final useDeviceIp = state is ServerStopped
+                      ? (state as ServerStopped).useDeviceIp
+                      : false;
+                  context.read<ServerBloc>().add(
+                    StartServerEvent(port, useDeviceIp: useDeviceIp),
+                  );
+                }
+              },
+              icon: Icon(isRunning ? Icons.stop : Icons.play_arrow),
+              label: Text(isRunning ? 'Stop Server' : 'Start Server'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: isRunning ? Colors.red : Colors.green,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
               ),
+            ),
+            if (!isRunning && state is ServerStopped) ...[
+              const SizedBox(height: 16),
+              _buildDeviceIpToggle(state as ServerStopped),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeviceIpToggle(ServerStopped state) {
+    return Card(
+      color: Colors.blue.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.wifi, color: Colors.blue.shade700),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Use Device IP',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    state.useDeviceIp && state.deviceIp != null
+                        ? 'Server will be accessible at: ${state.deviceIp}:${state.port}'
+                        : 'Allow other devices to connect',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: state.useDeviceIp,
+              onChanged: (value) {
+                context.read<ServerBloc>().add(SetUseDeviceIpEvent(value));
+              },
             ),
           ],
         ),
@@ -249,9 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Switch(
                   value: autoPassThrough,
                   onChanged: (value) {
-                    context
-                        .read<ServerBloc>()
-                        .add(SetAutoPassThroughEvent(value));
+                    context.read<ServerBloc>().add(SetAutoPassThroughEvent(value));
                   },
                 ),
               ],
@@ -264,17 +306,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   border: const OutlineInputBorder(),
                   labelText: 'Global Pass-Through Base URL',
                   hintText: 'https://api.example.com',
-                  helperText:
-                      'Requests will be forwarded as: base_url + request_path',
+                  helperText: 'Requests will be forwarded as: base_url + request_path',
                   suffixIcon: isRunning
                       ? const Icon(Icons.lock, color: Colors.grey)
                       : null,
                 ),
                 enabled: !isRunning,
                 onChanged: (value) {
-                  context
-                      .read<ServerBloc>()
-                      .add(SetGlobalPassThroughUrlEvent(value));
+                  context.read<ServerBloc>().add(SetGlobalPassThroughUrlEvent(value));
                 },
               ),
               if (isRunning)

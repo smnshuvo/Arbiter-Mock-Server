@@ -32,6 +32,9 @@ Future<void> init() async {
       getGlobalPassThroughUrl: sl(),
       setAutoPassThrough: sl(),
       getAutoPassThrough: sl(),
+      setUseDeviceIp: sl(),
+      getUseDeviceIp: sl(),
+      getDeviceIpAddress: sl(),
     ),
   );
 
@@ -65,6 +68,9 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetGlobalPassThroughUrl(sl()));
   sl.registerLazySingleton(() => SetAutoPassThrough(sl()));
   sl.registerLazySingleton(() => GetAutoPassThrough(sl()));
+  sl.registerLazySingleton(() => SetUseDeviceIp(sl()));
+  sl.registerLazySingleton(() => GetUseDeviceIp(sl()));
+  sl.registerLazySingleton(() => GetDeviceIpAddress(sl()));
 
   // Use cases - Endpoint
   sl.registerLazySingleton(() => GetAllEndpoints(sl()));

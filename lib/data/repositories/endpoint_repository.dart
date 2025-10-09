@@ -30,7 +30,12 @@ class EndpointRepositoryImpl implements EndpointRepository {
   @override
   Future<void> updateEndpoint(Endpoint endpoint) async {
     final model = EndpointModel.fromEntity(endpoint);
-    await localDataSource.updateEndpoint(model);
+    // Patch if doesn't exist, create
+    if (await localDataSource.getEndpointById(model.id) == null) {
+      await createEndpoint(model.toEntity());
+    } else {
+      await localDataSource.updateEndpoint(model);
+    }
   }
 
   @override

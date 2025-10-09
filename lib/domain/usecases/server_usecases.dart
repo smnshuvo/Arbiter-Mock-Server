@@ -5,8 +5,8 @@ class StartServer {
 
   StartServer(this.repository);
 
-  Future<void> call(int port) async {
-    await repository.startServer(port);
+  Future<void> call(int port, {bool useDeviceIp = false}) async {
+    await repository.startServer(port, useDeviceIp: useDeviceIp);
   }
 }
 
@@ -87,5 +87,35 @@ class GetAutoPassThrough {
 
   bool call() {
     return repository.isAutoPassThroughEnabled();
+  }
+}
+
+class SetUseDeviceIp {
+  final ServerRepository repository;
+
+  SetUseDeviceIp(this.repository);
+
+  Future<void> call(bool enabled) async {
+    await repository.setUseDeviceIp(enabled);
+  }
+}
+
+class GetUseDeviceIp {
+  final ServerRepository repository;
+
+  GetUseDeviceIp(this.repository);
+
+  bool call() {
+    return repository.isUsingDeviceIp();
+  }
+}
+
+class GetDeviceIpAddress {
+  final ServerRepository repository;
+
+  GetDeviceIpAddress(this.repository);
+
+  Future<String?> call() async {
+    return await repository.getDeviceIpAddress();
   }
 }

@@ -8,10 +8,13 @@ import '../../../domain/entities/endpoint.dart';
 import '../../../domain/entities/request_log.dart';
 import '../../models/request_log_model.dart';
 import '../local/log_local_datasource.dart';
+import '../../../core/utils/network_utils.dart';
 
 class HttpServerService {
   HttpServer? _server;
   int _port = 8080;
+  bool _useDeviceIp = false;
+  String? _currentIpAddress;
   String? _globalPassThroughUrl;
   bool _autoPassThrough = false;
   final LogLocalDataSource logDataSource;
@@ -24,11 +27,22 @@ class HttpServerService {
 
   bool get isRunning => _server != null;
 
-  String get serverUrl => 'http://localhost:$_port';
+  String get serverUrl {
+    final host = _useDeviceIp && _currentIpAddress != null
+        ? _currentIpAddress!
+        : 'localhost';
+    return 'http://$host:$_port';
+  }
 
   int get port => _port;
 
   set port(int value) => _port = value;
+
+  bool get useDeviceIp => _useDeviceIp;
+
+  set useDeviceIp(bool value) => _useDeviceIp = value;
+
+  String? get currentIpAddress => _currentIpAddress;
 
   String? get globalPassThroughUrl => _globalPassThroughUrl;
 
@@ -38,19 +52,33 @@ class HttpServerService {
 
   set autoPassThrough(bool value) => _autoPassThrough = value;
 
-  Future<void> start(int port) async {
+  Future<void> start(int port, {bool useDeviceIp = false}) async {
     if (_server != null) {
       throw Exception('Server is already running');
     }
 
     _port = port;
+    _useDeviceIp = useDeviceIp;
+
+    // Get device IP if needed
+    if (_useDeviceIp) {
+      _currentIpAddress = await NetworkUtils.getDeviceIpAddress();
+      if (_currentIpAddress == null) {
+        throw Exception('Could not determine device IP address');
+      }
+    }
 
     final handler = Pipeline()
         .addMiddleware(logRequests())
         .addMiddleware(_corsMiddleware())
         .addHandler(_handleRequest);
 
-    _server = await shelf_io.serve(handler, InternetAddress.loopbackIPv4, port);
+    // Bind to appropriate address
+    final address = _useDeviceIp
+        ? InternetAddress.anyIPv4
+        : InternetAddress.loopbackIPv4;
+
+    _server = await shelf_io.serve(handler, address, port);
     print('Server started on $serverUrl');
   }
 

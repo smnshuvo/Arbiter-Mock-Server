@@ -5,9 +5,11 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../domain/entities/request_log.dart';
+import '../../domain/entities/endpoint.dart';
 import '../../domain/repositories/log_repository.dart';
 import '../bloc/log/log_bloc.dart';
 import 'log_filter_screen.dart';
+import 'endpoint_form_screen.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({Key? key}) : super(key: key);
@@ -278,6 +280,26 @@ class _LogsScreenState extends State<LogsScreen> {
             _buildChip('${log.responseTimeMs}ms', Colors.purple),
           ],
         ),
+        trailing: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: (value) {
+            if (value == 'create_endpoint') {
+              _createEndpointFromLog(log);
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'create_endpoint',
+              child: Row(
+                children: [
+                  Icon(Icons.add_circle_outline, size: 20),
+                  SizedBox(width: 8),
+                  Text('Create Endpoint'),
+                ],
+              ),
+            ),
+          ],
+        ),
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
@@ -494,6 +516,132 @@ class _LogsScreenState extends State<LogsScreen> {
           SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
         );
       }
+    }
+  }
+
+  void _createEndpointFromLog(RequestLog log) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Create Endpoint from Log'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'This will create a new mock endpoint with the following details:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                _buildInfoRow('Method:', log.method.name.toUpperCase()),
+                _buildInfoRow('URL Pattern:', '/${log.url}'),
+                _buildInfoRow('Status Code:', log.statusCode.toString()),
+                const SizedBox(height: 16),
+                const Text(
+                  'Mock Response:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    log.responseBody ?? '{}',
+                    style: const TextStyle(fontSize: 12),
+                    maxLines: 10,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _navigateToCreateEndpoint(log);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToCreateEndpoint(RequestLog log) async {
+    // Extract URL path without query parameters
+    String pattern = log.url;
+    if (pattern.contains('?')) {
+      pattern = pattern.split('?').first;
+    }
+
+    // Remove leading slash if exists
+    if (pattern.startsWith('/')) {
+      pattern = pattern.substring(1);
+    }
+
+    final now = DateTime.now();
+    final newEndpoint = Endpoint(
+      id: now.millisecondsSinceEpoch.toString(),
+      pattern: pattern,
+      matchType: MatchType.exact,
+      mode: EndpointMode.mock,
+      mockResponse: log.responseBody ?? '{}',
+      delayMs: 0,
+      targetUrl: null,
+      createdAt: now,
+      updatedAt: now,
+      isEnabled: true,
+      conditionalMocks: [],
+      useConditionalMock: false,
+    );
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EndpointFormScreen(endpoint: newEndpoint),
+      ),
+    );
+
+    // Show success message
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Endpoint created! You can modify it as needed.'),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
 }
