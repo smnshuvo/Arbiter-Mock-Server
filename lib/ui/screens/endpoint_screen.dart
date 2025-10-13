@@ -147,33 +147,35 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 4),
-            Row(
+            Wrap(
+              spacing: 4.0,
+              runSpacing: 4.0,
               children: [
                 _buildChip(
                   endpoint.mode == EndpointMode.mock ? 'Mock' : 'Pass-through',
                   endpoint.mode == EndpointMode.mock ? Colors.green : Colors.orange,
                 ),
-                const SizedBox(width: 8),
+
                 _buildChip(
                   endpoint.matchType.name.toUpperCase(),
                   Colors.blue,
                 ),
                 if (endpoint.mode == EndpointMode.mock) ...[
-                  const SizedBox(width: 8),
+
                   _buildChip(
                     _getStatusCodeText(endpoint.statusCode),
                     _getStatusCodeColor(endpoint.statusCode),
                   ),
                 ],
                 if (endpoint.delayMs > 0) ...[
-                  const SizedBox(width: 8),
+
                   _buildChip(
                     '${endpoint.delayMs}ms',
                     Colors.purple,
                   ),
                 ],
                 if (endpoint.useConditionalMock && endpoint.conditionalMocks.isNotEmpty) ...[
-                  const SizedBox(width: 8),
+
                   _buildChip(
                     '${endpoint.conditionalMocks.length} Conditions',
                     Colors.teal,
