@@ -1,15 +1,18 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
-import '../../domain/entities/request_log.dart';
+import 'package:share_plus/share_plus.dart';
+
 import '../../domain/entities/endpoint.dart';
+import '../../domain/entities/request_log.dart';
 import '../../domain/repositories/log_repository.dart';
 import '../bloc/log/log_bloc.dart';
-import 'log_filter_screen.dart';
+import '../widgets/json_viewer_widget.dart';
 import 'endpoint_form_screen.dart';
+import 'log_filter_screen.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({Key? key}) : super(key: key);
@@ -334,13 +337,9 @@ class _LogsScreenState extends State<LogsScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: SelectableText(log.requestBody!),
+                  JsonViewerWidget(
+                    jsonString: log.requestBody!,
+                    initialExpandDepth: 1,
                   ),
                 ],
                 if (log.responseBody != null) ...[
@@ -350,13 +349,9 @@ class _LogsScreenState extends State<LogsScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: SelectableText(log.responseBody!),
+                  JsonViewerWidget(
+                    jsonString: log.responseBody!,
+                    initialExpandDepth: 1,
                   ),
                 ],
               ],
