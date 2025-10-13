@@ -1,3 +1,5 @@
+import 'package:arbiter_mock_server/ui/widgets/glowing_icon_widget.dart';
+import 'package:arbiter_mock_server/ui/widgets/grey_out_icon_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -16,6 +18,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _portController = TextEditingController(text: '8080');
   final TextEditingController _passThroughUrlController = TextEditingController();
 
+  static const iconAssetPath = 'assets/app_icon/app_icon.png';
+
   @override
   void initState() {
     super.initState();
@@ -33,7 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Network Interceptor'),
+        title: const Text('Arbiter'),
         centerTitle: true,
       ),
       body: BlocConsumer<ServerBloc, ServerState>(
@@ -88,11 +92,18 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Icon(
-              isRunning ? Icons.check_circle : Icons.cancel,
-              size: 64,
-              color: isRunning ? Colors.green : Colors.grey,
-            ),
+            isRunning
+                ? const GlowingIconWidget(
+                    iconAssetPath: iconAssetPath,
+                    size: 64,
+                    glowColor: Colors.green,
+                  )
+                : const GreyOutIconWidget(
+                    iconAssetPath: iconAssetPath,
+                    size: 64.0,
+                    opacity: 0.5,
+                    greyIntensity: 1.0,
+                  ),
             const SizedBox(height: 16),
             Text(
               isRunning ? 'Server Running' : 'Server Stopped',
@@ -139,8 +150,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 }
               },
-              icon: Icon(isRunning ? Icons.stop : Icons.play_arrow),
-              label: Text(isRunning ? 'Stop Server' : 'Start Server'),
+              icon: Icon(
+                isRunning ? Icons.stop : Icons.play_arrow,
+                color: Colors.white,
+              ),
+              label: Text(
+                isRunning ? 'Stop Server' : 'Start Server',
+                style: const TextStyle(color: Colors.white),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: isRunning ? Colors.red : Colors.green,
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
