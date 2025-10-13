@@ -5,9 +5,9 @@ class ConditionalMockScreen extends StatefulWidget {
   final List<ConditionalMock> conditionalMocks;
 
   const ConditionalMockScreen({
-    Key? key,
+    super.key,
     required this.conditionalMocks,
-  }) : super(key: key);
+  });
 
   @override
   State<ConditionalMockScreen> createState() => _ConditionalMockScreenState();
@@ -96,10 +96,26 @@ class _ConditionalMockScreenState extends State<ConditionalMockScreen> {
               '${mock.fieldName} = ${mock.fieldValue}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text(
-              mock.type == ConditionalMatchType.queryParam
-                  ? 'Query Parameter'
-                  : 'Body Field',
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      mock.type == ConditionalMatchType.queryParam
+                          ? 'Query Parameter'
+                          : 'Body Field',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _buildStatusChip(mock.statusCode),
+                  ],
+                ),
+              ],
             ),
             trailing: IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
@@ -114,6 +130,37 @@ class _ConditionalMockScreenState extends State<ConditionalMockScreen> {
         );
       },
     );
+  }
+
+  Widget _buildStatusChip(int statusCode) {
+    Color color = _getStatusCodeColor(statusCode);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Text(
+        HttpStatusCode.getStatusText(statusCode),
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Color _getStatusCodeColor(int code) {
+    if (code >= 200 && code < 300) {
+      return Colors.green;
+    } else if (code >= 400 && code < 500) {
+      return Colors.orange;
+    } else if (code >= 500) {
+      return Colors.red;
+    }
+    return Colors.grey;
   }
 
   void _addConditionalMock() async {
@@ -137,7 +184,6 @@ class _ConditionalMockScreenState extends State<ConditionalMockScreen> {
   Future<ConditionalMock?> _showConditionalMockDialog(
       ConditionalMock? existing,
       ) async {
-    final typeController = TextEditingController();
     final fieldNameController = TextEditingController(
       text: existing?.fieldName ?? '',
     );
@@ -150,6 +196,7 @@ class _ConditionalMockScreenState extends State<ConditionalMockScreen> {
 
     ConditionalMatchType selectedType =
         existing?.type ?? ConditionalMatchType.queryParam;
+    int selectedStatusCode = existing?.statusCode ?? 200;
 
     return await showDialog<ConditionalMock>(
       context: context,
@@ -207,6 +254,26 @@ class _ConditionalMockScreenState extends State<ConditionalMockScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    DropdownButtonFormField<int>(
+                      value: selectedStatusCode,
+                      decoration: const InputDecoration(
+                        labelText: 'HTTP Status Code',
+                        border: OutlineInputBorder(),
+                        helperText: 'Response status code for this condition',
+                      ),
+                      items: HttpStatusCode.commonCodes.map((code) {
+                        return DropdownMenuItem(
+                          value: code,
+                          child: Text(HttpStatusCode.getStatusText(code)),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          selectedStatusCode = value!;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: mockResponseController,
                       decoration: const InputDecoration(
@@ -234,6 +301,7 @@ class _ConditionalMockScreenState extends State<ConditionalMockScreen> {
                         fieldName: fieldNameController.text,
                         fieldValue: fieldValueController.text,
                         mockResponse: mockResponseController.text,
+                        statusCode: selectedStatusCode,
                       );
                       Navigator.pop(dialogContext, conditionalMock);
                     }

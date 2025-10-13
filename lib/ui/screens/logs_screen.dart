@@ -620,6 +620,7 @@ class _LogsScreenState extends State<LogsScreen> {
       isEnabled: true,
       conditionalMocks: [],
       useConditionalMock: false,
+      statusCode: log.statusCode,
     );
 
     await Navigator.push(

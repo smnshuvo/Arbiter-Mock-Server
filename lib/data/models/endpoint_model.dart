@@ -11,6 +11,7 @@ class EndpointModel {
   final String matchType;
   final String mode;
   final String? mockResponse;
+  final int statusCode;
   final int delayMs;
   final String? targetUrl;
   final String createdAt;
@@ -25,6 +26,7 @@ class EndpointModel {
     required this.matchType,
     required this.mode,
     this.mockResponse,
+    required this.statusCode,
     required this.delayMs,
     this.targetUrl,
     required this.createdAt,
@@ -46,6 +48,7 @@ class EndpointModel {
       matchType: endpoint.matchType.name,
       mode: endpoint.mode.name,
       mockResponse: endpoint.mockResponse,
+      statusCode: endpoint.statusCode,
       delayMs: endpoint.delayMs,
       targetUrl: endpoint.targetUrl,
       createdAt: endpoint.createdAt.toIso8601String(),
@@ -83,6 +86,7 @@ class EndpointModel {
         orElse: () => EndpointMode.mock,
       ),
       mockResponse: mockResponse,
+      statusCode: statusCode,
       delayMs: delayMs,
       targetUrl: targetUrl,
       createdAt: DateTime.parse(createdAt),
@@ -100,6 +104,7 @@ class EndpointModel {
       'matchType': matchType,
       'mode': mode,
       'mockResponse': mockResponse,
+      'statusCode': statusCode,
       'delayMs': delayMs,
       'targetUrl': targetUrl,
       'createdAt': createdAt,
@@ -117,6 +122,7 @@ class EndpointModel {
       matchType: map['matchType'],
       mode: map['mode'],
       mockResponse: map['mockResponse'],
+      statusCode: map['statusCode'] ?? 200,
       delayMs: map['delayMs'],
       targetUrl: map['targetUrl'],
       createdAt: map['createdAt'],

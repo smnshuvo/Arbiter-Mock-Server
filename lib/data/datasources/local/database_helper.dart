@@ -19,8 +19,9 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDB,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -32,6 +33,7 @@ class DatabaseHelper {
         matchType TEXT NOT NULL,
         mode TEXT NOT NULL,
         mockResponse TEXT,
+        statusCode INTEGER NOT NULL DEFAULT 200,
         delayMs INTEGER NOT NULL,
         targetUrl TEXT,
         createdAt TEXT NOT NULL,
@@ -69,6 +71,17 @@ class DatabaseHelper {
     await db.execute('''
       CREATE INDEX idx_logs_url ON request_logs(url)
     ''');
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add statusCode column to existing endpoints table
+      await db.execute('''
+        ALTER TABLE endpoints ADD COLUMN statusCode INTEGER NOT NULL DEFAULT 200
+      ''');
+
+      print('Database upgraded from version $oldVersion to $newVersion');
+    }
   }
 
   Future<void> close() async {

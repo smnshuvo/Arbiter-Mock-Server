@@ -22,6 +22,7 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
 
   late MatchType _matchType;
   late EndpointMode _mode;
+  late int _statusCode;
   late bool _useConditionalMock;
   late List<ConditionalMock> _conditionalMocks;
 
@@ -42,6 +43,7 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
     );
     _matchType = widget.endpoint?.matchType ?? MatchType.exact;
     _mode = widget.endpoint?.mode ?? EndpointMode.mock;
+    _statusCode = widget.endpoint?.statusCode ?? 200;
     _useConditionalMock = widget.endpoint?.useConditionalMock ?? false;
     _conditionalMocks = List.from(widget.endpoint?.conditionalMocks ?? []);
   }
@@ -130,6 +132,26 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
               ),
               const SizedBox(height: 16),
               if (_mode == EndpointMode.mock) ...[
+                DropdownButtonFormField<int>(
+                  value: _statusCode,
+                  decoration: const InputDecoration(
+                    labelText: 'HTTP Status Code',
+                    border: OutlineInputBorder(),
+                    helperText: 'Select the response status code',
+                  ),
+                  items: HttpStatusCode.commonCodes.map((code) {
+                    return DropdownMenuItem(
+                      value: code,
+                      child: Text(HttpStatusCode.getStatusText(code)),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _statusCode = value!;
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
                 SwitchListTile(
                   title: const Text('Use Conditional Mock'),
                   subtitle: const Text('Return different responses based on query params or body fields'),
@@ -255,6 +277,7 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
         matchType: _matchType,
         mode: _mode,
         mockResponse: _mode == EndpointMode.mock ? _mockResponseController.text : null,
+        statusCode: _mode == EndpointMode.mock ? _statusCode : 200,
         delayMs: _mode == EndpointMode.mock ? int.tryParse(_delayController.text) ?? 0 : 0,
         targetUrl: _mode == EndpointMode.passThrough ? _targetUrlController.text : null,
         createdAt: widget.endpoint?.createdAt ?? now,

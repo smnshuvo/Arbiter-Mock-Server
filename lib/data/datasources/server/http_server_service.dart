@@ -141,13 +141,19 @@ class HttpServerService {
         if (matchedEndpoint.mode == EndpointMode.mock) {
           // Check for conditional mocks
           String? mockResponseToUse;
+          int statusCodeToUse = matchedEndpoint.statusCode;
 
           if (matchedEndpoint.useConditionalMock && matchedEndpoint.conditionalMocks.isNotEmpty) {
-            mockResponseToUse = _findConditionalMock(
+            final conditionalResult = _findConditionalMock(
               request,
               requestBody,
               matchedEndpoint.conditionalMocks,
             );
+
+            if (conditionalResult != null) {
+              mockResponseToUse = conditionalResult['mockResponse'];
+              statusCodeToUse = conditionalResult['statusCode'];
+            }
           }
 
           // Use conditional mock or default mock response
@@ -159,7 +165,7 @@ class HttpServerService {
           }
 
           responseBody = mockResponseToUse ?? '{}';
-          statusCode = 200;
+          statusCode = statusCodeToUse;
           responseHeaders = {'Content-Type': 'application/json'};
           logType = LogType.mock;
         } else {
@@ -216,7 +222,7 @@ class HttpServerService {
         matchedEndpointId,
       );
 
-      // Return the response with proper headers
+      // Return the response with proper headers and custom status code
       return Response(statusCode, body: responseBody, headers: responseHeaders);
     } catch (e) {
       print('Error handling request: $e');
@@ -227,7 +233,7 @@ class HttpServerService {
     }
   }
 
-  String? _findConditionalMock(
+  Map<String, dynamic>? _findConditionalMock(
       Request request,
       String requestBody,
       List<ConditionalMock> conditionalMocks,
@@ -237,7 +243,10 @@ class HttpServerService {
         // Check query parameters
         final queryValue = request.url.queryParameters[conditionalMock.fieldName];
         if (queryValue == conditionalMock.fieldValue) {
-          return conditionalMock.mockResponse;
+          return {
+            'mockResponse': conditionalMock.mockResponse,
+            'statusCode': conditionalMock.statusCode,
+          };
         }
       } else if (conditionalMock.type == ConditionalMatchType.bodyField) {
         // Check request body field
@@ -246,7 +255,10 @@ class HttpServerService {
             final Map<String, dynamic> body = jsonDecode(requestBody);
             final fieldValue = body[conditionalMock.fieldName]?.toString();
             if (fieldValue == conditionalMock.fieldValue) {
-              return conditionalMock.mockResponse;
+              return {
+                'mockResponse': conditionalMock.mockResponse,
+                'statusCode': conditionalMock.statusCode,
+              };
             }
           } catch (e) {
             print('Error parsing request body for conditional mock: $e');

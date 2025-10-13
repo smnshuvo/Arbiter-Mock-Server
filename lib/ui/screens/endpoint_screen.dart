@@ -1,16 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
 import '../../domain/entities/endpoint.dart';
 import '../bloc/endpoint/endpoint_bloc.dart';
 import 'endpoint_form_screen.dart';
 
 class EndpointsScreen extends StatefulWidget {
-  const EndpointsScreen({Key? key}) : super(key: key);
+  const EndpointsScreen({super.key});
 
   @override
   State<EndpointsScreen> createState() => _EndpointsScreenState();
@@ -156,6 +158,13 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
                   endpoint.matchType.name.toUpperCase(),
                   Colors.blue,
                 ),
+                if (endpoint.mode == EndpointMode.mock) ...[
+                  const SizedBox(width: 8),
+                  _buildChip(
+                    _getStatusCodeText(endpoint.statusCode),
+                    _getStatusCodeColor(endpoint.statusCode),
+                  ),
+                ],
                 if (endpoint.delayMs > 0) ...[
                   const SizedBox(width: 8),
                   _buildChip(
@@ -215,6 +224,28 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
         ),
       ),
     );
+  }
+
+  String _getStatusCodeText(int code) {
+    if (code >= 200 && code < 300) {
+      return '$code';
+    } else if (code >= 400 && code < 500) {
+      return '$code';
+    } else if (code >= 500) {
+      return '$code';
+    }
+    return '$code';
+  }
+
+  Color _getStatusCodeColor(int code) {
+    if (code >= 200 && code < 300) {
+      return Colors.green;
+    } else if (code >= 400 && code < 500) {
+      return Colors.orange;
+    } else if (code >= 500) {
+      return Colors.red;
+    }
+    return Colors.grey;
   }
 
   void _showDeleteDialog(Endpoint endpoint) {
@@ -311,6 +342,7 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
       matchType: MatchType.values.firstWhere((e) => e.name == json['matchType']),
       mode: EndpointMode.values.firstWhere((e) => e.name == json['mode']),
       mockResponse: json['mockResponse'],
+      statusCode: json['statusCode'] ?? 200,
       delayMs: json['delayMs'],
       targetUrl: json['targetUrl'],
       createdAt: DateTime.parse(json['createdAt']),
