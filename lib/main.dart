@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'ui/bloc/dependency_container.dart' as di;
 import 'ui/bloc/endpoint/endpoint_bloc.dart';
 import 'ui/bloc/log/log_bloc.dart';
 import 'ui/bloc/server/server_bloc.dart';
 import 'ui/screens/home_screen.dart';
+import 'ui/screens/welcome_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,7 +15,12 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
+
+  Future<bool> _checkFirstLaunch() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('hasSeenWelcome') ?? false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +34,7 @@ class MyApp extends StatelessWidget {
         title: 'Network Interceptor',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          primarySwatch: Colors.blue,
+          primarySwatch: Colors.deepOrange,
           useMaterial3: true,
           appBarTheme: const AppBarTheme(
             centerTitle: true,
@@ -40,7 +47,25 @@ class MyApp extends StatelessWidget {
             ),
           ),
         ),
-        home: const HomeScreen(),
+        home: FutureBuilder<bool>(
+          future: _checkFirstLaunch(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+
+            final hasSeenWelcome = snapshot.data ?? false;
+            return hasSeenWelcome ? const HomeScreen() : const WelcomeScreen();
+          },
+        ),
+        routes: {
+          '/home': (context) => const HomeScreen(),
+          '/welcome': (context) => const WelcomeScreen(),
+        },
       ),
     );
   }

@@ -25,6 +25,7 @@ dependencies:
   sqflite: ^2.3.0
   path_provider: ^2.1.1
   path: ^1.8.3
+  shared_preferences: ^2.5.3
 
   # JSON
   json_annotation: ^4.8.1
