@@ -49,7 +49,7 @@ class _LogsScreenState extends State<LogsScreen> {
             tooltip: 'Filter',
           ),
           IconButton(
-            icon: const Icon(Icons.file_download),
+            icon: const Icon(Icons.share),
             onPressed: _exportLogs,
             tooltip: 'Export',
           ),

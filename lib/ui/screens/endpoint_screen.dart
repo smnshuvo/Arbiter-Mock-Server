@@ -32,12 +32,12 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
         title: const Text('Endpoints'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.file_upload),
+            icon: const Icon(Icons.downloading),
             onPressed: _importEndpoints,
             tooltip: 'Import',
           ),
           IconButton(
-            icon: const Icon(Icons.file_download),
+            icon: const Icon(Icons.share),
             onPressed: _exportEndpoints,
             tooltip: 'Export',
           ),

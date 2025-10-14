@@ -37,7 +37,6 @@ class MyApp extends StatelessWidget {
         title: 'Network Interceptor',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          primarySwatch: Colors.deepOrange,
           useMaterial3: true,
           appBarTheme: const AppBarTheme(
             centerTitle: true,
@@ -48,6 +47,10 @@ class MyApp extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
+          ),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.orange,
+            primary: Colors.deepOrange,
           ),
         ),
         home: FutureBuilder<bool>(
