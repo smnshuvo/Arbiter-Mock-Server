@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/server/server_bloc.dart';
+import '../bloc/log/log_bloc.dart';
+import '../widgets/realtime_log_terminal_widget.dart';
 import 'endpoint_screen.dart';
 import 'logs_screen.dart';
 
@@ -15,7 +17,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _portController = TextEditingController(text: '8080');
+  final TextEditingController _portController =
+      TextEditingController(text: '8080');
   final TextEditingController _passThroughUrlController = TextEditingController();
 
   static const iconAssetPath = 'assets/app_icon/app_icon.png';
@@ -24,6 +27,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     context.read<ServerBloc>().add(CheckServerStatusEvent());
+    // Start watching real-time logs
+    context.read<LogBloc>().add(WatchRealtimeLogsEvent());
   }
 
   @override
@@ -69,6 +74,8 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 _buildServerStatusCard(state),
                 const SizedBox(height: 16),
+                _buildRealtimeLogTerminal(),
+                const SizedBox(height: 16),
                 _buildPortConfiguration(state),
                 const SizedBox(height: 16),
                 _buildAutoPassThroughConfig(state),
@@ -79,6 +86,18 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildRealtimeLogTerminal() {
+    return BlocBuilder<LogBloc, LogState>(
+      builder: (context, state) {
+        if (state is RecentLogsLoaded) {
+          return RealtimeLogTerminalWidget(logs: state.logs);
+        }
+        // Show empty terminal while loading
+        return const RealtimeLogTerminalWidget(logs: []);
+      },
     );
   }
 
@@ -94,16 +113,16 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             isRunning
                 ? const GlowingIconWidget(
-                    iconAssetPath: iconAssetPath,
-                    size: 64,
-                    glowColor: Colors.green,
-                  )
+              iconAssetPath: iconAssetPath,
+              size: 64,
+              glowColor: Colors.green,
+            )
                 : const GreyOutIconWidget(
-                    iconAssetPath: iconAssetPath,
-                    size: 64.0,
-                    opacity: 0.5,
-                    greyIntensity: 1.0,
-                  ),
+              iconAssetPath: iconAssetPath,
+              size: 64.0,
+              opacity: 0.5,
+              greyIntensity: 1.0,
+            ),
             const SizedBox(height: 16),
             Text(
               isRunning ? 'Server Running' : 'Server Stopped',
@@ -160,7 +179,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: isRunning ? Colors.red : Colors.green,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 32, vertical: 16),
               ),
             ),
             if (!isRunning && state is ServerStopped) ...[
@@ -196,7 +216,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 4),
                   Text(
                     state.useDeviceIp && state.deviceIp != null
-                        ? 'Server will be accessible at: ${state.deviceIp}:${state.port}'
+                        ? 'Server will be accessible at: ${state
+                        .deviceIp}:${state.port}'
                         : 'Allow other devices to connect',
                     style: TextStyle(
                       fontSize: 12,
@@ -310,7 +331,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 Switch(
                   value: autoPassThrough,
                   onChanged: (value) {
-                    context.read<ServerBloc>().add(SetAutoPassThroughEvent(value));
+                    context.read<ServerBloc>().add(
+                        SetAutoPassThroughEvent(value));
                   },
                 ),
               ],
@@ -330,7 +352,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 enabled: !isRunning,
                 onChanged: (value) {
-                  context.read<ServerBloc>().add(SetGlobalPassThroughUrlEvent(value));
+                  context.read<ServerBloc>().add(
+                      SetGlobalPassThroughUrlEvent(value));
                 },
               ),
               if (isRunning)

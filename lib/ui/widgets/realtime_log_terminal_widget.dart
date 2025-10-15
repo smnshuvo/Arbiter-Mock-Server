@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../../domain/entities/request_log.dart';
 
-class RealtimeLogTerminal extends StatelessWidget {
+class RealtimeLogTerminalWidget extends StatelessWidget {
   final List<RequestLog> logs;
 
-  const RealtimeLogTerminal({
+  const RealtimeLogTerminalWidget({
     super.key,
     required this.logs,
   });

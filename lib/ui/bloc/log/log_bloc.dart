@@ -1,5 +1,8 @@
-import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
 import '../../../domain/entities/request_log.dart';
 import '../../../domain/repositories/log_repository.dart';
 import '../../../domain/usecases/log_usecases.dart';
@@ -16,6 +19,18 @@ class LoadLogsEvent extends LogEvent {
 
   @override
   List<Object?> get props => [filter];
+}
+
+class LoadRecentLogsEvent extends LogEvent {}
+
+class WatchRealtimeLogsEvent extends LogEvent {}
+
+class NewLogReceivedEvent extends LogEvent {
+  final RequestLog log;
+  NewLogReceivedEvent(this.log);
+
+  @override
+  List<Object?> get props => [log];
 }
 
 class ClearLogsEvent extends LogEvent {}
@@ -64,6 +79,15 @@ class LogLoaded extends LogState {
   List<Object?> get props => [logs, currentFilter];
 }
 
+class RecentLogsLoaded extends LogState {
+  final List<RequestLog> logs;
+
+  RecentLogsLoaded(this.logs);
+
+  @override
+  List<Object?> get props => [logs];
+}
+
 class LogExported extends LogState {
   final String jsonData;
 
@@ -88,14 +112,21 @@ class LogBloc extends Bloc<LogEvent, LogState> {
   final ClearLogs clearLogs;
   final ClearFilteredLogs clearFilteredLogs;
   final ExportLogs exportLogs;
+  final LogRepository logRepository;
+
+  StreamSubscription? _logStreamSubscription;
 
   LogBloc({
     required this.getAllLogs,
     required this.clearLogs,
     required this.clearFilteredLogs,
     required this.exportLogs,
+    required this.logRepository,
   }) : super(LogInitial()) {
     on<LoadLogsEvent>(_onLoadLogs);
+    on<LoadRecentLogsEvent>(_onLoadRecentLogs);
+    on<WatchRealtimeLogsEvent>(_onWatchRealtimeLogs);
+    on<NewLogReceivedEvent>(_onNewLogReceived);
     on<ClearLogsEvent>(_onClearLogs);
     on<ClearFilteredLogsEvent>(_onClearFilteredLogs);
     on<ExportLogsEvent>(_onExportLogs);
@@ -110,6 +141,54 @@ class LogBloc extends Bloc<LogEvent, LogState> {
     try {
       final logs = await getAllLogs(filter: event.filter);
       emit(LogLoaded(logs, currentFilter: event.filter));
+    } catch (e) {
+      emit(LogError(e.toString()));
+    }
+  }
+
+  Future<void> _onLoadRecentLogs(
+      LoadRecentLogsEvent event,
+      Emitter<LogState> emit,
+      ) async {
+    try {
+      final logs = await logRepository.getRecentLogs(limit: 3);
+      emit(RecentLogsLoaded(logs));
+    } catch (e) {
+      emit(LogError(e.toString()));
+    }
+  }
+
+  Future<void> _onWatchRealtimeLogs(
+      WatchRealtimeLogsEvent event,
+      Emitter<LogState> emit,
+      ) async {
+    // Cancel existing subscription if any
+    await _logStreamSubscription?.cancel();
+
+    // Load initial recent logs
+    try {
+      final logs = await logRepository.getRecentLogs(limit: 3);
+      emit(RecentLogsLoaded(logs));
+    } catch (e) {
+      emit(LogError(e.toString()));
+      return;
+    }
+
+    // Listen to new logs
+    _logStreamSubscription = logRepository.watchRecentLogs().listen(
+          (newLog) {
+        add(NewLogReceivedEvent(newLog));
+      },
+    );
+  }
+
+  Future<void> _onNewLogReceived(
+      NewLogReceivedEvent event,
+      Emitter<LogState> emit,
+      ) async {
+    try {
+      final logs = await logRepository.getRecentLogs(limit: 3);
+      emit(RecentLogsLoaded(logs));
     } catch (e) {
       emit(LogError(e.toString()));
     }
@@ -165,5 +244,11 @@ class LogBloc extends Bloc<LogEvent, LogState> {
     } catch (e) {
       emit(LogError(e.toString()));
     }
+  }
+
+  @override
+  Future<void> close() {
+    _logStreamSubscription?.cancel();
+    return super.close();
   }
 }

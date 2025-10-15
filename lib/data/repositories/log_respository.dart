@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import '../../domain/entities/request_log.dart';
 import '../../domain/repositories/log_repository.dart';
@@ -6,8 +7,10 @@ import '../models/request_log_model.dart';
 
 class LogRepositoryImpl implements LogRepository {
   final LogLocalDataSource localDataSource;
+  final StreamController<RequestLog> _logStreamController;
 
-  LogRepositoryImpl(this.localDataSource);
+  LogRepositoryImpl(this.localDataSource)
+      : _logStreamController = StreamController<RequestLog>.broadcast();
 
   @override
   Future<List<RequestLog>> getAllLogs({LogFilter? filter}) async {
@@ -25,6 +28,9 @@ class LogRepositoryImpl implements LogRepository {
   Future<void> createLog(RequestLog log) async {
     final model = RequestLogModel.fromEntity(log);
     await localDataSource.insertLog(model);
+
+    // Emit the log to the stream for real-time updates
+    _logStreamController.add(log);
   }
 
   @override
@@ -47,5 +53,26 @@ class LogRepositoryImpl implements LogRepository {
       'totalLogs': jsonList.length,
       'logs': jsonList,
     });
+  }
+
+  @override
+  Stream<RequestLog> watchRecentLogs() {
+    return _logStreamController.stream;
+  }
+
+  @override
+  Future<List<RequestLog>> getRecentLogs({int limit = 3}) async {
+    final models = await localDataSource.getAllLogs();
+    final logs = models.map((model) => model.toEntity()).toList();
+
+    // Return the last N logs
+    if (logs.length <= limit) {
+      return logs;
+    }
+    return logs.sublist(logs.length - limit);
+  }
+
+  void dispose() {
+    _logStreamController.close();
   }
 }

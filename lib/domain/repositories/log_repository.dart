@@ -25,4 +25,6 @@ abstract class LogRepository {
   Future<void> clearLogs();
   Future<void> clearFilteredLogs(LogFilter filter);
   Future<String> exportLogs({LogFilter? filter});
+  Stream<RequestLog> watchRecentLogs();
+  Future<List<RequestLog>> getRecentLogs({int limit = 3});
 }

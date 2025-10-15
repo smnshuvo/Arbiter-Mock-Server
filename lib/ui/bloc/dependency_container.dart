@@ -55,6 +55,7 @@ Future<void> init() async {
       clearLogs: sl(),
       clearFilteredLogs: sl(),
       exportLogs: sl(),
+      logRepository: sl(),
     ),
   );
 
