@@ -1,9 +1,15 @@
-import 'package:arbiter_mock_server/ui/widgets/glowing_icon_widget.dart';
-import 'package:arbiter_mock_server/ui/widgets/grey_out_icon_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../domain/entities/interception_mode.dart';
+import '../bloc/interception/interception_bloc.dart';
+import '../bloc/interception/interception_event.dart';
+import '../bloc/interception/interception_state.dart';
 import '../bloc/server/server_bloc.dart';
+import '../dialog/interception_dialog.dart';
+import '../widgets/glowing_icon_widget.dart';
+import '../widgets/grey_out_icon_widget.dart';
 import 'endpoint_screen.dart';
 import 'logs_screen.dart';
 
@@ -24,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     context.read<ServerBloc>().add(CheckServerStatusEvent());
+    context.read<InterceptionBloc>().add(StartWatchingInterceptions());
   }
 
   @override
@@ -62,19 +69,38 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
         builder: (context, state) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildServerStatusCard(state),
-                const SizedBox(height: 16),
-                _buildPortConfiguration(state),
-                const SizedBox(height: 16),
-                _buildAutoPassThroughConfig(state),
-                const SizedBox(height: 24),
-                _buildNavigationButtons(),
-              ],
+          return BlocListener<InterceptionBloc, InterceptionState>(
+            listener: (context, interceptionState) {
+              if (interceptionState is InterceptionPending) {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (dialogContext) => BlocProvider.value(
+                    value: context.read<InterceptionBloc>(),
+                    child: InterceptionDialog(
+                      interception: interceptionState.interception,
+                      timeoutSeconds: interceptionState.timeoutSeconds,
+                    ),
+                  ),
+                );
+              }
+            },
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildServerStatusCard(state),
+                  const SizedBox(height: 16),
+                  _buildPortConfiguration(state),
+                  const SizedBox(height: 16),
+                  _buildAutoPassThroughConfig(state),
+                  const SizedBox(height: 16),
+                  _buildInterceptionConfig(state),
+                  const SizedBox(height: 24),
+                  _buildNavigationButtons(),
+                ],
+              ),
             ),
           );
         },
@@ -94,16 +120,16 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             isRunning
                 ? const GlowingIconWidget(
-                    iconAssetPath: iconAssetPath,
-                    size: 64,
-                    glowColor: Colors.green,
-                  )
+              iconAssetPath: iconAssetPath,
+              size: 64,
+              glowColor: Colors.green,
+            )
                 : const GreyOutIconWidget(
-                    iconAssetPath: iconAssetPath,
-                    size: 64.0,
-                    opacity: 0.5,
-                    greyIntensity: 1.0,
-                  ),
+              iconAssetPath: iconAssetPath,
+              size: 64.0,
+              opacity: 0.5,
+              greyIntensity: 1.0,
+            ),
             const SizedBox(height: 16),
             Text(
               isRunning ? 'Server Running' : 'Server Stopped',
@@ -348,6 +374,149 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildInterceptionConfig(ServerState state) {
+    return BlocBuilder<InterceptionBloc, InterceptionState>(
+      builder: (context, interceptionState) {
+        final mode = interceptionState is InterceptionEnabled
+            ? interceptionState.mode
+            : (interceptionState is InterceptionPending
+            ? interceptionState.mode
+            : InterceptionMode.none);
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'Real-time Interception',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (interceptionState is InterceptionPending)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Text(
+                                    'PENDING',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Pause requests for manual inspection',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: mode != InterceptionMode.none,
+                      onChanged: (value) {
+                        context.read<InterceptionBloc>().add(
+                          SetInterceptionModeEvent(
+                            value
+                                ? InterceptionMode.both
+                                : InterceptionMode.none,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                if (mode != InterceptionMode.none) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Interception Mode',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<InterceptionMode>(
+                    value: mode,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    items: [
+                      InterceptionMode.requestOnly,
+                      InterceptionMode.responseOnly,
+                      InterceptionMode.both,
+                    ]
+                        .map((m) => DropdownMenuItem(
+                      value: m,
+                      child: Text(m.displayName),
+                    ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        context.read<InterceptionBloc>().add(
+                          SetInterceptionModeEvent(value),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Requests will pause for 30 seconds allowing you to inspect and modify them',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

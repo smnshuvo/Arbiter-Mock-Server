@@ -4,18 +4,23 @@ import '../../data/datasources/local/database_helper.dart';
 import '../../data/datasources/local/endpoint_local_datasource.dart';
 import '../../data/datasources/local/log_local_datasource.dart';
 import '../../data/datasources/server/http_server_service.dart';
+import '../../data/datasources/server/interception_manager.dart';
 import '../../data/repositories/endpoint_repository.dart';
 import '../../data/repositories/log_respository.dart';
-import '../../data/repositories/server_repository.dart';
+import '../../data/repositories/interception_repository_impl.dart';
+import '../../data/repositories/server_repository_impl.dart';
 import '../../domain/repositories/endpoint_repository.dart';
 import '../../domain/repositories/log_repository.dart';
 import '../../domain/repositories/server_repository.dart';
+import '../../domain/repositories/interception_repository.dart';
 import '../../domain/usecases/endpoint_usecases.dart';
 import '../../domain/usecases/log_usecases.dart';
 import '../../domain/usecases/server_usecases.dart';
+import '../../domain/usecases/interception_usecases.dart';
 import 'endpoint/endpoint_bloc.dart';
 import 'log/log_bloc.dart';
 import 'server/server_bloc.dart';
+import 'interception/interception_bloc.dart';
 
 final sl = GetIt.instance;
 
@@ -58,6 +63,19 @@ Future<void> init() async {
     ),
   );
 
+  sl.registerFactory(
+        () => InterceptionBloc(
+      watchPendingInterceptions: sl(),
+      modifyAndContinue: sl(),
+      continueWithoutModification: sl(),
+      cancelInterception: sl(),
+      setInterceptionMode: sl(),
+      getInterceptionMode: sl(),
+      setInterceptionTimeout: sl(),
+      getInterceptionTimeout: sl(),
+    ),
+  );
+
   // Use cases - Server
   sl.registerLazySingleton(() => StartServer(sl()));
   sl.registerLazySingleton(() => StopServer(sl()));
@@ -71,6 +89,10 @@ Future<void> init() async {
   sl.registerLazySingleton(() => SetUseDeviceIp(sl()));
   sl.registerLazySingleton(() => GetUseDeviceIp(sl()));
   sl.registerLazySingleton(() => GetDeviceIpAddress(sl()));
+  sl.registerLazySingleton(() => SetServerInterceptionEnabled(sl()));
+  sl.registerLazySingleton(() => GetServerInterceptionEnabled(sl()));
+  sl.registerLazySingleton(() => SetServerInterceptionMode(sl()));
+  sl.registerLazySingleton(() => GetServerInterceptionMode(sl()));
 
   // Use cases - Endpoint
   sl.registerLazySingleton(() => GetAllEndpoints(sl()));
@@ -87,9 +109,19 @@ Future<void> init() async {
   sl.registerLazySingleton(() => ClearFilteredLogs(sl()));
   sl.registerLazySingleton(() => ExportLogs(sl()));
 
+  // Use cases - Interception
+  sl.registerLazySingleton(() => WatchPendingInterceptions(sl()));
+  sl.registerLazySingleton(() => ModifyAndContinue(sl()));
+  sl.registerLazySingleton(() => ContinueWithoutModification(sl()));
+  sl.registerLazySingleton(() => CancelInterception(sl()));
+  sl.registerLazySingleton(() => SetInterceptionMode(sl()));
+  sl.registerLazySingleton(() => GetInterceptionMode(sl()));
+  sl.registerLazySingleton(() => SetInterceptionTimeout(sl()));
+  sl.registerLazySingleton(() => GetInterceptionTimeout(sl()));
+
   // Repositories
   sl.registerLazySingleton<ServerRepository>(
-        () => ServerRepositoryImpl(sl()),
+        () => ServerRepositoryImpl(sl(), sl()),
   );
 
   sl.registerLazySingleton<EndpointRepository>(
@@ -98,6 +130,10 @@ Future<void> init() async {
 
   sl.registerLazySingleton<LogRepository>(
         () => LogRepositoryImpl(sl()),
+  );
+
+  sl.registerLazySingleton<InterceptionRepository>(
+        () => InterceptionRepositoryImpl(sl()),
   );
 
   // Data sources
@@ -110,8 +146,13 @@ Future<void> init() async {
   );
 
   sl.registerLazySingleton(
+        () => InterceptionManager(),
+  );
+
+  sl.registerLazySingleton(
         () => HttpServerService(
       logDataSource: sl(),
+      interceptionManager: sl(),
       onEndpointsNeeded: () async {
         final endpoints = await sl<GetAllEndpoints>()();
         sl<HttpServerService>().updateEndpoints(endpoints);

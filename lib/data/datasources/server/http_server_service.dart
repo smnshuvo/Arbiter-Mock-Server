@@ -9,6 +9,7 @@ import '../../../domain/entities/request_log.dart';
 import '../../models/request_log_model.dart';
 import '../local/log_local_datasource.dart';
 import '../../../core/utils/network_utils.dart';
+import 'interception_manager.dart';
 
 class HttpServerService {
   HttpServer? _server;
@@ -19,10 +20,12 @@ class HttpServerService {
   bool _autoPassThrough = false;
   final LogLocalDataSource logDataSource;
   final Function() onEndpointsNeeded;
+  final InterceptionManager interceptionManager;
 
   HttpServerService({
     required this.logDataSource,
     required this.onEndpointsNeeded,
+    required this.interceptionManager,
   });
 
   bool get isRunning => _server != null;
@@ -119,15 +122,41 @@ class HttpServerService {
     final requestId = DateTime.now().millisecondsSinceEpoch.toString();
 
     try {
+      // Read request body
+      String requestBody = await request.readAsString();
+      String method = request.method;
+      String url = request.url.toString();
+      Map<String, String> headers = Map<String, String>.from(request.headers);
+
+      // 1. Check if request interception is enabled
+      if (interceptionManager.shouldInterceptRequests) {
+        final interceptionResult = await interceptionManager.interceptRequest(
+          id: '$requestId-request',
+          method: method,
+          url: url,
+          headers: headers,
+          body: requestBody.isNotEmpty ? requestBody : null,
+        );
+
+        if (interceptionResult.cancelled) {
+          return Response(499,
+              body: jsonEncode({'error': 'Request cancelled by user'}),
+              headers: {'Content-Type': 'application/json'});
+        }
+
+        // Apply modifications if any
+        method = interceptionResult.modifiedMethod ?? method;
+        url = interceptionResult.modifiedUrl ?? url;
+        headers = interceptionResult.modifiedHeaders ?? headers;
+        requestBody = interceptionResult.modifiedBody ?? requestBody;
+      }
+
       // Get current endpoints
       onEndpointsNeeded();
       final endpoints = await _getCurrentEndpoints();
 
-      // Read request body
-      final requestBody = await request.readAsString();
-
       // Find matching endpoint
-      final matchedEndpoint = _findMatchingEndpoint(request.url.toString(), endpoints);
+      final matchedEndpoint = _findMatchingEndpoint(url, endpoints);
 
       String responseBody;
       int statusCode;
@@ -143,7 +172,8 @@ class HttpServerService {
           String? mockResponseToUse;
           int statusCodeToUse = matchedEndpoint.statusCode;
 
-          if (matchedEndpoint.useConditionalMock && matchedEndpoint.conditionalMocks.isNotEmpty) {
+          if (matchedEndpoint.useConditionalMock &&
+              matchedEndpoint.conditionalMocks.isNotEmpty) {
             final conditionalResult = _findConditionalMock(
               request,
               requestBody,
@@ -161,7 +191,8 @@ class HttpServerService {
 
           // Return mock response
           if (matchedEndpoint.delayMs > 0) {
-            await Future.delayed(Duration(milliseconds: matchedEndpoint.delayMs));
+            await Future.delayed(
+                Duration(milliseconds: matchedEndpoint.delayMs));
           }
 
           responseBody = mockResponseToUse ?? '{}';
@@ -170,18 +201,22 @@ class HttpServerService {
           logType = LogType.mock;
         } else {
           // Pass through to actual server
-          final passThroughResult = await _passThrough(request, matchedEndpoint, requestBody);
+          final passThroughResult =
+          await _passThrough(request, matchedEndpoint, requestBody);
           responseBody = passThroughResult['body'] as String;
           statusCode = passThroughResult['statusCode'] as int;
-          responseHeaders = Map<String, String>.from(passThroughResult['headers'] as Map);
+          responseHeaders =
+          Map<String, String>.from(passThroughResult['headers'] as Map);
           logType = LogType.passThrough;
         }
       } else if (_autoPassThrough && _globalPassThroughUrl != null) {
         // Auto pass-through for unmatched endpoints
-        final passThroughResult = await _autoPassThroughRequest(request, requestBody);
+        final passThroughResult =
+        await _autoPassThroughRequest(request, requestBody);
         responseBody = passThroughResult['body'] as String;
         statusCode = passThroughResult['statusCode'] as int;
-        responseHeaders = Map<String, String>.from(passThroughResult['headers'] as Map);
+        responseHeaders =
+        Map<String, String>.from(passThroughResult['headers'] as Map);
         logType = LogType.passThrough;
       } else {
         // No matching endpoint, return 404
@@ -189,6 +224,32 @@ class HttpServerService {
         statusCode = 404;
         responseHeaders = {'Content-Type': 'application/json'};
         logType = LogType.mock;
+      }
+
+      // 2. Check if response interception is enabled
+      if (interceptionManager.shouldInterceptResponses) {
+        final interceptionResult = await interceptionManager.interceptResponse(
+          id: '$requestId-response',
+          method: method,
+          url: url,
+          headers: headers,
+          body: requestBody.isNotEmpty ? requestBody : null,
+          statusCode: statusCode,
+          responseBody: responseBody,
+          responseHeaders: responseHeaders,
+        );
+
+        if (interceptionResult.cancelled) {
+          return Response(499,
+              body: jsonEncode({'error': 'Response cancelled by user'}),
+              headers: {'Content-Type': 'application/json'});
+        }
+
+        // Apply modifications if any
+        statusCode = interceptionResult.modifiedStatusCode ?? statusCode;
+        responseBody = interceptionResult.modifiedBody ?? responseBody;
+        responseHeaders =
+            interceptionResult.modifiedHeaders ?? responseHeaders;
       }
 
       // Clean up headers that can cause conflicts with Shelf
