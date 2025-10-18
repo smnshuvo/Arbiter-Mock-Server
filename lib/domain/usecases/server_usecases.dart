@@ -1,4 +1,5 @@
 import '../repositories/server_repository.dart';
+import '../entities/interception_mode.dart';
 
 class StartServer {
   final ServerRepository repository;
@@ -117,5 +118,45 @@ class GetDeviceIpAddress {
 
   Future<String?> call() async {
     return await repository.getDeviceIpAddress();
+  }
+}
+
+class SetServerInterceptionEnabled {
+  final ServerRepository repository;
+
+  SetServerInterceptionEnabled(this.repository);
+
+  Future<void> call(bool enabled) async {
+    await repository.setInterceptionEnabled(enabled);
+  }
+}
+
+class GetServerInterceptionEnabled {
+  final ServerRepository repository;
+
+  GetServerInterceptionEnabled(this.repository);
+
+  bool call() {
+    return repository.isInterceptionEnabled();
+  }
+}
+
+class SetServerInterceptionMode {
+  final ServerRepository repository;
+
+  SetServerInterceptionMode(this.repository);
+
+  Future<void> call(InterceptionMode mode) async {
+    await repository.setInterceptionMode(mode);
+  }
+}
+
+class GetServerInterceptionMode {
+  final ServerRepository repository;
+
+  GetServerInterceptionMode(this.repository);
+
+  InterceptionMode call() {
+    return repository.getInterceptionMode();
   }
 }

@@ -1,11 +1,14 @@
 import '../../domain/repositories/server_repository.dart';
+import '../../domain/entities/interception_mode.dart';
 import '../datasources/server/http_server_service.dart';
+import '../datasources/server/interception_manager.dart';
 import '../../core/utils/network_utils.dart';
 
 class ServerRepositoryImpl implements ServerRepository {
   final HttpServerService serverService;
+  final InterceptionManager interceptionManager;
 
-  ServerRepositoryImpl(this.serverService);
+  ServerRepositoryImpl(this.serverService, this.interceptionManager);
 
   @override
   Future<void> startServer(int port, {bool useDeviceIp = false}) async {
@@ -70,5 +73,29 @@ class ServerRepositoryImpl implements ServerRepository {
   @override
   Future<String?> getDeviceIpAddress() async {
     return await NetworkUtils.getDeviceIpAddress();
+  }
+
+  @override
+  Future<void> setInterceptionEnabled(bool enabled) async {
+    if (enabled) {
+      interceptionManager.setMode(InterceptionMode.both);
+    } else {
+      interceptionManager.setMode(InterceptionMode.none);
+    }
+  }
+
+  @override
+  bool isInterceptionEnabled() {
+    return interceptionManager.isEnabled;
+  }
+
+  @override
+  Future<void> setInterceptionMode(InterceptionMode mode) async {
+    interceptionManager.setMode(mode);
+  }
+
+  @override
+  InterceptionMode getInterceptionMode() {
+    return interceptionManager.mode;
   }
 }
