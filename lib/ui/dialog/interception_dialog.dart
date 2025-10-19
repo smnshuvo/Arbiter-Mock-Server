@@ -209,7 +209,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
     return Row(
       children: [
         SizedBox(
-          width: 100,
+          width: 115,
           child: DropdownButtonFormField<String>(
             value: _method,
             decoration: const InputDecoration(
@@ -350,32 +350,35 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
           bottomRight: Radius.circular(4),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          TextButton.icon(
-            onPressed: _cancel,
-            icon: const Icon(Icons.cancel),
-            label: const Text('Cancel Request'),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-          ),
-          const SizedBox(width: 12),
-          ElevatedButton.icon(
-            onPressed: _continueWithoutModification,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Continue'),
-          ),
-          const SizedBox(width: 12),
-          ElevatedButton.icon(
-            onPressed: _isModified ? _modifyAndContinue : null,
-            icon: const Icon(Icons.edit),
-            label: const Text('Modify & Continue'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
+      child: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            ElevatedButton.icon(
+              onPressed: _cancel,
+              icon: const Icon(Icons.cancel),
+              label: const Text('Cancel Request'),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: _continueWithoutModification,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Continue'),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: _isModified ? _modifyAndContinue : null,
+              icon: const Icon(Icons.edit),
+              label: const Text('Modify & Continue'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
