@@ -328,6 +328,7 @@ class _LogsScreenState extends State<LogsScreen> {
               title: 'Headers',
               icon: Icons.list_alt,
               child: Column(
+                key: ValueKey(log.url),
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: log.headers.entries.map(
                       (entry) => Padding(
@@ -345,9 +346,13 @@ class _LogsScreenState extends State<LogsScreen> {
             _buildCollapsibleSection(
               title: 'Request Body',
               icon: Icons.upload,
-              child: JsonViewerWidget(
-                jsonString: log.requestBody!,
-                initialExpandDepth: 1,
+              child: SizedBox(
+                width: double.maxFinite,
+                child: JsonViewerWidget(
+                  key: ValueKey(log.url),
+                  jsonString: log.requestBody!,
+                  initialExpandDepth: 1,
+                ),
               ),
             ),
           ],
@@ -358,9 +363,13 @@ class _LogsScreenState extends State<LogsScreen> {
             _buildCollapsibleSection(
               title: 'Response Body',
               icon: Icons.download,
-              child: JsonViewerWidget(
-                jsonString: log.responseBody!,
-                initialExpandDepth: 1,
+              child: SizedBox(
+                width: double.maxFinite,
+                child: JsonViewerWidget(
+                  key: ValueKey(log.url),
+                  jsonString: log.responseBody!,
+                  initialExpandDepth: 1,
+                ),
               ),
             ),
           ],
