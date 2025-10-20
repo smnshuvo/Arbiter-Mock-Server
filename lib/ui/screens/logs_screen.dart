@@ -389,7 +389,7 @@ class _LogsScreenState extends State<LogsScreen> {
         title,
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
       ),
-      initiallyExpanded: true,
+      initiallyExpanded: false,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -648,20 +648,30 @@ class _LogsScreenState extends State<LogsScreen> {
                   _buildDetailRow('Status Code', log.statusCode.toString()),
                   _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
                   _buildDetailRow('Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
-                  if (log.headers.isNotEmpty) ...[
-                    const Divider(),
-                    const Text(
-                      'Headers:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                  _buildCollapsibleSection(
+                    title: 'Headers',
+                    icon: Icons.list_alt,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: (log.headers.isNotEmpty)
+                          ? [
+                              const Divider(),
+                              const Text(
+                                'Headers:',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              ...log.headers.entries.map(
+                                (entry) => Padding(
+                                  padding: const EdgeInsets.only(
+                                      left: 16, bottom: 4),
+                                  child: Text('${entry.key}: ${entry.value}'),
+                                ),
+                              ),
+                            ]
+                          : [],
                     ),
-                    const SizedBox(height: 8),
-                    ...log.headers.entries.map(
-                          (entry) => Padding(
-                        padding: const EdgeInsets.only(left: 16, bottom: 4),
-                        child: Text('${entry.key}: ${entry.value}'),
-                      ),
-                    ),
-                  ],
+                  ),
                   if (log.requestBody != null) ...[
                     const Divider(),
                     const Text(
