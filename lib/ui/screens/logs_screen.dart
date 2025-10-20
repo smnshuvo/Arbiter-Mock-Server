@@ -24,6 +24,8 @@ class LogsScreen extends StatefulWidget {
 class _LogsScreenState extends State<LogsScreen> {
   final TextEditingController _searchController = TextEditingController();
   LogFilter? _currentFilter;
+  RequestLog? _selectedLog;
+  bool _isHeaderExpanded = true;
 
   @override
   void initState() {
@@ -43,6 +45,11 @@ class _LogsScreenState extends State<LogsScreen> {
       appBar: AppBar(
         title: const Text('Request Logs'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => context.read<LogBloc>().add(LoadLogsEvent()),
+            tooltip: 'Reload Logs',
+          ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: _showFilterDialog,
@@ -76,8 +83,7 @@ class _LogsScreenState extends State<LogsScreen> {
       ),
       body: Column(
         children: [
-          _buildSearchBar(),
-          if (_currentFilter != null) _buildFilterChips(),
+          _buildCollapsibleHeader(),
           Expanded(
             child: BlocConsumer<LogBloc, LogState>(
               listener: (context, state) {
@@ -101,13 +107,244 @@ class _LogsScreenState extends State<LogsScreen> {
                   if (state.logs.isEmpty) {
                     return _buildEmptyState();
                   }
-                  return _buildLogList(state.logs);
+                  return _buildResponsiveLayout(state.logs);
                 }
 
                 return const SizedBox();
               },
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCollapsibleHeader() {
+    return Card(
+      margin: const EdgeInsets.all(8),
+      elevation: 2,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () {
+              setState(() {
+                _isHeaderExpanded = !_isHeaderExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(
+                    _isHeaderExpanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.grey[700],
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Search & Filters',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_currentFilter != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Active',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue[700],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (_isHeaderExpanded) ...[
+            const Divider(height: 1),
+            _buildSearchBar(),
+            if (_currentFilter != null) _buildFilterChips(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResponsiveLayout(List<RequestLog> logs) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Use master-detail layout for large screens (width > 800)
+        if (constraints.maxWidth > 800) {
+          return Row(
+            children: [
+              // Master: List of APIs
+              SizedBox(
+                width: 400,
+                child: _buildLogList(logs, isMasterDetail: true),
+              ),
+              const VerticalDivider(width: 1),
+              // Detail: Selected log details
+              Expanded(
+                child: _selectedLog == null
+                    ? _buildSelectPrompt()
+                    : _buildLogDetail(_selectedLog!),
+              ),
+            ],
+          );
+        } else {
+          // Single column layout for smaller screens
+          return _buildLogList(logs, isMasterDetail: false);
+        }
+      },
+    );
+  }
+
+  Widget _buildSelectPrompt() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.touch_app,
+            size: 80,
+            color: Colors.grey[300],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Select a log to view details',
+            style: TextStyle(
+              fontSize: 18,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogDetail(RequestLog log) {
+    final dateFormat = DateFormat('MMM dd, yyyy HH:mm:ss');
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  log.url,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () {
+                  setState(() {
+                    _selectedLog = null;
+                  });
+                },
+                tooltip: 'Close',
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                onSelected: (value) {
+                  if (value == 'create_endpoint') {
+                    _createEndpointFromLog(log);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'create_endpoint',
+                    child: Row(
+                      children: [
+                        Icon(Icons.add_circle_outline, size: 20),
+                        SizedBox(width: 8),
+                        Text('Create Endpoint'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _buildChip(log.method.name, Colors.blue),
+              const SizedBox(width: 8),
+              _buildChip(
+                log.logType == LogType.mock ? 'Mock' : 'Pass-through',
+                log.logType == LogType.mock ? Colors.green : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              _buildChip('${log.responseTimeMs}ms', Colors.purple),
+              const SizedBox(width: 8),
+              _buildChip(
+                log.statusCode.toString(),
+                _getStatusColor(log.statusCode),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _buildDetailRow('Timestamp', dateFormat.format(log.timestamp)),
+          const Divider(),
+          _buildDetailRow('Method', log.method.name),
+          _buildDetailRow('URL', log.url),
+          _buildDetailRow('Status Code', log.statusCode.toString()),
+          _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
+          _buildDetailRow('Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
+          if (log.headers.isNotEmpty) ...[
+            const Divider(),
+            const Text(
+              'Headers:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            ...log.headers.entries.map(
+                  (entry) => Padding(
+                padding: const EdgeInsets.only(left: 16, bottom: 4),
+                child: Text('${entry.key}: ${entry.value}'),
+              ),
+            ),
+          ],
+          if (log.requestBody != null) ...[
+            const Divider(),
+            const Text(
+              'Request Body:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            JsonViewerWidget(
+              jsonString: log.requestBody!,
+              initialExpandDepth: 1,
+            ),
+          ],
+          if (log.responseBody != null) ...[
+            const Divider(),
+            const Text(
+              'Response Body:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            JsonViewerWidget(
+              jsonString: log.responseBody!,
+              initialExpandDepth: 1,
+            ),
+          ],
         ],
       ),
     );
@@ -236,130 +473,177 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
-  Widget _buildLogList(List<RequestLog> logs) {
+  Widget _buildLogList(List<RequestLog> logs, {required bool isMasterDetail}) {
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: logs.length,
       itemBuilder: (context, index) {
         final log = logs[index];
-        return _buildLogCard(log);
+        return _buildLogCard(log, isMasterDetail: isMasterDetail);
       },
     );
   }
 
-  Widget _buildLogCard(RequestLog log) {
+  Widget _buildLogCard(RequestLog log, {required bool isMasterDetail}) {
     final dateFormat = DateFormat('MMM dd, yyyy HH:mm:ss');
     final statusColor = _getStatusColor(log.statusCode);
+    final isSelected = isMasterDetail && _selectedLog?.id == log.id;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      child: ExpansionTile(
-        leading: CircleAvatar(
-          backgroundColor: statusColor.withOpacity(0.2),
-          child: Text(
-            log.statusCode.toString(),
-            style: TextStyle(
-              color: statusColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
+    if (isMasterDetail) {
+      // Compact card for master-detail layout
+      return Card(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        color: isSelected ? Colors.blue.withOpacity(0.1) : null,
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: statusColor.withOpacity(0.2),
+            child: Text(
+              log.statusCode.toString(),
+              style: TextStyle(
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
             ),
           ),
-        ),
-        title: Text(
-          log.url,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Row(
-          children: [
-            _buildChip(log.method.name, Colors.blue),
-            const SizedBox(width: 8),
-            _buildChip(
-              log.logType == LogType.mock ? 'Mock' : 'Pass-through',
-              log.logType == LogType.mock ? Colors.green : Colors.orange,
-            ),
-            const SizedBox(width: 8),
-            _buildChip('${log.responseTimeMs}ms', Colors.purple),
-          ],
-        ),
-        trailing: PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
-          onSelected: (value) {
-            if (value == 'create_endpoint') {
-              _createEndpointFromLog(log);
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'create_endpoint',
-              child: Row(
+          title: Text(
+            log.url,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 4),
+              Row(
                 children: [
-                  Icon(Icons.add_circle_outline, size: 20),
-                  SizedBox(width: 8),
-                  Text('Create Endpoint'),
+                  _buildChip(log.method.name, Colors.blue),
+                  const SizedBox(width: 8),
+                  _buildChip('${log.responseTimeMs}ms', Colors.purple),
+                ],
+              ),
+            ],
+          ),
+          onTap: () {
+            setState(() {
+              _selectedLog = log;
+            });
+          },
+        ),
+      );
+    } else {
+      // Expandable card for single column layout
+      return Card(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        child: ExpansionTile(
+          leading: CircleAvatar(
+            backgroundColor: statusColor.withOpacity(0.2),
+            child: Text(
+              log.statusCode.toString(),
+              style: TextStyle(
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          title: Text(
+            log.url,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Row(
+            children: [
+              _buildChip(log.method.name, Colors.blue),
+              const SizedBox(width: 8),
+              _buildChip(
+                log.logType == LogType.mock ? 'Mock' : 'Pass-through',
+                log.logType == LogType.mock ? Colors.green : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              _buildChip('${log.responseTimeMs}ms', Colors.purple),
+            ],
+          ),
+          trailing: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'create_endpoint') {
+                _createEndpointFromLog(log);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'create_endpoint',
+                child: Row(
+                  children: [
+                    Icon(Icons.add_circle_outline, size: 20),
+                    SizedBox(width: 8),
+                    Text('Create Endpoint'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDetailRow('Timestamp', dateFormat.format(log.timestamp)),
+                  const Divider(),
+                  _buildDetailRow('Method', log.method.name),
+                  _buildDetailRow('URL', log.url),
+                  _buildDetailRow('Status Code', log.statusCode.toString()),
+                  _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
+                  _buildDetailRow('Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
+                  if (log.headers.isNotEmpty) ...[
+                    const Divider(),
+                    const Text(
+                      'Headers:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ...log.headers.entries.map(
+                          (entry) => Padding(
+                        padding: const EdgeInsets.only(left: 16, bottom: 4),
+                        child: Text('${entry.key}: ${entry.value}'),
+                      ),
+                    ),
+                  ],
+                  if (log.requestBody != null) ...[
+                    const Divider(),
+                    const Text(
+                      'Request Body:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    JsonViewerWidget(
+                      jsonString: log.requestBody!,
+                      initialExpandDepth: 1,
+                    ),
+                  ],
+                  if (log.responseBody != null) ...[
+                    const Divider(),
+                    const Text(
+                      'Response Body:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    JsonViewerWidget(
+                      jsonString: log.responseBody!,
+                      initialExpandDepth: 1,
+                    ),
+                  ],
                 ],
               ),
             ),
           ],
         ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildDetailRow('Timestamp', dateFormat.format(log.timestamp)),
-                const Divider(),
-                _buildDetailRow('Method', log.method.name),
-                _buildDetailRow('URL', log.url),
-                _buildDetailRow('Status Code', log.statusCode.toString()),
-                _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
-                _buildDetailRow('Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
-                if (log.headers.isNotEmpty) ...[
-                  const Divider(),
-                  const Text(
-                    'Headers:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  ...log.headers.entries.map(
-                        (entry) => Padding(
-                      padding: const EdgeInsets.only(left: 16, bottom: 4),
-                      child: Text('${entry.key}: ${entry.value}'),
-                    ),
-                  ),
-                ],
-                if (log.requestBody != null) ...[
-                  const Divider(),
-                  const Text(
-                    'Request Body:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  JsonViewerWidget(
-                    jsonString: log.requestBody!,
-                    initialExpandDepth: 1,
-                  ),
-                ],
-                if (log.responseBody != null) ...[
-                  const Divider(),
-                  const Text(
-                    'Response Body:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  JsonViewerWidget(
-                    jsonString: log.responseBody!,
-                    initialExpandDepth: 1,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+      );
+    }
   }
 
   Widget _buildDetailRow(String label, String value) {
