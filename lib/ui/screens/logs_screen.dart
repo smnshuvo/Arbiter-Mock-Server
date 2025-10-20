@@ -207,7 +207,9 @@ class _LogsScreenState extends State<LogsScreen> {
               Expanded(
                 child: _selectedLog == null
                     ? _buildSelectPrompt()
-                    : _buildLogDetail(_selectedLog!),
+                    : Align(
+                    alignment: AlignmentGeometry.topLeft,
+                    child: _buildLogDetail(_selectedLog!)),
               ),
             ],
           );
