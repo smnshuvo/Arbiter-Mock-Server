@@ -124,6 +124,7 @@ class _LogsScreenState extends State<LogsScreen> {
       margin: const EdgeInsets.all(8),
       elevation: 2,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           InkWell(
             onTap: () {
@@ -169,11 +170,21 @@ class _LogsScreenState extends State<LogsScreen> {
               ),
             ),
           ),
-          if (_isHeaderExpanded) ...[
-            const Divider(height: 1),
-            _buildSearchBar(),
-            if (_currentFilter != null) _buildFilterChips(),
-          ],
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Divider(height: 1),
+                _buildSearchBar(),
+                if (_currentFilter != null) _buildFilterChips(),
+              ],
+            ),
+            crossFadeState: _isHeaderExpanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
+          ),
         ],
       ),
     );
@@ -300,6 +311,8 @@ class _LogsScreenState extends State<LogsScreen> {
             ],
           ),
           const SizedBox(height: 24),
+
+          // Basic Info Section - Always visible
           _buildDetailRow('Timestamp', dateFormat.format(log.timestamp)),
           const Divider(),
           _buildDetailRow('Method', log.method.name),
@@ -307,46 +320,73 @@ class _LogsScreenState extends State<LogsScreen> {
           _buildDetailRow('Status Code', log.statusCode.toString()),
           _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
           _buildDetailRow('Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
+
+          // Headers Section - Collapsible
           if (log.headers.isNotEmpty) ...[
             const Divider(),
-            const Text(
-              'Headers:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            ...log.headers.entries.map(
-                  (entry) => Padding(
-                padding: const EdgeInsets.only(left: 16, bottom: 4),
-                child: Text('${entry.key}: ${entry.value}'),
+            _buildCollapsibleSection(
+              title: 'Headers',
+              icon: Icons.list_alt,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: log.headers.entries.map(
+                      (entry) => Padding(
+                    padding: const EdgeInsets.only(left: 16, bottom: 4),
+                    child: Text('${entry.key}: ${entry.value}'),
+                  ),
+                ).toList(),
               ),
             ),
           ],
+
+          // Request Body Section - Collapsible
           if (log.requestBody != null) ...[
             const Divider(),
-            const Text(
-              'Request Body:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            JsonViewerWidget(
-              jsonString: log.requestBody!,
-              initialExpandDepth: 1,
+            _buildCollapsibleSection(
+              title: 'Request Body',
+              icon: Icons.upload,
+              child: JsonViewerWidget(
+                jsonString: log.requestBody!,
+                initialExpandDepth: 1,
+              ),
             ),
           ],
+
+          // Response Body Section - Collapsible
           if (log.responseBody != null) ...[
             const Divider(),
-            const Text(
-              'Response Body:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            JsonViewerWidget(
-              jsonString: log.responseBody!,
-              initialExpandDepth: 1,
+            _buildCollapsibleSection(
+              title: 'Response Body',
+              icon: Icons.download,
+              child: JsonViewerWidget(
+                jsonString: log.responseBody!,
+                initialExpandDepth: 1,
+              ),
             ),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildCollapsibleSection({
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) {
+    return ExpansionTile(
+      leading: Icon(icon, size: 20),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      ),
+      initiallyExpanded: true,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: child,
+        ),
+      ],
     );
   }
 
