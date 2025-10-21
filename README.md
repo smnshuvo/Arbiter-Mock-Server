@@ -86,6 +86,21 @@ The project follows Clean Architecture principles with three main layers:
    flutter run
    ```
 
+### Linux
+`libsqlite3` and `libsqlite3`-dev linux packages are required.
+
+### Windows
+
+Should work as is in debug mode (`sqlite3.dll` is bundled).
+
+In release mode,
+add [sqlite3.dll](https://github.com/tekartik/sqflite/raw/master/sqflite_common_ffi/lib/src/windows/sqlite3.dll) in same
+folder as your executable.
+
+`sqfliteFfiInit` is provided as an implementation reference for loading the sqlite library. Please look
+at [sqlite3](https://pub.dev/packages/sqlite3)
+if you want to override the behavior.
+
 ## Usage
 
 ### 1. Start the Server
