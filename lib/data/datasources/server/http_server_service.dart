@@ -11,6 +11,7 @@ import '../local/log_local_datasource.dart';
 import '../../../core/utils/network_utils.dart';
 
 class HttpServerService {
+  final String profileId; // NEW - each server tied to a profile
   HttpServer? _server;
   int _port = 8080;
   bool _useDeviceIp = false;
@@ -21,6 +22,7 @@ class HttpServerService {
   final Function() onEndpointsNeeded;
 
   HttpServerService({
+    required this.profileId, // NEW
     required this.logDataSource,
     required this.onEndpointsNeeded,
   });
@@ -79,14 +81,14 @@ class HttpServerService {
         : InternetAddress.loopbackIPv4;
 
     _server = await shelf_io.serve(handler, address, port);
-    print('Server started on $serverUrl');
+    print('Server started on $serverUrl for profile: $profileId');
   }
 
   Future<void> stop() async {
     if (_server != null) {
       await _server!.close(force: true);
       _server = null;
-      print('Server stopped');
+      print('Server stopped for profile: $profileId');
     }
   }
 
@@ -98,7 +100,6 @@ class HttpServerService {
         }
 
         final response = await handler(request);
-        // Merge CORS headers with existing headers instead of replacing
         final mergedHeaders = Map<String, String>.from(response.headers);
         mergedHeaders.addAll(_corsHeaders());
         return response.change(headers: mergedHeaders);
@@ -119,14 +120,11 @@ class HttpServerService {
     final requestId = DateTime.now().millisecondsSinceEpoch.toString();
 
     try {
-      // Get current endpoints
       onEndpointsNeeded();
       final endpoints = await _getCurrentEndpoints();
 
-      // Read request body
       final requestBody = await request.readAsString();
 
-      // Find matching endpoint
       final matchedEndpoint = _findMatchingEndpoint(request.url.toString(), endpoints);
 
       String responseBody;
@@ -139,7 +137,6 @@ class HttpServerService {
         matchedEndpointId = matchedEndpoint.id;
 
         if (matchedEndpoint.mode == EndpointMode.mock) {
-          // Check for conditional mocks
           String? mockResponseToUse;
           int statusCodeToUse = matchedEndpoint.statusCode;
 
@@ -156,10 +153,8 @@ class HttpServerService {
             }
           }
 
-          // Use conditional mock or default mock response
           mockResponseToUse ??= matchedEndpoint.mockResponse;
 
-          // Return mock response
           if (matchedEndpoint.delayMs > 0) {
             await Future.delayed(Duration(milliseconds: matchedEndpoint.delayMs));
           }
@@ -169,7 +164,6 @@ class HttpServerService {
           responseHeaders = {'Content-Type': 'application/json'};
           logType = LogType.mock;
         } else {
-          // Pass through to actual server
           final passThroughResult = await _passThrough(request, matchedEndpoint, requestBody);
           responseBody = passThroughResult['body'] as String;
           statusCode = passThroughResult['statusCode'] as int;
@@ -177,37 +171,31 @@ class HttpServerService {
           logType = LogType.passThrough;
         }
       } else if (_autoPassThrough && _globalPassThroughUrl != null) {
-        // Auto pass-through for unmatched endpoints
         final passThroughResult = await _autoPassThroughRequest(request, requestBody);
         responseBody = passThroughResult['body'] as String;
         statusCode = passThroughResult['statusCode'] as int;
         responseHeaders = Map<String, String>.from(passThroughResult['headers'] as Map);
         logType = LogType.passThrough;
       } else {
-        // No matching endpoint, return 404
         responseBody = jsonEncode({'error': 'No matching endpoint configured'});
         statusCode = 404;
         responseHeaders = {'Content-Type': 'application/json'};
         logType = LogType.mock;
       }
 
-      // Clean up headers that can cause conflicts with Shelf
       responseHeaders.remove('transfer-encoding');
       responseHeaders.remove('Transfer-Encoding');
       responseHeaders.remove('content-encoding');
       responseHeaders.remove('Content-Encoding');
 
-      // Ensure Content-Type is set
       if (!responseHeaders.containsKey('content-type') &&
           !responseHeaders.containsKey('Content-Type')) {
         responseHeaders['Content-Type'] = 'application/json';
       }
 
-      // Set proper Content-Length
       final bodyBytes = utf8.encode(responseBody);
       responseHeaders['Content-Length'] = bodyBytes.length.toString();
 
-      // Log the request
       final endTime = DateTime.now();
       final responseTimeMs = endTime.difference(startTime).inMilliseconds;
 
@@ -222,7 +210,6 @@ class HttpServerService {
         matchedEndpointId,
       );
 
-      // Return the response with proper headers and custom status code
       return Response(statusCode, body: responseBody, headers: responseHeaders);
     } catch (e) {
       print('Error handling request: $e');
@@ -240,7 +227,6 @@ class HttpServerService {
       ) {
     for (final conditionalMock in conditionalMocks) {
       if (conditionalMock.type == ConditionalMatchType.queryParam) {
-        // Check query parameters
         final queryValue = request.url.queryParameters[conditionalMock.fieldName];
         if (queryValue == conditionalMock.fieldValue) {
           return {
@@ -249,7 +235,6 @@ class HttpServerService {
           };
         }
       } else if (conditionalMock.type == ConditionalMatchType.bodyField) {
-        // Check request body field
         if (requestBody.isNotEmpty) {
           try {
             final Map<String, dynamic> body = jsonDecode(requestBody);
@@ -266,7 +251,7 @@ class HttpServerService {
         }
       }
     }
-    return null; // No condition matched, use default
+    return null;
   }
 
   Future<Map<String, dynamic>> _autoPassThroughRequest(
@@ -282,7 +267,6 @@ class HttpServerService {
         };
       }
 
-      // Build the full URL by appending the request path to the base URL
       String baseUrl = _globalPassThroughUrl!;
       if (baseUrl.endsWith('/')) {
         baseUrl = baseUrl.substring(0, baseUrl.length - 1);
@@ -298,7 +282,6 @@ class HttpServerService {
       final uri = Uri.parse(fullUrl);
       final method = request.method.toUpperCase();
 
-      // Prepare headers
       final headers = Map<String, String>.from(request.headers);
       headers.remove('host');
 
@@ -331,7 +314,6 @@ class HttpServerService {
           };
       }
 
-      // Ensure we have a proper response body (empty string for HEAD requests)
       final body = method == 'HEAD' ? '' : response.body;
 
       return {
@@ -393,7 +375,6 @@ class HttpServerService {
       final uri = Uri.parse(targetUrl);
       final method = request.method.toUpperCase();
 
-      // Prepare headers
       final headers = Map<String, String>.from(request.headers);
       headers.remove('host');
 
@@ -426,7 +407,6 @@ class HttpServerService {
           };
       }
 
-      // Ensure we have a proper response body (empty string for HEAD requests)
       final body = method == 'HEAD' ? '' : response.body;
 
       return {
@@ -467,6 +447,7 @@ class HttpServerService {
         responseTimeMs: responseTimeMs,
         logType: logType,
         matchedEndpointId: matchedEndpointId,
+        profileId: profileId, // NEW - tag log with profile ID
       );
 
       final logModel = RequestLogModel.fromEntity(log);
@@ -476,7 +457,6 @@ class HttpServerService {
     }
   }
 
-  // This will be called from the repository to get current endpoints
   List<Endpoint> _cachedEndpoints = [];
 
   void updateEndpoints(List<Endpoint> endpoints) {

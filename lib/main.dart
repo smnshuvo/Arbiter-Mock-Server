@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'ui/bloc/dependency_container.dart' as di;
 import 'ui/bloc/endpoint/endpoint_bloc.dart';
 import 'ui/bloc/log/log_bloc.dart';
+import 'ui/bloc/profile/profile_bloc.dart';
 import 'ui/bloc/server/server_bloc.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/welcome_screen.dart';
@@ -29,6 +31,8 @@ class MyApp extends StatelessWidget {
         BlocProvider(create: (_) => di.sl<ServerBloc>()),
         BlocProvider(create: (_) => di.sl<EndpointBloc>()),
         BlocProvider(create: (_) => di.sl<LogBloc>()),
+        BlocProvider(create: (_) => di.sl<ProfileBloc>()),
+
       ],
       child: MaterialApp(
         title: 'Network Interceptor',

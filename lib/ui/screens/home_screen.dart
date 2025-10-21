@@ -1,9 +1,11 @@
-import 'package:arbiter_mock_server/ui/widgets/glowing_icon_widget.dart';
-import 'package:arbiter_mock_server/ui/widgets/grey_out_icon_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../bloc/profile/profile_bloc.dart';
 import '../bloc/server/server_bloc.dart';
+import '../../domain/entities/profile.dart';
+import 'profiles_screen.dart';
 import 'endpoint_screen.dart';
 import 'logs_screen.dart';
 
@@ -15,22 +17,12 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _portController = TextEditingController(text: '8080');
-  final TextEditingController _passThroughUrlController = TextEditingController();
-
   static const iconAssetPath = 'assets/app_icon/app_icon.png';
 
   @override
   void initState() {
     super.initState();
-    context.read<ServerBloc>().add(CheckServerStatusEvent());
-  }
-
-  @override
-  void dispose() {
-    _portController.dispose();
-    _passThroughUrlController.dispose();
-    super.dispose();
+    context.read<ProfileBloc>().add(LoadProfilesEvent());
   }
 
   @override
@@ -39,350 +31,430 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Arbiter'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              context.read<ProfileBloc>().add(LoadProfilesEvent());
+            },
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
-      body: BlocConsumer<ServerBloc, ServerState>(
-        listener: (context, state) {
-          if (state is ServerError) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.message),
-                backgroundColor: Colors.red,
+      body: BlocBuilder<ProfileBloc, ProfileState>(
+        builder: (context, state) {
+          if (state is ProfileLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (state is ProfilesLoaded) {
+            final runningProfiles = state.profiles
+                .where((p) => state.runningProfileIds.contains(p.id))
+                .toList();
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildServerStatusSummary(
+                    state.profiles.length,
+                    runningProfiles.length,
+                  ),
+                  const SizedBox(height: 16),
+                  if (runningProfiles.isNotEmpty) ...[
+                    _buildRunningServersSection(runningProfiles),
+                    const SizedBox(height: 16),
+                  ],
+                  _buildQuickActions(),
+                ],
               ),
             );
           }
 
-          // Update pass-through URL controller when state changes
-          if (state is ServerRunning || state is ServerStopped) {
-            final url = state is ServerRunning
-                ? state.globalPassThroughUrl
-                : (state as ServerStopped).globalPassThroughUrl;
-            if (url != null && url != _passThroughUrlController.text) {
-              _passThroughUrlController.text = url;
-            }
-          }
-        },
-        builder: (context, state) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildServerStatusCard(state),
-                const SizedBox(height: 16),
-                _buildPortConfiguration(state),
-                const SizedBox(height: 16),
-                _buildAutoPassThroughConfig(state),
-                const SizedBox(height: 24),
-                _buildNavigationButtons(),
-              ],
-            ),
-          );
+          return _buildEmptyState();
         },
       ),
     );
   }
 
-  Widget _buildServerStatusCard(ServerState state) {
-    final isRunning = state is ServerRunning;
-    final isLoading = state is ServerLoading;
-
+  Widget _buildServerStatusSummary(int totalProfiles, int runningCount) {
     return Card(
       elevation: 4,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            isRunning
-                ? const GlowingIconWidget(
-                    iconAssetPath: iconAssetPath,
-                    size: 64,
-                    glowColor: Colors.green,
-                  )
-                : const GreyOutIconWidget(
-                    iconAssetPath: iconAssetPath,
-                    size: 64.0,
-                    opacity: 0.5,
-                    greyIntensity: 1.0,
-                  ),
-            const SizedBox(height: 16),
-            Text(
-              isRunning ? 'Server Running' : 'Server Stopped',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (state is ServerRunning) ...[
-              const SizedBox(height: 8),
-              Text(
-                state.url,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.blue,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: state.url));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('URL copied to clipboard')),
-                  );
-                },
-                icon: const Icon(Icons.copy),
-                label: const Text('Copy URL'),
-              ),
-            ],
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: isLoading
-                  ? null
-                  : () {
-                if (isRunning) {
-                  context.read<ServerBloc>().add(StopServerEvent());
-                } else {
-                  final port = int.tryParse(_portController.text) ?? 8080;
-                  final useDeviceIp = state is ServerStopped
-                      ? (state as ServerStopped).useDeviceIp
-                      : false;
-                  context.read<ServerBloc>().add(
-                    StartServerEvent(port, useDeviceIp: useDeviceIp),
-                  );
-                }
-              },
-              icon: Icon(
-                isRunning ? Icons.stop : Icons.play_arrow,
-                color: Colors.white,
-              ),
-              label: Text(
-                isRunning ? 'Stop Server' : 'Start Server',
-                style: const TextStyle(color: Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isRunning ? Colors.red : Colors.green,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              ),
-            ),
-            if (!isRunning && state is ServerStopped) ...[
-              const SizedBox(height: 16),
-              _buildDeviceIpToggle(state as ServerStopped),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDeviceIpToggle(ServerStopped state) {
-    return Card(
-      color: Colors.blue.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(Icons.wifi, color: Colors.blue.shade700),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Use Device IP',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    state.useDeviceIp && state.deviceIp != null
-                        ? 'Server will be accessible at: ${state.deviceIp}:${state.port}'
-                        : 'Allow other devices to connect',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Switch(
-              value: state.useDeviceIp,
-              onChanged: (value) {
-                context.read<ServerBloc>().add(SetUseDeviceIpEvent(value));
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPortConfiguration(ServerState state) {
-    final isRunning = state is ServerRunning;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Server Port',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _portController,
-              enabled: !isRunning,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                border: const OutlineInputBorder(),
-                labelText: 'Port',
-                hintText: '8080',
-                suffixIcon: isRunning
-                    ? const Icon(Icons.lock, color: Colors.grey)
-                    : null,
-              ),
-              onChanged: (value) {
-                final port = int.tryParse(value);
-                if (port != null && !isRunning) {
-                  context.read<ServerBloc>().add(SetServerPortEvent(port));
-                }
-              },
-            ),
-            if (isRunning)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Stop the server to change the port',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAutoPassThroughConfig(ServerState state) {
-    final isRunning = state is ServerRunning;
-    final autoPassThrough = state is ServerRunning
-        ? state.autoPassThrough
-        : (state is ServerStopped ? state.autoPassThrough : false);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Auto Pass-Through',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Forward unmatched requests to base URL',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
+                Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: runningCount > 0 ? Colors.green : Colors.grey,
+                    shape: BoxShape.circle,
+                    boxShadow: runningCount > 0
+                        ? [
+                            BoxShadow(
+                              color: Colors.green.withOpacity(0.5),
+                              blurRadius: 12,
+                              spreadRadius: 3,
+                            ),
+                          ]
+                        : null,
                   ),
                 ),
-                Switch(
-                  value: autoPassThrough,
-                  onChanged: (value) {
-                    context.read<ServerBloc>().add(SetAutoPassThroughEvent(value));
-                  },
+                const SizedBox(width: 12),
+                Text(
+                  runningCount > 0
+                      ? '$runningCount Server${runningCount > 1 ? 's' : ''} Running'
+                      : 'No Servers Running',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
-            if (autoPassThrough) ...[
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passThroughUrlController,
-                decoration: InputDecoration(
-                  border: const OutlineInputBorder(),
-                  labelText: 'Global Pass-Through Base URL',
-                  hintText: 'https://api.example.com',
-                  helperText: 'Requests will be forwarded as: base_url + request_path',
-                  suffixIcon: isRunning
-                      ? const Icon(Icons.lock, color: Colors.grey)
-                      : null,
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatCard(
+                  icon: Icons.folder,
+                  label: 'Total Profiles',
+                  value: totalProfiles.toString(),
+                  color: Colors.blue,
                 ),
-                enabled: !isRunning,
-                onChanged: (value) {
-                  context.read<ServerBloc>().add(SetGlobalPassThroughUrlEvent(value));
-                },
-              ),
-              if (isRunning)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Stop the server to change the pass-through URL',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
-                  ),
+                _buildStatCard(
+                  icon: Icons.play_circle,
+                  label: 'Active',
+                  value: runningCount.toString(),
+                  color: Colors.green,
                 ),
-            ],
+                _buildStatCard(
+                  icon: Icons.pause_circle,
+                  label: 'Inactive',
+                  value: (totalProfiles - runningCount).toString(),
+                  color: Colors.orange,
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildNavigationButtons() {
+  Widget _buildStatCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ElevatedButton.icon(
-          onPressed: () {
+        Icon(icon, color: color, size: 32),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRunningServersSection(List<Profile> runningProfiles) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Running Servers',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                context.read<ProfileBloc>().add(StopAllServersEvent());
+              },
+              icon: const Icon(Icons.stop_circle, color: Colors.red),
+              label: const Text(
+                'Stop All',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...runningProfiles.map((profile) => _buildRunningServerCard(profile)),
+      ],
+    );
+  }
+
+  Widget _buildRunningServerCard(Profile profile) {
+    final url = 'http://localhost:${profile.port}';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        leading: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.green.withOpacity(0.2),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.play_arrow, color: Colors.green),
+        ),
+        title: Text(
+          profile.name,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Text(
+              url,
+              style: const TextStyle(
+                color: Colors.blue,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                _buildChip('Port ${profile.port}', Colors.blue),
+                const SizedBox(width: 8),
+                _buildChip(
+                  '${profile.endpointIds.length} endpoints',
+                  Colors.purple,
+                ),
+              ],
+            ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.copy, size: 20),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: url));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('URL copied to clipboard')),
+                );
+              },
+              tooltip: 'Copy URL',
+            ),
+            IconButton(
+              icon: const Icon(Icons.stop, size: 20, color: Colors.red),
+              onPressed: () {
+                context
+                    .read<ProfileBloc>()
+                    .add(StopProfileServerEvent(profile.id));
+              },
+              tooltip: 'Stop Server',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Quick Actions',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _buildActionCard(
+          icon: Icons.folder,
+          title: 'Manage Profiles',
+          subtitle: 'Create, edit, and manage server profiles',
+          color: Colors.blue,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ProfilesScreen()),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        _buildActionCard(
+          icon: Icons.api,
+          title: 'Manage Endpoints',
+          subtitle: 'Configure API endpoints and mock responses',
+          color: Colors.purple,
+          onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const EndpointsScreen()),
             );
           },
-          icon: const Icon(Icons.settings_ethernet),
-          label: const Text('Manage Endpoints'),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
         ),
         const SizedBox(height: 12),
-        ElevatedButton.icon(
-          onPressed: () {
+        _buildActionCard(
+          icon: Icons.list_alt,
+          title: 'View Logs',
+          subtitle: 'Monitor request and response logs',
+          color: Colors.orange,
+          onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const LogsScreen()),
             );
           },
-          icon: const Icon(Icons.list_alt),
-          label: const Text('View Logs'),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildActionCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.rocket_launch,
+            size: 100,
+            color: Colors.grey[300],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Welcome to Arbiter',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[700],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Get started by creating your first profile',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfilesScreen()),
+              );
+            },
+            icon: const Icon(Icons.add, color: Colors.white),
+            label: const Text(
+              'Create Profile',
+              style: TextStyle(color: Colors.white),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }

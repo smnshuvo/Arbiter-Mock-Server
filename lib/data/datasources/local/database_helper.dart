@@ -19,13 +19,14 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3, // Updated version from 2 to 3
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _createDB(Database db, int version) async {
+    // Existing endpoints table
     await db.execute('''
       CREATE TABLE endpoints (
         id TEXT PRIMARY KEY,
@@ -44,6 +45,7 @@ class DatabaseHelper {
       )
     ''');
 
+    // Existing request_logs table with profileId
     await db.execute('''
       CREATE TABLE request_logs (
         id TEXT PRIMARY KEY,
@@ -56,10 +58,38 @@ class DatabaseHelper {
         responseBody TEXT,
         responseTimeMs INTEGER NOT NULL,
         logType TEXT NOT NULL,
-        matchedEndpointId TEXT
+        matchedEndpointId TEXT,
+        profileId TEXT
       )
     ''');
 
+    // New profiles table
+    await db.execute('''
+      CREATE TABLE profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        port INTEGER NOT NULL,
+        isActive INTEGER NOT NULL,
+        settings TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    ''');
+
+    // New profile_endpoints junction table
+    await db.execute('''
+      CREATE TABLE profile_endpoints (
+        id TEXT PRIMARY KEY,
+        profileId TEXT NOT NULL,
+        endpointId TEXT NOT NULL,
+        FOREIGN KEY (profileId) REFERENCES profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (endpointId) REFERENCES endpoints(id) ON DELETE CASCADE,
+        UNIQUE(profileId, endpointId)
+      )
+    ''');
+
+    // Create indexes
     await db.execute('''
       CREATE INDEX idx_logs_timestamp ON request_logs(timestamp)
     ''');
@@ -71,6 +101,18 @@ class DatabaseHelper {
     await db.execute('''
       CREATE INDEX idx_logs_url ON request_logs(url)
     ''');
+
+    await db.execute('''
+      CREATE INDEX idx_profile_endpoints_profile ON profile_endpoints(profileId)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_profile_endpoints_endpoint ON profile_endpoints(endpointId)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_profiles_active ON profiles(isActive)
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -79,8 +121,55 @@ class DatabaseHelper {
       await db.execute('''
         ALTER TABLE endpoints ADD COLUMN statusCode INTEGER NOT NULL DEFAULT 200
       ''');
+      print('Database upgraded to version 2');
+    }
 
-      print('Database upgraded from version $oldVersion to $newVersion');
+    if (oldVersion < 3) {
+      // Add profileId column to request_logs table
+      await db.execute('''
+        ALTER TABLE request_logs ADD COLUMN profileId TEXT
+      ''');
+
+      // Create profiles table
+      await db.execute('''
+        CREATE TABLE profiles (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          port INTEGER NOT NULL,
+          isActive INTEGER NOT NULL,
+          settings TEXT,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL
+        )
+      ''');
+
+      // Create profile_endpoints junction table
+      await db.execute('''
+        CREATE TABLE profile_endpoints (
+          id TEXT PRIMARY KEY,
+          profileId TEXT NOT NULL,
+          endpointId TEXT NOT NULL,
+          FOREIGN KEY (profileId) REFERENCES profiles(id) ON DELETE CASCADE,
+          FOREIGN KEY (endpointId) REFERENCES endpoints(id) ON DELETE CASCADE,
+          UNIQUE(profileId, endpointId)
+        )
+      ''');
+
+      // Create indexes for new tables
+      await db.execute('''
+        CREATE INDEX idx_profile_endpoints_profile ON profile_endpoints(profileId)
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_profile_endpoints_endpoint ON profile_endpoints(endpointId)
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_profiles_active ON profiles(isActive)
+      ''');
+
+      print('Database upgraded to version 3 - Profiles feature added');
     }
   }
 

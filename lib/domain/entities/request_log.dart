@@ -1,50 +1,13 @@
 import 'package:equatable/equatable.dart';
 
-enum RequestMethod { get, post, put, delete, patch, head, options }
-
-enum LogType { mock, passThrough }
-
-class RequestLog extends Equatable {
-  final String id;
-  final DateTime timestamp;
-  final RequestMethod method;
-  final String url;
-  final Map<String, String> headers;
-  final String? requestBody;
-  final int statusCode;
-  final String? responseBody;
-  final int responseTimeMs;
-  final LogType logType;
-  final String? matchedEndpointId;
-
-  const RequestLog({
-    required this.id,
-    required this.timestamp,
-    required this.method,
-    required this.url,
-    required this.headers,
-    this.requestBody,
-    required this.statusCode,
-    this.responseBody,
-    required this.responseTimeMs,
-    required this.logType,
-    this.matchedEndpointId,
-  });
-
-  @override
-  List<Object?> get props => [
-    id,
-    timestamp,
-    method,
-    url,
-    headers,
-    requestBody,
-    statusCode,
-    responseBody,
-    responseTimeMs,
-    logType,
-    matchedEndpointId,
-  ];
+enum RequestMethod {
+  get,
+  post,
+  put,
+  delete,
+  patch,
+  head,
+  options,
 }
 
 extension RequestMethodExtension on RequestMethod {
@@ -87,4 +50,55 @@ extension RequestMethodExtension on RequestMethod {
         return RequestMethod.get;
     }
   }
+}
+
+enum LogType {
+  mock,
+  passThrough,
+}
+
+class RequestLog extends Equatable {
+  final String id;
+  final DateTime timestamp;
+  final RequestMethod method;
+  final String url;
+  final Map<String, String> headers;
+  final String? requestBody;
+  final int statusCode;
+  final String? responseBody;
+  final int responseTimeMs;
+  final LogType logType;
+  final String? matchedEndpointId;
+  final String? profileId; // NEW - track which profile handled the request
+
+  const RequestLog({
+    required this.id,
+    required this.timestamp,
+    required this.method,
+    required this.url,
+    required this.headers,
+    this.requestBody,
+    required this.statusCode,
+    this.responseBody,
+    required this.responseTimeMs,
+    required this.logType,
+    this.matchedEndpointId,
+    this.profileId, // NEW
+  });
+
+  @override
+  List<Object?> get props => [
+    id,
+    timestamp,
+    method,
+    url,
+    headers,
+    requestBody,
+    statusCode,
+    responseBody,
+    responseTimeMs,
+    logType,
+    matchedEndpointId,
+    profileId, // NEW
+  ];
 }

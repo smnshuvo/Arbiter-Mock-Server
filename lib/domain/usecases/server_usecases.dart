@@ -1,5 +1,7 @@
 import '../repositories/server_repository.dart';
 
+// ========== LEGACY USE CASES ==========
+
 class StartServer {
   final ServerRepository repository;
 
@@ -117,5 +119,87 @@ class GetDeviceIpAddress {
 
   Future<String?> call() async {
     return await repository.getDeviceIpAddress();
+  }
+}
+
+// ========== NEW PROFILE-BASED USE CASES ==========
+
+class StartProfileServer {
+  final ServerRepository repository;
+
+  StartProfileServer(this.repository);
+
+  Future<void> call(String profileId) async {
+    await repository.startProfileServer(profileId);
+  }
+}
+
+class StopProfileServer {
+  final ServerRepository repository;
+
+  StopProfileServer(this.repository);
+
+  Future<void> call(String profileId) async {
+    await repository.stopProfileServer(profileId);
+  }
+}
+
+class StopAllServers {
+  final ServerRepository repository;
+
+  StopAllServers(this.repository);
+
+  Future<void> call() async {
+    await repository.stopAllServers();
+  }
+}
+
+class GetRunningProfiles {
+  final ServerRepository repository;
+
+  GetRunningProfiles(this.repository);
+
+  List<String> call() {
+    return repository.getRunningProfileIds();
+  }
+}
+
+class IsProfileServerRunning {
+  final ServerRepository repository;
+
+  IsProfileServerRunning(this.repository);
+
+  bool call(String profileId) {
+    return repository.isProfileServerRunning(profileId);
+  }
+}
+
+class GetServerUrlForProfile {
+  final ServerRepository repository;
+
+  GetServerUrlForProfile(this.repository);
+
+  String? call(String profileId) {
+    return repository.getServerUrlForProfile(profileId);
+  }
+}
+
+class GetRunningServerCount {
+  final ServerRepository repository;
+
+  GetRunningServerCount(this.repository);
+
+  int call() {
+    return repository.getRunningServerCount();
+  }
+}
+
+class IsPortAvailable {
+  final ServerRepository repository;
+
+  IsPortAvailable(this.repository);
+
+  bool call(int port, {String? excludeProfileId}) {
+    return repository.isPortAvailable(port, excludeProfileId: excludeProfileId);
   }
 }

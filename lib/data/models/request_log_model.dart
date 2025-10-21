@@ -17,6 +17,7 @@ class RequestLogModel {
   final int responseTimeMs;
   final String logType;
   final String? matchedEndpointId;
+  final String? profileId; // NEW - track which profile handled the request
 
   RequestLogModel({
     required this.id,
@@ -30,6 +31,7 @@ class RequestLogModel {
     required this.responseTimeMs,
     required this.logType,
     this.matchedEndpointId,
+    this.profileId, // NEW
   });
 
   factory RequestLogModel.fromJson(Map<String, dynamic> json) =>
@@ -50,6 +52,7 @@ class RequestLogModel {
       responseTimeMs: log.responseTimeMs,
       logType: log.logType.name,
       matchedEndpointId: log.matchedEndpointId,
+      profileId: log.profileId, // NEW
     );
   }
 
@@ -69,6 +72,7 @@ class RequestLogModel {
         orElse: () => LogType.mock,
       ),
       matchedEndpointId: matchedEndpointId,
+      profileId: profileId, // NEW
     );
   }
 
@@ -85,6 +89,7 @@ class RequestLogModel {
       'responseTimeMs': responseTimeMs,
       'logType': logType,
       'matchedEndpointId': matchedEndpointId,
+      'profileId': profileId, // NEW
     };
   }
 
@@ -101,6 +106,7 @@ class RequestLogModel {
       responseTimeMs: map['responseTimeMs'],
       logType: map['logType'],
       matchedEndpointId: map['matchedEndpointId'],
+      profileId: map['profileId'], // NEW
     );
   }
 }
