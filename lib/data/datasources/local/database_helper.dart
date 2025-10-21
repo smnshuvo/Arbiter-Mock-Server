@@ -1,5 +1,7 @@
-import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
+import 'dart:io' show Platform;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' show sqfliteFfiInit, databaseFactoryFfi;
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -14,15 +16,33 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
+    final isMobileOrMac = Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+    final isDesktop = Platform.isLinux || Platform.isWindows;
 
-    return await openDatabase(
-      path,
-      version: 2,
-      onCreate: _createDB,
-      onUpgrade: _onUpgrade,
-    );
+    if (isMobileOrMac) {
+      final dbPath = await getDatabasesPath();
+      final path = join(dbPath, filePath);
+      return openDatabase(
+        path,
+        version: 2,
+        onCreate: _createDB,
+        onUpgrade: _onUpgrade,
+      );
+    }
+
+    if (isDesktop) {
+      sqfliteFfiInit();
+      return databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: 2,
+          onCreate: _createDB,
+          onUpgrade: _onUpgrade,
+        ),
+      );
+    }
+
+    throw UnsupportedError('Unsupported platform');
   }
 
   Future<void> _createDB(Database db, int version) async {
