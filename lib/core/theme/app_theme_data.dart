@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-final lightTheme =  ThemeData(
+final lightTheme = ThemeData(
   useMaterial3: true,
   appBarTheme: const AppBarTheme(
     centerTitle: true,
@@ -16,9 +16,10 @@ final lightTheme =  ThemeData(
     seedColor: Colors.orange,
     primary: Colors.deepOrange,
   ),
+  canvasColor: Colors.grey[100], // mostly use for json viewer
 );
 
-final darkTheme =  ThemeData(
+final darkTheme = ThemeData(
   useMaterial3: true,
   brightness: Brightness.dark,
   appBarTheme: const AppBarTheme(
@@ -33,4 +34,5 @@ final darkTheme =  ThemeData(
     ),
   ),
   colorScheme: const ColorScheme.dark(),
+  canvasColor: const Color(0xFF1e1e1e),
 );
