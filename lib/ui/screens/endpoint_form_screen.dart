@@ -120,7 +120,9 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                   return DropdownMenuItem(
                     value: mode,
                     child: Text(
-                      mode == EndpointMode.mock ? 'Mock Response' : 'Pass Through',
+                      mode == EndpointMode.mock
+                          ? 'Mock Response'
+                          : 'Pass Through',
                     ),
                   );
                 }).toList(),
@@ -154,7 +156,8 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                 const SizedBox(height: 16),
                 SwitchListTile(
                   title: const Text('Use Conditional Mock'),
-                  subtitle: const Text('Return different responses based on query params or body fields'),
+                  subtitle: const Text(
+                      'Return different responses based on query params or body fields'),
                   value: _useConditionalMock,
                   onChanged: (value) {
                     setState(() {
@@ -165,7 +168,9 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                 const SizedBox(height: 8),
                 if (_useConditionalMock) ...[
                   Card(
-                    color: Colors.blue.shade50,
+                    color: Theme.of(context).brightness == Brightness.light
+                        ? Colors.blue.shade50
+                        : Colors.deepPurple.shade900,
                     child: ListTile(
                       leading: const Icon(Icons.rule, color: Colors.blue),
                       title: Text(
@@ -175,7 +180,8 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                       subtitle: const Text('Tap to manage conditional mocks'),
                       trailing: const Icon(Icons.arrow_forward_ios),
                       onTap: () async {
-                        final result = await Navigator.push<List<ConditionalMock>>(
+                        final result =
+                            await Navigator.push<List<ConditionalMock>>(
                           context,
                           MaterialPageRoute(
                             builder: (context) => ConditionalMockScreen(
@@ -207,7 +213,8 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                   ),
                   maxLines: 8,
                   validator: (value) {
-                    if (_mode == EndpointMode.mock && (value == null || value.isEmpty)) {
+                    if (_mode == EndpointMode.mock &&
+                        (value == null || value.isEmpty)) {
                       return 'Please enter mock response';
                     }
                     return null;
@@ -240,10 +247,13 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
-                    if (_mode == EndpointMode.passThrough && (value == null || value.isEmpty)) {
+                    if (_mode == EndpointMode.passThrough &&
+                        (value == null || value.isEmpty)) {
                       return 'Please enter target URL';
                     }
-                    if (value != null && value.isNotEmpty && !value.startsWith('http')) {
+                    if (value != null &&
+                        value.isNotEmpty &&
+                        !value.startsWith('http')) {
                       return 'URL must start with http:// or https://';
                     }
                     return null;
@@ -257,7 +267,9 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
                 child: Text(
-                  widget.endpoint == null ? 'Create Endpoint' : 'Update Endpoint',
+                  widget.endpoint == null
+                      ? 'Create Endpoint'
+                      : 'Update Endpoint',
                   style: const TextStyle(fontSize: 16),
                 ),
               ),
@@ -272,19 +284,28 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
     if (_formKey.currentState!.validate()) {
       final now = DateTime.now();
       final endpoint = Endpoint(
-        id: widget.endpoint?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        id: widget.endpoint?.id ??
+            DateTime.now().millisecondsSinceEpoch.toString(),
         pattern: _patternController.text,
         matchType: _matchType,
         mode: _mode,
-        mockResponse: _mode == EndpointMode.mock ? _mockResponseController.text : null,
+        mockResponse:
+            _mode == EndpointMode.mock ? _mockResponseController.text : null,
         statusCode: _mode == EndpointMode.mock ? _statusCode : 200,
-        delayMs: _mode == EndpointMode.mock ? int.tryParse(_delayController.text) ?? 0 : 0,
-        targetUrl: _mode == EndpointMode.passThrough ? _targetUrlController.text : null,
+        delayMs: _mode == EndpointMode.mock
+            ? int.tryParse(_delayController.text) ?? 0
+            : 0,
+        targetUrl: _mode == EndpointMode.passThrough
+            ? _targetUrlController.text
+            : null,
         createdAt: widget.endpoint?.createdAt ?? now,
         updatedAt: now,
         isEnabled: widget.endpoint?.isEnabled ?? true,
-        useConditionalMock: _mode == EndpointMode.mock ? _useConditionalMock : false,
-        conditionalMocks: _mode == EndpointMode.mock && _useConditionalMock ? _conditionalMocks : [],
+        useConditionalMock:
+            _mode == EndpointMode.mock ? _useConditionalMock : false,
+        conditionalMocks: _mode == EndpointMode.mock && _useConditionalMock
+            ? _conditionalMocks
+            : [],
       );
 
       if (widget.endpoint == null) {
