@@ -1,3 +1,4 @@
+import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -14,17 +15,21 @@ import 'endpoint_screen.dart';
 import 'logs_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _portController = TextEditingController(text: '8080');
-  final TextEditingController _passThroughUrlController = TextEditingController();
+  final TextEditingController _portController =
+      TextEditingController(text: '8080');
+  final TextEditingController _passThroughUrlController =
+      TextEditingController();
 
   static const iconAssetPath = 'assets/app_icon/app_icon.png';
+  static const sunIconAssetPath = 'assets/sun.png';
+  static const moonIconAssetPath = 'assets/moon.png';
 
   @override
   void initState() {
@@ -46,6 +51,18 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Arbiter'),
         centerTitle: true,
+        actions: [
+          BlocBuilder<ThemeCubit, ThemeMode>(
+            builder: (context, themeMode) {
+              return Switch(
+                value: themeMode == ThemeMode.dark,
+                onChanged: (_) => context.read<ThemeCubit>().toggleTheme(),
+                activeThumbImage: const AssetImage(moonIconAssetPath),
+                inactiveThumbImage: const AssetImage(sunIconAssetPath),
+              );
+            },
+          )
+        ],
       ),
       body: BlocConsumer<ServerBloc, ServerState>(
         listener: (context, state) {
@@ -120,16 +137,16 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             isRunning
                 ? const GlowingIconWidget(
-              iconAssetPath: iconAssetPath,
-              size: 64,
-              glowColor: Colors.green,
-            )
+                    iconAssetPath: iconAssetPath,
+                    size: 64,
+                    glowColor: Colors.green,
+                  )
                 : const GreyOutIconWidget(
-              iconAssetPath: iconAssetPath,
-              size: 64.0,
-              opacity: 0.5,
-              greyIntensity: 1.0,
-            ),
+                    iconAssetPath: iconAssetPath,
+                    size: 64.0,
+                    opacity: 0.5,
+                    greyIntensity: 1.0,
+                  ),
             const SizedBox(height: 16),
             Text(
               isRunning ? 'Server Running' : 'Server Stopped',
@@ -164,18 +181,18 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: isLoading
                   ? null
                   : () {
-                if (isRunning) {
-                  context.read<ServerBloc>().add(StopServerEvent());
-                } else {
-                  final port = int.tryParse(_portController.text) ?? 8080;
-                  final useDeviceIp = state is ServerStopped
-                      ? (state as ServerStopped).useDeviceIp
-                      : false;
-                  context.read<ServerBloc>().add(
-                    StartServerEvent(port, useDeviceIp: useDeviceIp),
-                  );
-                }
-              },
+                      if (isRunning) {
+                        context.read<ServerBloc>().add(StopServerEvent());
+                      } else {
+                        final port = int.tryParse(_portController.text) ?? 8080;
+                        final useDeviceIp = state is ServerStopped
+                            ? (state as ServerStopped).useDeviceIp
+                            : false;
+                        context.read<ServerBloc>().add(
+                              StartServerEvent(port, useDeviceIp: useDeviceIp),
+                            );
+                      }
+                    },
               icon: Icon(
                 isRunning ? Icons.stop : Icons.play_arrow,
                 color: Colors.white,
@@ -186,7 +203,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: isRunning ? Colors.red : Colors.green,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
               ),
             ),
             if (!isRunning && state is ServerStopped) ...[
@@ -201,7 +219,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildDeviceIpToggle(ServerStopped state) {
     return Card(
-      color: Colors.blue.shade50,
+      color: Theme.of(context).brightness == Brightness.light
+          ? Colors.blue.shade50
+          : Colors.deepPurple.shade900,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -225,9 +245,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? 'Server will be accessible at: ${state.deviceIp}:${state.port}'
                         : 'Allow other devices to connect',
                     style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                    ),
+                        fontSize: 12,
+                        color: Theme.of(context).brightness == Brightness.light
+                            ? Colors.grey[700]
+                            : Colors.white70),
                   ),
                 ],
               ),
@@ -336,7 +357,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 Switch(
                   value: autoPassThrough,
                   onChanged: (value) {
-                    context.read<ServerBloc>().add(SetAutoPassThroughEvent(value));
+                    context
+                        .read<ServerBloc>()
+                        .add(SetAutoPassThroughEvent(value));
                   },
                 ),
               ],
@@ -349,14 +372,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   border: const OutlineInputBorder(),
                   labelText: 'Global Pass-Through Base URL',
                   hintText: 'https://api.example.com',
-                  helperText: 'Requests will be forwarded as: base_url + request_path',
+                  helperText:
+                      'Requests will be forwarded as: base_url + request_path',
                   suffixIcon: isRunning
                       ? const Icon(Icons.lock, color: Colors.grey)
                       : null,
                 ),
                 enabled: !isRunning,
                 onChanged: (value) {
-                  context.read<ServerBloc>().add(SetGlobalPassThroughUrlEvent(value));
+                  context
+                      .read<ServerBloc>()
+                      .add(SetGlobalPassThroughUrlEvent(value));
                 },
               ),
               if (isRunning)
@@ -383,8 +409,8 @@ class _HomeScreenState extends State<HomeScreen> {
         final mode = interceptionState is InterceptionEnabled
             ? interceptionState.mode
             : (interceptionState is InterceptionPending
-            ? interceptionState.mode
-            : InterceptionMode.none);
+                ? interceptionState.mode
+                : InterceptionMode.none);
 
         return Card(
           child: Padding(
@@ -444,12 +470,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       value: mode != InterceptionMode.none,
                       onChanged: (value) {
                         context.read<InterceptionBloc>().add(
-                          SetInterceptionModeEvent(
-                            value
-                                ? InterceptionMode.both
-                                : InterceptionMode.none,
-                          ),
-                        );
+                              SetInterceptionModeEvent(
+                                value
+                                    ? InterceptionMode.both
+                                    : InterceptionMode.none,
+                              ),
+                            );
                       },
                     ),
                   ],
@@ -479,15 +505,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       InterceptionMode.both,
                     ]
                         .map((m) => DropdownMenuItem(
-                      value: m,
-                      child: Text(m.displayName),
-                    ))
+                              value: m,
+                              child: Text(m.displayName),
+                            ))
                         .toList(),
                     onChanged: (value) {
                       if (value != null) {
                         context.read<InterceptionBloc>().add(
-                          SetInterceptionModeEvent(value),
-                        );
+                              SetInterceptionModeEvent(value),
+                            );
                       }
                     },
                   ),
@@ -495,12 +521,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
+                      color: Theme.of(context).brightness == Brightness.light
+                          ? Colors.blue.shade50
+                          : Colors.deepPurple.shade900,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                        Icon(Icons.info_outline,
+                            color: Colors.blue.shade700, size: 20),
                         const SizedBox(width: 8),
                         const Expanded(
                           child: Text(
