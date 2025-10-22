@@ -411,12 +411,12 @@ class _LogsScreenState extends State<LogsScreen> {
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () {
-              _searchController.clear();
-              _applySearch();
-            },
-          )
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    _applySearch();
+                  },
+                )
               : null,
           border: const OutlineInputBorder(),
         ),
@@ -431,7 +431,8 @@ class _LogsScreenState extends State<LogsScreen> {
       child: Wrap(
         spacing: 8,
         children: [
-          if (_currentFilter!.methods != null && _currentFilter!.methods!.isNotEmpty)
+          if (_currentFilter!.methods != null &&
+              _currentFilter!.methods!.isNotEmpty)
             Chip(
               label: Text('Methods: ${_currentFilter!.methods!.length}'),
               onDeleted: () {
@@ -447,7 +448,8 @@ class _LogsScreenState extends State<LogsScreen> {
                 _applyFilter();
               },
             ),
-          if (_currentFilter!.statusCodes != null && _currentFilter!.statusCodes!.isNotEmpty)
+          if (_currentFilter!.statusCodes != null &&
+              _currentFilter!.statusCodes!.isNotEmpty)
             Chip(
               label: Text('Status: ${_currentFilter!.statusCodes!.length}'),
               onDeleted: () {
@@ -463,7 +465,8 @@ class _LogsScreenState extends State<LogsScreen> {
                 _applyFilter();
               },
             ),
-          if (_currentFilter!.logTypes != null && _currentFilter!.logTypes!.isNotEmpty)
+          if (_currentFilter!.logTypes != null &&
+              _currentFilter!.logTypes!.isNotEmpty)
             Chip(
               label: Text('Types: ${_currentFilter!.logTypes!.length}'),
               onDeleted: () {
@@ -639,68 +642,59 @@ class _LogsScreenState extends State<LogsScreen> {
           ),
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildDetailRow('Timestamp', dateFormat.format(log.timestamp)),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailRow('Timestamp', dateFormat.format(log.timestamp)),
+                const Divider(),
+                _buildDetailRow('Method', log.method.name),
+                _buildDetailRow('URL', log.url),
+                _buildDetailRow('Status Code', log.statusCode.toString()),
+                _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
+                _buildDetailRow('Type',
+                    log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
+                if (log.headers.isNotEmpty) ...[
                   const Divider(),
-                  _buildDetailRow('Method', log.method.name),
-                  _buildDetailRow('URL', log.url),
-                  _buildDetailRow('Status Code', log.statusCode.toString()),
-                  _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
-                  _buildDetailRow('Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
-                  _buildCollapsibleSection(
-                    title: 'Headers',
-                    icon: Icons.list_alt,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: (log.headers.isNotEmpty)
-                          ? [
-                              const Divider(),
-                              const Text(
-                                'Headers:',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              ...log.headers.entries.map(
-                                (entry) => Padding(
-                                  padding: const EdgeInsets.only(
-                                      left: 16, bottom: 4),
-                                  child: Text('${entry.key}: ${entry.value}'),
-                                ),
-                              ),
-                            ]
-                          : [],
+                  const Text(
+                    'Headers:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  ...log.headers.entries.map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(left: 16, bottom: 4),
+                      child: Text('${entry.key}: ${entry.value}'),
                     ),
                   ),
-                  if (log.requestBody != null) ...[
-                    const Divider(),
-                    const Text(
-                      'Request Body:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    JsonViewerWidget(
-                      jsonString: log.requestBody!,
-                      initialExpandDepth: 1,
-                    ),
-                  ],
-                  if (log.responseBody != null) ...[
-                    const Divider(),
-                    const Text(
-                      'Response Body:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    JsonViewerWidget(
-                      jsonString: log.responseBody!,
-                      initialExpandDepth: 1,
-                    ),
-                  ],
                 ],
-              ),
+                if (log.requestBody != null) ...[
+                  const Divider(),
+                  const Text(
+                    'Request Body:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  JsonViewerWidget(
+                    jsonString: log.requestBody!,
+                    initialExpandDepth: 1,
+                  ),
+                ],
+                if (log.responseBody != null) ...[
+                  const Divider(),
+                  const Text(
+                    'Response Body:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  JsonViewerWidget(
+                    jsonString: log.responseBody!,
+                    initialExpandDepth: 1,
+                  ),
+                ],
+              ],
             ),
+          ),
           ],
         ),
       );
@@ -816,7 +810,9 @@ class _LogsScreenState extends State<LogsScreen> {
             TextButton(
               onPressed: () {
                 if (filteredOnly && _currentFilter != null) {
-                  context.read<LogBloc>().add(ClearFilteredLogsEvent(_currentFilter!));
+                  context
+                      .read<LogBloc>()
+                      .add(ClearFilteredLogsEvent(_currentFilter!));
                 } else {
                   context.read<LogBloc>().add(ClearLogsEvent());
                 }
@@ -853,7 +849,8 @@ class _LogsScreenState extends State<LogsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Export failed: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -887,7 +884,9 @@ class _LogsScreenState extends State<LogsScreen> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.grey[200],
+                    color: Theme.of(context).brightness == Brightness.light
+                        ? Colors.grey[200]
+                        : const Color(0xFF1e1e1e),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
