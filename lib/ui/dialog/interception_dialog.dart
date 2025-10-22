@@ -30,6 +30,14 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
   Timer? _timer;
   bool _isModified = false;
 
+  // Expansion states
+  bool _headersExpanded = false;
+  bool _bodyExpanded = true;
+
+  // Body input mode
+  bool _useKeyValueMode = false;
+  List<MapEntry<String, dynamic>> _bodyKeyValuePairs = [];
+
   @override
   void initState() {
     super.initState();
@@ -49,7 +57,22 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
           text: widget.interception.statusCode?.toString() ?? '200');
     }
 
+    _parseBodyToKeyValue();
     _startTimer();
+  }
+
+  void _parseBodyToKeyValue() {
+    if (_bodyController.text.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(_bodyController.text);
+        if (decoded is Map) {
+          _bodyKeyValuePairs =
+              decoded.entries.toList() as List<MapEntry<String, dynamic>>;
+        }
+      } catch (e) {
+        // Not valid JSON, keep empty
+      }
+    }
   }
 
   void _startTimer() {
@@ -83,6 +106,12 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
   }
 
   void _modifyAndContinue() {
+    // Sync key-value mode to text
+    if (_useKeyValueMode) {
+      final map = Map.fromEntries(_bodyKeyValuePairs);
+      _bodyController.text = jsonEncode(map);
+    }
+
     final statusCode = widget.interception.isResponse
         ? int.tryParse(_statusCodeController.text)
         : null;
@@ -133,9 +162,9 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
                   children: [
                     _buildMethodAndUrl(),
                     const SizedBox(height: 16),
-                    _buildHeaders(),
+                    _buildHeadersSection(),
                     const SizedBox(height: 16),
-                    _buildBody(),
+                    _buildBodySection(),
                     if (widget.interception.isResponse) ...[
                       const SizedBox(height: 16),
                       _buildStatusCode(),
@@ -195,10 +224,15 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
               ],
             ),
           ),
-          CircularProgressIndicator(
-            value: _remainingSeconds / widget.timeoutSeconds,
-            backgroundColor: Colors.white30,
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: CircularProgressIndicator(
+              value: _remainingSeconds / widget.timeoutSeconds,
+              backgroundColor: Colors.white30,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+              strokeWidth: 3,
+            ),
           ),
         ],
       ),
@@ -215,6 +249,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
             decoration: const InputDecoration(
               labelText: 'Method',
               border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
             ),
             items: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']
                 .map((m) => DropdownMenuItem(value: m, child: Text(m)))
@@ -238,6 +273,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
             decoration: const InputDecoration(
               labelText: 'URL',
               border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
             ),
             enabled: widget.interception.isRequest,
             onChanged: (_) => setState(() => _isModified = true),
@@ -247,79 +283,267 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
     );
   }
 
-  Widget _buildHeaders() {
+  Widget _buildHeadersSection() {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Headers',
-              style: TextStyle(fontWeight: FontWeight.bold),
+      elevation: 2,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () => setState(() => _headersExpanded = !_headersExpanded),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(
+                    _headersExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Headers',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${_headers.length}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
+          ),
+          if (_headersExpanded) ...[
+            const Divider(height: 1),
             Container(
-              constraints: const BoxConstraints(maxHeight: 150),
-              child: SingleChildScrollView(
-                child: Column(
-                  children: _headers.entries
-                      .map((e) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.all(12),
+                itemCount: _headers.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final entry = _headers.entries.elementAt(index);
+                  return Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            '${e.key}: ${e.value}',
-                            style: const TextStyle(fontSize: 12),
+                        Text(
+                          entry.key,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          entry.value,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[700],
                           ),
                         ),
                       ],
                     ),
-                  ))
-                      .toList(),
-                ),
+                  );
+                },
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildBody() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Text(
-              'Body',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const Spacer(),
-            if (_bodyController.text.isNotEmpty)
-              TextButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _bodyController.text = _formatJson(_bodyController.text);
-                  });
-                },
-                icon: const Icon(Icons.format_align_left, size: 16),
-                label: const Text('Format JSON'),
+  Widget _buildBodySection() {
+    return Card(
+      elevation: 2,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () => setState(() => _bodyExpanded = !_bodyExpanded),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(
+                    _bodyExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Body',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const Spacer(),
+                  if (_bodyController.text.isNotEmpty && _bodyExpanded)
+                    IconButton(
+                      icon: const Icon(Icons.format_align_left, size: 18),
+                      onPressed: () {
+                        setState(() {
+                          _bodyController.text = _formatJson(_bodyController.text);
+                        });
+                      },
+                      tooltip: 'Format JSON',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                ],
               ),
+            ),
+          ),
+          if (_bodyExpanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(
+                              value: false,
+                              label: Text('Text', style: TextStyle(fontSize: 12)),
+                              icon: Icon(Icons.text_fields, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: true,
+                              label: Text('Key-Value', style: TextStyle(fontSize: 12)),
+                              icon: Icon(Icons.list, size: 16),
+                            ),
+                          ],
+                          selected: {_useKeyValueMode},
+                          onSelectionChanged: (Set<bool> selected) {
+                            setState(() {
+                              _useKeyValueMode = selected.first;
+                              if (_useKeyValueMode) {
+                                _parseBodyToKeyValue();
+                              }
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_useKeyValueMode)
+                    _buildKeyValueEditor()
+                  else
+                    _buildTextEditor(),
+                ],
+              ),
+            ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextEditor() {
+    return TextField(
+      controller: _bodyController,
+      maxLines: 8,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        hintText: 'Request/Response body',
+        contentPadding: EdgeInsets.all(12),
+      ),
+      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+      onChanged: (_) => setState(() => _isModified = true),
+    );
+  }
+
+  Widget _buildKeyValueEditor() {
+    return Column(
+      children: [
+        Container(
+          constraints: const BoxConstraints(maxHeight: 250),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _bodyKeyValuePairs.length,
+            itemBuilder: (context, index) {
+              final entry = _bodyKeyValuePairs[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Key',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                        ),
+                        style: const TextStyle(fontSize: 12),
+                        controller: TextEditingController(text: entry.key),
+                        onChanged: (value) {
+                          setState(() {
+                            _bodyKeyValuePairs[index] = MapEntry(value, entry.value);
+                            _isModified = true;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Value',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                        ),
+                        style: const TextStyle(fontSize: 12),
+                        controller: TextEditingController(text: entry.value.toString()),
+                        onChanged: (value) {
+                          setState(() {
+                            _bodyKeyValuePairs[index] = MapEntry(entry.key, value);
+                            _isModified = true;
+                          });
+                        },
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete, size: 20),
+                      onPressed: () {
+                        setState(() {
+                          _bodyKeyValuePairs.removeAt(index);
+                          _isModified = true;
+                        });
+                      },
+                      padding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
         const SizedBox(height: 8),
-        TextField(
-          controller: _bodyController,
-          maxLines: 10,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            hintText: 'Request/Response body',
-          ),
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-          onChanged: (_) => setState(() => _isModified = true),
+        OutlinedButton.icon(
+          onPressed: () {
+            setState(() {
+              _bodyKeyValuePairs.add(const MapEntry('', ''));
+              _isModified = true;
+            });
+          },
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Add Field', style: TextStyle(fontSize: 12)),
         ),
       ],
     );
@@ -333,6 +557,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
         decoration: const InputDecoration(
           labelText: 'Status Code',
           border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         ),
         keyboardType: TextInputType.number,
         onChanged: (_) => setState(() => _isModified = true),
@@ -345,40 +570,55 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.grey[100],
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(4),
-          bottomRight: Radius.circular(4),
-        ),
+        border: Border(top: BorderSide(color: Colors.grey[300]!)),
       ),
-      child: SizedBox(
-        width: double.maxFinite,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            ElevatedButton.icon(
-              onPressed: _cancel,
-              icon: const Icon(Icons.cancel),
-              label: const Text('Cancel Request'),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-            ),
-            const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: _continueWithoutModification,
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('Continue'),
-            ),
-            const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: _isModified ? _modifyAndContinue : null,
-              icon: const Icon(Icons.edit),
-              label: const Text('Modify & Continue'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _cancel,
+                  icon: const Icon(Icons.cancel, size: 18),
+                  label: const Text('Cancel'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _continueWithoutModification,
+                  icon: const Icon(Icons.play_arrow, size: 18),
+                  label: const Text('Continue'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_isModified) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _modifyAndContinue,
+                icon: const Icon(Icons.check_circle, size: 18),
+                label: const Text('Modify & Continue'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
