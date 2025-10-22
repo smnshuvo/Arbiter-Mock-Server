@@ -1,3 +1,4 @@
+import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
 import 'package:get_it/get_it.dart';
 
 import '../../data/datasources/local/database_helper.dart';
@@ -162,4 +163,5 @@ Future<void> init() async {
 
   // Core
   sl.registerLazySingleton(() => DatabaseHelper.instance);
+  sl.registerLazySingleton(()=> ThemeCubit());
 }
