@@ -168,9 +168,7 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
                 const SizedBox(height: 8),
                 if (_useConditionalMock) ...[
                   Card(
-                    color: Theme.of(context).brightness == Brightness.light
-                        ? Colors.blue.shade50
-                        : Colors.deepPurple.shade900,
+                    color: Theme.of(context).highlightColor,
                     child: ListTile(
                       leading: const Icon(Icons.rule, color: Colors.blue),
                       title: Text(

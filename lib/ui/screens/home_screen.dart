@@ -219,9 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildDeviceIpToggle(ServerStopped state) {
     return Card(
-      color: Theme.of(context).brightness == Brightness.light
-          ? Colors.blue.shade50
-          : Colors.deepPurple.shade900,
+      color: Theme.of(context).highlightColor,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -244,11 +242,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     state.useDeviceIp && state.deviceIp != null
                         ? 'Server will be accessible at: ${state.deviceIp}:${state.port}'
                         : 'Allow other devices to connect',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).brightness == Brightness.light
-                            ? Colors.grey[700]
-                            : Colors.white70),
+                    style: const TextStyle(
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
@@ -521,9 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).brightness == Brightness.light
-                          ? Colors.blue.shade50
-                          : Colors.deepPurple.shade900,
+                      color: Theme.of(context).highlightColor,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(

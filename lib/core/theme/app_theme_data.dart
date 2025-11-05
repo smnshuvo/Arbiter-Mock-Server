@@ -16,7 +16,9 @@ final lightTheme = ThemeData(
     seedColor: Colors.orange,
     primary: Colors.deepOrange,
   ),
-  canvasColor: Colors.grey[100], // mostly use for json viewer
+  canvasColor: Colors.grey[100],
+  // mostly use for json viewer
+  highlightColor: Colors.blue.shade50,
 );
 
 final darkTheme = ThemeData(
@@ -35,4 +37,5 @@ final darkTheme = ThemeData(
   ),
   colorScheme: const ColorScheme.dark(),
   canvasColor: const Color(0xFF1e1e1e),
+  highlightColor: Colors.deepPurple.shade900,
 );
