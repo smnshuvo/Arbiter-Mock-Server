@@ -77,8 +77,8 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
 
   void _continueWithoutModification() {
     context.read<InterceptionBloc>().add(
-      ContinueWithoutModificationEvent(widget.interception.id),
-    );
+          ContinueWithoutModificationEvent(widget.interception.id),
+        );
     Navigator.of(context).pop();
   }
 
@@ -88,22 +88,22 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
         : null;
 
     context.read<InterceptionBloc>().add(
-      ModifyAndContinueEvent(
-        id: widget.interception.id,
-        method: _method,
-        url: _urlController.text,
-        headers: _headers,
-        body: _bodyController.text.isNotEmpty ? _bodyController.text : null,
-        statusCode: statusCode,
-      ),
-    );
+          ModifyAndContinueEvent(
+            id: widget.interception.id,
+            method: _method,
+            url: _urlController.text,
+            headers: _headers,
+            body: _bodyController.text.isNotEmpty ? _bodyController.text : null,
+            statusCode: statusCode,
+          ),
+        );
     Navigator.of(context).pop();
   }
 
   void _cancel() {
     context.read<InterceptionBloc>().add(
-      CancelInterceptionEvent(widget.interception.id),
-    );
+          CancelInterceptionEvent(widget.interception.id),
+        );
     Navigator.of(context).pop();
   }
 
@@ -221,13 +221,13 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
                 .toList(),
             onChanged: widget.interception.isRequest
                 ? (value) {
-              if (value != null) {
-                setState(() {
-                  _method = value;
-                  _isModified = true;
-                });
-              }
-            }
+                    if (value != null) {
+                      setState(() {
+                        _method = value;
+                        _isModified = true;
+                      });
+                    }
+                  }
                 : null,
           ),
         ),
@@ -265,18 +265,18 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
                 child: Column(
                   children: _headers.entries
                       .map((e) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${e.key}: ${e.value}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ))
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${e.key}: ${e.value}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ))
                       .toList(),
                 ),
               ),
@@ -344,7 +344,11 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+            top: BorderSide(
+          color: Colors.grey.shade800,
+        )),
         borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(4),
           bottomRight: Radius.circular(4),
@@ -352,7 +356,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
       ),
       child: SizedBox(
         width: double.maxFinite,
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             ElevatedButton.icon(
@@ -361,7 +365,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
               label: const Text('Cancel Request'),
               style: TextButton.styleFrom(foregroundColor: Colors.red),
             ),
-            const SizedBox(width: 12),
+            const Spacer(),
             ElevatedButton.icon(
               onPressed: _continueWithoutModification,
               icon: const Icon(Icons.play_arrow),

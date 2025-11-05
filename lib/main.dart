@@ -15,9 +15,8 @@ import 'ui/screens/welcome_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await di.init();
-  runApp(BlocProvider(
-      create: (_) => di.sl<ThemeCubit>(),
-      child: const MyApp()));
+  runApp(
+      BlocProvider(create: (_) => di.sl<ThemeCubit>(), child: const MyApp()));
 }
 
 class MyApp extends StatelessWidget {
