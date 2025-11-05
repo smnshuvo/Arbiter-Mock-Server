@@ -152,7 +152,8 @@ class _LogsScreenState extends State<LogsScreen> {
                   const Spacer(),
                   if (_currentFilter != null)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.blue.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
@@ -208,8 +209,8 @@ class _LogsScreenState extends State<LogsScreen> {
                 child: _selectedLog == null
                     ? _buildSelectPrompt()
                     : Align(
-                    alignment: AlignmentGeometry.topLeft,
-                    child: _buildLogDetail(_selectedLog!)),
+                        alignment: AlignmentGeometry.topLeft,
+                        child: _buildLogDetail(_selectedLog!)),
               ),
             ],
           );
@@ -321,7 +322,8 @@ class _LogsScreenState extends State<LogsScreen> {
           _buildDetailRow('URL', log.url),
           _buildDetailRow('Status Code', log.statusCode.toString()),
           _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
-          _buildDetailRow('Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
+          _buildDetailRow(
+              'Type', log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
 
           // Headers Section - Collapsible
           if (log.headers.isNotEmpty) ...[
@@ -332,12 +334,14 @@ class _LogsScreenState extends State<LogsScreen> {
               child: Column(
                 key: ValueKey(log.url),
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: log.headers.entries.map(
+                children: log.headers.entries
+                    .map(
                       (entry) => Padding(
-                    padding: const EdgeInsets.only(left: 16, bottom: 4),
-                    child: Text('${entry.key}: ${entry.value}'),
-                  ),
-                ).toList(),
+                        padding: const EdgeInsets.only(left: 16, bottom: 4),
+                        child: Text('${entry.key}: ${entry.value}'),
+                      ),
+                    )
+                    .toList(),
               ),
             ),
           ],
@@ -547,7 +551,7 @@ class _LogsScreenState extends State<LogsScreen> {
       // Compact card for master-detail layout
       return Card(
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        color: isSelected ? Colors.blue.withOpacity(0.1) : null,
+        color: isSelected ? Theme.of(context).highlightColor : null,
         child: ListTile(
           leading: CircleAvatar(
             backgroundColor: statusColor.withOpacity(0.2),
@@ -642,59 +646,60 @@ class _LogsScreenState extends State<LogsScreen> {
           ),
           children: [
             Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildDetailRow('Timestamp', dateFormat.format(log.timestamp)),
-                const Divider(),
-                _buildDetailRow('Method', log.method.name),
-                _buildDetailRow('URL', log.url),
-                _buildDetailRow('Status Code', log.statusCode.toString()),
-                _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
-                _buildDetailRow('Type',
-                    log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
-                if (log.headers.isNotEmpty) ...[
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDetailRow(
+                      'Timestamp', dateFormat.format(log.timestamp)),
                   const Divider(),
-                  const Text(
-                    'Headers:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  ...log.headers.entries.map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(left: 16, bottom: 4),
-                      child: Text('${entry.key}: ${entry.value}'),
+                  _buildDetailRow('Method', log.method.name),
+                  _buildDetailRow('URL', log.url),
+                  _buildDetailRow('Status Code', log.statusCode.toString()),
+                  _buildDetailRow('Response Time', '${log.responseTimeMs}ms'),
+                  _buildDetailRow('Type',
+                      log.logType == LogType.mock ? 'Mock' : 'Pass-through'),
+                  if (log.headers.isNotEmpty) ...[
+                    const Divider(),
+                    const Text(
+                      'Headers:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    ...log.headers.entries.map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.only(left: 16, bottom: 4),
+                        child: Text('${entry.key}: ${entry.value}'),
+                      ),
+                    ),
+                  ],
+                  if (log.requestBody != null) ...[
+                    const Divider(),
+                    const Text(
+                      'Request Body:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    JsonViewerWidget(
+                      jsonString: log.requestBody!,
+                      initialExpandDepth: 1,
+                    ),
+                  ],
+                  if (log.responseBody != null) ...[
+                    const Divider(),
+                    const Text(
+                      'Response Body:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    JsonViewerWidget(
+                      jsonString: log.responseBody!,
+                      initialExpandDepth: 1,
+                    ),
+                  ],
                 ],
-                if (log.requestBody != null) ...[
-                  const Divider(),
-                  const Text(
-                    'Request Body:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  JsonViewerWidget(
-                    jsonString: log.requestBody!,
-                    initialExpandDepth: 1,
-                  ),
-                ],
-                if (log.responseBody != null) ...[
-                  const Divider(),
-                  const Text(
-                    'Response Body:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  JsonViewerWidget(
-                    jsonString: log.responseBody!,
-                    initialExpandDepth: 1,
-                  ),
-                ],
-              ],
+              ),
             ),
-          ),
           ],
         ),
       );
@@ -881,20 +886,8 @@ class _LogsScreenState extends State<LogsScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.light
-                        ? Colors.grey[200]
-                        : const Color(0xFF1e1e1e),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    log.responseBody ?? '{}',
-                    style: const TextStyle(fontSize: 12),
-                    maxLines: 10,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                JsonViewerWidget(
+                  jsonString: log.responseBody ?? '{}',
                 ),
               ],
             ),

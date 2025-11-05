@@ -56,9 +56,11 @@ class _JsonViewerWidgetState extends State<JsonViewerWidget> {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.grey[200],
-          borderRadius: BorderRadius.circular(4),
-        ),
+            color: Theme.of(context).canvasColor,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: Colors.red,
+            )),
         child: SelectableText(
           widget.jsonString,
           style: const TextStyle(
