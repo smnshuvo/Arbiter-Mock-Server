@@ -2,6 +2,7 @@ import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/entities/interception_mode.dart';
 import '../bloc/interception/interception_bloc.dart';
@@ -36,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     context.read<ServerBloc>().add(CheckServerStatusEvent());
     context.read<InterceptionBloc>().add(StartWatchingInterceptions());
+    _prefillTheLastStoredUrl();
   }
 
   @override
@@ -180,17 +182,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ElevatedButton.icon(
               onPressed: isLoading
                   ? null
-                  : () {
+                  : () async {
                       if (isRunning) {
                         context.read<ServerBloc>().add(StopServerEvent());
                       } else {
-                        final port = int.tryParse(_portController.text) ?? 8080;
-                        final useDeviceIp = state is ServerStopped
-                            ? (state as ServerStopped).useDeviceIp
-                            : false;
-                        context.read<ServerBloc>().add(
-                              StartServerEvent(port, useDeviceIp: useDeviceIp),
-                            );
+                        await _saveUrlToSharedPref();
+                        _startServer(state);
                       }
                     },
               icon: Icon(
@@ -216,6 +213,36 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  void _startServer(ServerState state) {
+    final port = int.tryParse(_portController.text) ?? 8080;
+    final useDeviceIp = state is ServerStopped ? state.useDeviceIp : false;
+    context.read<ServerBloc>().add(
+          StartServerEvent(port, useDeviceIp: useDeviceIp),
+        );
+  }
+
+  Future<void> _saveUrlToSharedPref() async {
+    final globalPassThroughUrl = _passThroughUrlController.text;
+    context.read<ServerBloc>().add(
+          SetGlobalPassThroughUrlEvent(globalPassThroughUrl),
+        );
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(passThroughUrlKey, globalPassThroughUrl);
+  }
+
+  Future<void> _prefillTheLastStoredUrl() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    final String? value = prefs.getString(passThroughUrlKey);
+    if (value != null && value.isNotEmpty) {
+      _passThroughUrlController.text = value;
+    }
+  }
+
+  String get passThroughUrlKey => "passThroughUrl";
 
   Widget _buildDeviceIpToggle(ServerStopped state) {
     return Card(
@@ -375,11 +402,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       : null,
                 ),
                 enabled: !isRunning,
-                onChanged: (value) {
-                  context
-                      .read<ServerBloc>()
-                      .add(SetGlobalPassThroughUrlEvent(value));
-                },
               ),
               if (isRunning)
                 const Padding(
