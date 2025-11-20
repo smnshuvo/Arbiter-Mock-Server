@@ -3,6 +3,8 @@
 ## Version 2.0.0 - New Features Added
 
 ### 🎉 Major Features
+#### 0. Dark Mode Added
+- Thanks to @dipta-2707
 
 #### 1. Conditional Mock Responses
 Return different JSON responses based on request conditions:
