@@ -9,12 +9,15 @@ import 'ui/bloc/endpoint/endpoint_bloc.dart';
 import 'ui/bloc/interception/interception_bloc.dart';
 import 'ui/bloc/log/log_bloc.dart';
 import 'ui/bloc/server/server_bloc.dart';
+import 'ui/bloc/settings/settings_bloc.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/welcome_screen.dart';
+import 'ui/bloc/dependency_container.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await di.init();
+  await di.setupRequestNotificationCallback(); // Setup notification callback after all dependencies are ready
   runApp(
       BlocProvider(create: (_) => di.sl<ThemeCubit>(), child: const MyApp()));
 }
@@ -34,7 +37,8 @@ class MyApp extends StatelessWidget {
         BlocProvider(create: (_) => di.sl<ServerBloc>()),
         BlocProvider(create: (_) => di.sl<EndpointBloc>()),
         BlocProvider(create: (_) => di.sl<LogBloc>()),
-        BlocProvider(create: (_) => di.sl<InterceptionBloc>())
+        BlocProvider(create: (_) => di.sl<InterceptionBloc>()),
+        BlocProvider(create: (_) => di.sl<SettingsBloc>()),
       ],
       child: BlocBuilder<ThemeCubit, ThemeMode>(
         builder: (context, themeMode) {

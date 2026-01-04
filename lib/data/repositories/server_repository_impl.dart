@@ -1,23 +1,38 @@
 import '../../domain/repositories/server_repository.dart';
+import '../../domain/repositories/settings_repository.dart';
 import '../../domain/entities/interception_mode.dart';
 import '../datasources/server/http_server_service.dart';
 import '../datasources/server/interception_manager.dart';
 import '../../core/utils/network_utils.dart';
+import '../../core/services/foreground_service.dart';
 
 class ServerRepositoryImpl implements ServerRepository {
   final HttpServerService serverService;
   final InterceptionManager interceptionManager;
+  final ForegroundService foregroundService;
+  final SettingsRepository settingsRepository;
 
-  ServerRepositoryImpl(this.serverService, this.interceptionManager);
+  ServerRepositoryImpl(
+    this.serverService,
+    this.interceptionManager,
+    this.foregroundService,
+    this.settingsRepository,
+  );
 
   @override
   Future<void> startServer(int port, {bool useDeviceIp = false}) async {
+    // Start foreground service before starting HTTP server
+    await foregroundService.startForegroundService();
+    // Start HTTP server
     await serverService.start(port, useDeviceIp: useDeviceIp);
   }
 
   @override
   Future<void> stopServer() async {
+    // Stop HTTP server first
     await serverService.stop();
+    // Stop foreground service after HTTP server stops
+    await foregroundService.stopForegroundService();
   }
 
   @override
