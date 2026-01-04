@@ -184,6 +184,7 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
       StopServerEvent event,
       Emitter<ServerState> emit,
       ) async {
+    print('ServerBloc: StopServerEvent received');
     emit(ServerLoading());
     try {
       final port = (state is ServerRunning) ? (state as ServerRunning).port : 8080;
@@ -192,7 +193,9 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
       final useDeviceIp = getUseDeviceIp();
       final deviceIp = useDeviceIp ? await getDeviceIpAddress() : null;
 
+      print('ServerBloc: Calling stopServer()');
       await stopServer();
+      print('ServerBloc: Server stopped successfully');
 
       emit(ServerStopped(
         port,
@@ -201,7 +204,9 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
         useDeviceIp: useDeviceIp,
         deviceIp: deviceIp,
       ));
+      print('ServerBloc: ServerStopped state emitted');
     } catch (e) {
+      print('ServerBloc: Error stopping server: $e');
       emit(ServerError(e.toString()));
     }
   }

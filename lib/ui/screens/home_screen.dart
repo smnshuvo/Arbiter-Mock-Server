@@ -1,7 +1,9 @@
 import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
+import 'package:arbiter_mock_server/core/services/foreground_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../domain/entities/interception_mode.dart';
 import '../bloc/interception/interception_bloc.dart';
@@ -13,6 +15,7 @@ import '../widgets/glowing_icon_widget.dart';
 import '../widgets/grey_out_icon_widget.dart';
 import 'endpoint_screen.dart';
 import 'logs_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -34,8 +37,39 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    print('HomeScreen: ============================================');
+    print('HomeScreen: initState called');
+    print('HomeScreen: Initializing ForegroundService');
+    // Initialize foreground service and set callback for stop server from notification
+    ForegroundService.initialize();
+    
+    print('HomeScreen: Setting onStopServerRequested callback');
+    ForegroundService.onStopServerRequested = () async {
+      print('HomeScreen: ============================================');
+      print('HomeScreen: onStopServerRequested callback TRIGGERED!');
+      print('HomeScreen: This means the MethodChannel call reached Flutter successfully');
+      
+      try {
+        // Stop the server via ServerBloc
+        print('HomeScreen: Dispatching StopServerEvent to ServerBloc');
+        context.read<ServerBloc>().add(StopServerEvent());
+        print('HomeScreen: StopServerEvent dispatched successfully');
+        print('HomeScreen: ============================================');
+        return true;
+      } catch (e, stackTrace) {
+        print('HomeScreen: ERROR dispatching StopServerEvent: $e');
+        print('HomeScreen: StackTrace: $stackTrace');
+        print('HomeScreen: ============================================');
+        return false;
+      }
+    };
+    
+    print('HomeScreen: Callback set successfully');
+    print('HomeScreen: Checking server status');
     context.read<ServerBloc>().add(CheckServerStatusEvent());
+    print('HomeScreen: Starting interception watcher');
     context.read<InterceptionBloc>().add(StartWatchingInterceptions());
+    print('HomeScreen: ============================================');
   }
 
   @override
@@ -45,6 +79,69 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  Future<bool> _checkAndRequestNotificationPermission() async {
+    // Check if notification permission is granted
+    final status = await Permission.notification.status;
+    
+    if (status.isGranted) {
+      return true;
+    }
+    
+    // If not granted, show dialog explaining why we need it
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Notification Permission Required'),
+        content: const Text(
+          'To show the server status and endpoint hits in the notification, we need your permission to display notifications.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Allow'),
+          ),
+        ],
+      ),
+    );
+    
+    if (result != true) {
+      return false;
+    }
+    
+    // Request permission
+    final requestResult = await Permission.notification.request();
+    
+    if (requestResult.isGranted) {
+      return true;
+    }
+    
+    // Show error dialog if permission denied
+    if (context.mounted) {
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Permission Denied'),
+          content: const Text(
+            'Notification permission is required to run the server in the background. Please enable it in app settings.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -52,6 +149,16 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Arbiter'),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+            tooltip: 'Settings',
+          ),
           BlocBuilder<ThemeCubit, ThemeMode>(
             builder: (context, themeMode) {
               return Switch(
@@ -83,6 +190,12 @@ class _HomeScreenState extends State<HomeScreen> {
             if (url != null && url != _passThroughUrlController.text) {
               _passThroughUrlController.text = url;
             }
+          }
+
+          // Stop foreground service when server stops
+          if (state is ServerStopped) {
+            print('HomeScreen: Server stopped, stopping foreground service');
+            ForegroundService().stopForegroundService();
           }
         },
         builder: (context, state) {
@@ -180,10 +293,17 @@ class _HomeScreenState extends State<HomeScreen> {
             ElevatedButton.icon(
               onPressed: isLoading
                   ? null
-                  : () {
+                  : () async {
                       if (isRunning) {
                         context.read<ServerBloc>().add(StopServerEvent());
                       } else {
+                        // Check notification permission before starting server
+                        final hasPermission = await _checkAndRequestNotificationPermission();
+                        
+                        if (!hasPermission) {
+                          return; // Don't start server if permission not granted
+                        }
+                        
                         final port = int.tryParse(_portController.text) ?? 8080;
                         final useDeviceIp = state is ServerStopped
                             ? (state as ServerStopped).useDeviceIp

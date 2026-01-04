@@ -21,11 +21,13 @@ class HttpServerService {
   final LogLocalDataSource logDataSource;
   final Function() onEndpointsNeeded;
   final InterceptionManager interceptionManager;
+  Function(String method, String path, String timestamp)? onRequestReceived;
 
   HttpServerService({
     required this.logDataSource,
     required this.onEndpointsNeeded,
     required this.interceptionManager,
+    this.onRequestReceived,
   });
 
   bool get isRunning => _server != null;
@@ -127,6 +129,12 @@ class HttpServerService {
       String method = request.method;
       String url = request.url.toString();
       Map<String, String> headers = Map<String, String>.from(request.headers);
+
+      // Notify callback if provided
+      if (onRequestReceived != null) {
+        final timestamp = DateTime.now().toIso8601String();
+        onRequestReceived!(method, url, timestamp);
+      }
 
       // 1. Check if request interception is enabled
       if (interceptionManager.shouldInterceptRequests) {
