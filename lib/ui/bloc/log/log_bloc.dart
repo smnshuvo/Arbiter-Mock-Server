@@ -56,6 +56,26 @@ class WatchLogsStarted extends LogEvent {
 
 class WatchLogsStopped extends LogEvent {}
 
+// Internal events for stream updates
+class _LogUpdated extends LogEvent {
+  final List<RequestLog> logs;
+  final LogFilter? filter;
+  
+  _LogUpdated(this.logs, {this.filter});
+  
+  @override
+  List<Object?> get props => [logs, filter];
+}
+
+class _LogError extends LogEvent {
+  final String message;
+  
+  _LogError(this.message);
+  
+  @override
+  List<Object?> get props => [message];
+}
+
 // States
 abstract class LogState extends Equatable {
   @override
@@ -118,11 +138,13 @@ class LogBloc extends Bloc<LogEvent, LogState> {
     on<ApplyFilterEvent>(_onApplyFilter);
     on<WatchLogsStarted>(_onWatchLogsStarted);
     on<WatchLogsStopped>(_onWatchLogsStopped);
+    on<_LogUpdated>(_onLogUpdated);
+    on<_LogError>(_onLogError);
   }
 
   @override
-  Future<void> close() {
-    _logSubscription?.cancel();
+  Future<void> close() async {
+    await _logSubscription?.cancel();
     return super.close();
   }
 
@@ -200,15 +222,30 @@ class LogBloc extends Bloc<LogEvent, LogState> {
     try {
       _logSubscription = watchLogs(filter: event.filter).listen(
         (logs) {
-          emit(LogLoaded(logs, currentFilter: event.filter));
+          // Use add() instead of emit() for stream callbacks
+          add(_LogUpdated(logs, filter: event.filter));
         },
         onError: (error) {
-          emit(LogError(error.toString()));
+          add(_LogError(error.toString()));
         },
       );
     } catch (e) {
       emit(LogError(e.toString()));
     }
+  }
+
+  Future<void> _onLogUpdated(
+      _LogUpdated event,
+      Emitter<LogState> emit,
+      ) async {
+    emit(LogLoaded(event.logs, currentFilter: event.filter));
+  }
+
+  Future<void> _onLogError(
+      _LogError event,
+      Emitter<LogState> emit,
+      ) async {
+    emit(LogError(event.message));
   }
 
   Future<void> _onWatchLogsStopped(

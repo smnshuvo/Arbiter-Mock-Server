@@ -26,17 +26,19 @@ class _LogsScreenState extends State<LogsScreen> {
   LogFilter? _currentFilter;
   RequestLog? _selectedLog;
   bool _isHeaderExpanded = true;
+  late final LogBloc _logBloc;
 
   @override
   void initState() {
     super.initState();
-    context.read<LogBloc>().add(WatchLogsStarted());
+    _logBloc = context.read<LogBloc>();
+    _logBloc.add(WatchLogsStarted());
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    context.read<LogBloc>().add(WatchLogsStopped());
+    _logBloc.add(WatchLogsStopped());
     super.dispose();
   }
 
