@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:convert';
 import '../../domain/entities/request_log.dart';
 import '../../domain/repositories/log_repository.dart';
@@ -47,5 +49,12 @@ class LogRepositoryImpl implements LogRepository {
       'totalLogs': jsonList.length,
       'logs': jsonList,
     });
+  }
+
+  @override
+  Stream<List<RequestLog>> watchLogs({LogFilter? filter}) {
+    return localDataSource.watchLogs(filter: filter).map(
+      (models) => models.map((model) => model.toEntity()).toList(),
+    );
   }
 }

@@ -61,6 +61,7 @@ Future<void> init() async {
       clearLogs: sl(),
       clearFilteredLogs: sl(),
       exportLogs: sl(),
+      watchLogs: sl(),
     ),
   );
 
@@ -109,6 +110,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => ClearLogs(sl()));
   sl.registerLazySingleton(() => ClearFilteredLogs(sl()));
   sl.registerLazySingleton(() => ExportLogs(sl()));
+  sl.registerLazySingleton(() => WatchLogs(sl()));
 
   // Use cases - Interception
   sl.registerLazySingleton(() => WatchPendingInterceptions(sl()));

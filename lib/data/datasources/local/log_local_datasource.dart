@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../../domain/repositories/log_repository.dart';
@@ -10,10 +12,14 @@ abstract class LogLocalDataSource {
   Future<void> insertLog(RequestLogModel log);
   Future<void> clearLogs();
   Future<void> clearFilteredLogs(LogFilter filter);
+  Stream<List<RequestLogModel>> watchLogs({LogFilter? filter});
 }
 
 class LogLocalDataSourceImpl implements LogLocalDataSource {
   final DatabaseHelper databaseHelper;
+  final StreamController<List<RequestLogModel>> _logStreamController =
+      StreamController<List<RequestLogModel>>.broadcast();
+  LogFilter? _currentFilter;
 
   LogLocalDataSourceImpl(this.databaseHelper);
 
@@ -99,12 +105,28 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
       log.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    _emitLogs();
+  }
+
+  @override
+  Stream<List<RequestLogModel>> watchLogs({LogFilter? filter}) {
+    _currentFilter = filter;
+    _emitLogs();
+    return _logStreamController.stream;
+  }
+
+  Future<void> _emitLogs() async {
+    final logs = await getAllLogs(filter: _currentFilter);
+    if (!_logStreamController.isClosed) {
+      _logStreamController.add(logs);
+    }
   }
 
   @override
   Future<void> clearLogs() async {
     final db = await databaseHelper.database;
     await db.delete('request_logs');
+    _emitLogs();
   }
 
   @override
@@ -158,5 +180,6 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
       where: whereClause.isEmpty ? null : whereClause,
       whereArgs: whereArgs.isEmpty ? null : whereArgs,
     );
+    _emitLogs();
   }
 }

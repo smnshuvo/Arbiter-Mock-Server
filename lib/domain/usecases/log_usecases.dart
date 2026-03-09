@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../entities/request_log.dart';
 import '../repositories/log_repository.dart';
 
@@ -48,5 +50,15 @@ class ExportLogs {
 
   Future<String> call({LogFilter? filter}) async {
     return await repository.exportLogs(filter: filter);
+  }
+}
+
+class WatchLogs {
+  final LogRepository repository;
+
+  WatchLogs(this.repository);
+
+  Stream<List<RequestLog>> call({LogFilter? filter}) {
+    return repository.watchLogs(filter: filter);
   }
 }

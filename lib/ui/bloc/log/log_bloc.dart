@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../domain/entities/request_log.dart';
@@ -44,6 +46,16 @@ class ApplyFilterEvent extends LogEvent {
   List<Object?> get props => [filter];
 }
 
+class WatchLogsStarted extends LogEvent {
+  final LogFilter? filter;
+  WatchLogsStarted({this.filter});
+
+  @override
+  List<Object?> get props => [filter];
+}
+
+class WatchLogsStopped extends LogEvent {}
+
 // States
 abstract class LogState extends Equatable {
   @override
@@ -88,18 +100,30 @@ class LogBloc extends Bloc<LogEvent, LogState> {
   final ClearLogs clearLogs;
   final ClearFilteredLogs clearFilteredLogs;
   final ExportLogs exportLogs;
+  final WatchLogs watchLogs;
+
+  StreamSubscription<List<RequestLog>>? _logSubscription;
 
   LogBloc({
     required this.getAllLogs,
     required this.clearLogs,
     required this.clearFilteredLogs,
     required this.exportLogs,
+    required this.watchLogs,
   }) : super(LogInitial()) {
     on<LoadLogsEvent>(_onLoadLogs);
     on<ClearLogsEvent>(_onClearLogs);
     on<ClearFilteredLogsEvent>(_onClearFilteredLogs);
     on<ExportLogsEvent>(_onExportLogs);
     on<ApplyFilterEvent>(_onApplyFilter);
+    on<WatchLogsStarted>(_onWatchLogsStarted);
+    on<WatchLogsStopped>(_onWatchLogsStopped);
+  }
+
+  @override
+  Future<void> close() {
+    _logSubscription?.cancel();
+    return super.close();
   }
 
   Future<void> _onLoadLogs(
@@ -165,5 +189,33 @@ class LogBloc extends Bloc<LogEvent, LogState> {
     } catch (e) {
       emit(LogError(e.toString()));
     }
+  }
+
+  Future<void> _onWatchLogsStarted(
+      WatchLogsStarted event,
+      Emitter<LogState> emit,
+      ) async {
+    await _logSubscription?.cancel();
+    
+    try {
+      _logSubscription = watchLogs(filter: event.filter).listen(
+        (logs) {
+          emit(LogLoaded(logs, currentFilter: event.filter));
+        },
+        onError: (error) {
+          emit(LogError(error.toString()));
+        },
+      );
+    } catch (e) {
+      emit(LogError(e.toString()));
+    }
+  }
+
+  Future<void> _onWatchLogsStopped(
+      WatchLogsStopped event,
+      Emitter<LogState> emit,
+      ) async {
+    await _logSubscription?.cancel();
+    _logSubscription = null;
   }
 }

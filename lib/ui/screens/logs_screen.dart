@@ -30,12 +30,13 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   void initState() {
     super.initState();
-    context.read<LogBloc>().add(LoadLogsEvent());
+    context.read<LogBloc>().add(WatchLogsStarted());
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    context.read<LogBloc>().add(WatchLogsStopped());
     super.dispose();
   }
 
@@ -45,11 +46,6 @@ class _LogsScreenState extends State<LogsScreen> {
       appBar: AppBar(
         title: const Text('Request Logs'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => context.read<LogBloc>().add(LoadLogsEvent()),
-            tooltip: 'Reload Logs',
-          ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: _showFilterDialog,
@@ -492,7 +488,7 @@ class _LogsScreenState extends State<LogsScreen> {
               setState(() {
                 _currentFilter = null;
               });
-              context.read<LogBloc>().add(LoadLogsEvent());
+              context.read<LogBloc>().add(WatchLogsStarted());
             },
           ),
         ],
@@ -771,12 +767,12 @@ class _LogsScreenState extends State<LogsScreen> {
     setState(() {
       _currentFilter = filter;
     });
-    context.read<LogBloc>().add(ApplyFilterEvent(filter));
+    context.read<LogBloc>().add(WatchLogsStarted(filter: filter));
   }
 
   void _applyFilter() {
     if (_currentFilter != null) {
-      context.read<LogBloc>().add(ApplyFilterEvent(_currentFilter!));
+      context.read<LogBloc>().add(WatchLogsStarted(filter: _currentFilter));
     }
   }
 
@@ -792,7 +788,7 @@ class _LogsScreenState extends State<LogsScreen> {
       setState(() {
         _currentFilter = result;
       });
-      context.read<LogBloc>().add(ApplyFilterEvent(result));
+      context.read<LogBloc>().add(WatchLogsStarted(filter: result));
     }
   }
 
