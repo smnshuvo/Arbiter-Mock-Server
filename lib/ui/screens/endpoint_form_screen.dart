@@ -27,6 +27,8 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
   late bool _useConditionalMock;
   late List<ConditionalMock> _conditionalMocks;
 
+  bool _pendingCreate = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,7 +62,22 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return BlocListener<EndpointBloc, EndpointState>(
+      listener: (context, state) {
+        if (state is EndpointLoaded && _pendingCreate) {
+          _pendingCreate = false;
+          Navigator.pop(context);
+        } else if (state is EndpointDuplicateFound) {
+          _pendingCreate = false;
+          _showUpdatePrompt(state.existing, state.incoming);
+        } else if (state is EndpointError && _pendingCreate) {
+          _pendingCreate = false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.message), backgroundColor: Colors.red),
+          );
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(widget.endpoint == null ? 'Add Endpoint' : 'Edit Endpoint'),
         actions: [
@@ -276,6 +293,37 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
           ),
         ),
       ),
+    ),
+  );
+  }
+
+  void _showUpdatePrompt(Endpoint existing, Endpoint incoming) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Endpoint Already Exists'),
+        content: Text(
+          'An endpoint with pattern "${existing.pattern}" already exists in this profile. '
+          'Do you want to update it instead?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<EndpointBloc>().add(UpdateEndpointEvent(
+                incoming.copyWith(
+                    id: existing.id, createdAt: existing.createdAt),
+              ));
+              Navigator.pop(context);
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -309,12 +357,13 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
       );
 
       if (widget.endpoint == null) {
+        _pendingCreate = true;
         context.read<EndpointBloc>().add(CreateEndpointEvent(endpoint));
+        // Navigator.pop happens via BlocListener on EndpointLoaded or duplicate
       } else {
         context.read<EndpointBloc>().add(UpdateEndpointEvent(endpoint));
+        Navigator.pop(context);
       }
-
-      Navigator.pop(context);
     }
   }
 }
