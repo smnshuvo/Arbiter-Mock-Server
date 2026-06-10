@@ -49,11 +49,18 @@ class EndpointLocalDataSourceImpl implements EndpointLocalDataSource {
   @override
   Future<void> insertEndpoint(EndpointModel endpoint) async {
     final db = await databaseHelper.database;
-    await db.insert(
+    final existing = await db.query(
       'endpoints',
-      endpoint.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      where: 'pattern = ? AND profileId = ? AND matchType = ?',
+      whereArgs: [endpoint.pattern, endpoint.profileId, endpoint.matchType],
+      limit: 1,
     );
+    if (existing.isNotEmpty) {
+      throw Exception(
+          'An endpoint with pattern "${endpoint.pattern}" already exists in this profile');
+    }
+    await db.insert('endpoints', endpoint.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override
