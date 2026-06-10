@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 2.1.0 (Build 6)
+
+### Play Store Release Note
+```
+• Live log streaming — see requests in real time as they hit your mock server
+• Batch create endpoints from logs — long-press logs, select multiple, create all at once
+• Duplicate endpoint detection — prompts to update instead of silently failing
+• Fixed: root path "/" matching, list reordering on toggle, and a crash on back navigation
+```
+
+---
+
 ## Version 2.0.0 - New Features Added
 
 ### 🎉 Major Features
