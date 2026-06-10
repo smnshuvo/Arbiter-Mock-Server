@@ -10,6 +10,7 @@ import '../../domain/entities/endpoint.dart';
 import '../../domain/entities/request_log.dart';
 import '../../domain/repositories/log_repository.dart';
 import '../bloc/log/log_bloc.dart';
+import '../bloc/profile/profile_bloc.dart';
 import '../widgets/json_viewer_widget.dart';
 import 'endpoint_form_screen.dart';
 import 'log_filter_screen.dart';
@@ -26,11 +27,23 @@ class _LogsScreenState extends State<LogsScreen> {
   LogFilter? _currentFilter;
   RequestLog? _selectedLog;
   bool _isHeaderExpanded = true;
+  String? _selectedProfileId;
 
   @override
   void initState() {
     super.initState();
-    context.read<LogBloc>().add(LoadLogsEvent());
+    final profileState = context.read<ProfileBloc>().state;
+    if (profileState is ProfileLoaded) {
+      _selectedProfileId = profileState.activeProfileId;
+    }
+    _loadLogsWithProfile();
+  }
+
+  void _loadLogsWithProfile() {
+    final filter = (_currentFilter ?? const LogFilter()).copyWith(
+      profileId: _selectedProfileId,
+    );
+    context.read<LogBloc>().add(LoadLogsEvent(filter: filter));
   }
 
   @override
@@ -43,11 +56,27 @@ class _LogsScreenState extends State<LogsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Request Logs'),
+        title: BlocBuilder<ProfileBloc, ProfileState>(
+          builder: (context, profileState) {
+            if (profileState is ProfileLoaded && _selectedProfileId != null) {
+              final profile = profileState.profiles.firstWhere(
+                (p) => p.id == _selectedProfileId,
+                orElse: () => profileState.profiles.first,
+              );
+              return Text('Logs · ${profile.name}');
+            }
+            return const Text('Request Logs');
+          },
+        ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.switch_account_outlined),
+            onPressed: _showProfileSelector,
+            tooltip: 'Switch Profile',
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => context.read<LogBloc>().add(LoadLogsEvent()),
+            onPressed: _loadLogsWithProfile,
             tooltip: 'Reload Logs',
           ),
           IconButton(
@@ -489,10 +518,8 @@ class _LogsScreenState extends State<LogsScreen> {
           ActionChip(
             label: const Text('Clear All Filters'),
             onPressed: () {
-              setState(() {
-                _currentFilter = null;
-              });
-              context.read<LogBloc>().add(LoadLogsEvent());
+              setState(() => _currentFilter = null);
+              _loadLogsWithProfile();
             },
           ),
         ],
@@ -760,24 +787,17 @@ class _LogsScreenState extends State<LogsScreen> {
 
   void _applySearch() {
     final query = _searchController.text;
-    final filter = LogFilter(
-      methods: _currentFilter?.methods,
-      statusCodes: _currentFilter?.statusCodes,
-      logTypes: _currentFilter?.logTypes,
-      startDate: _currentFilter?.startDate,
-      endDate: _currentFilter?.endDate,
+    final filter = (_currentFilter ?? const LogFilter()).copyWith(
       searchQuery: query.isNotEmpty ? query : null,
+      profileId: _selectedProfileId,
     );
-    setState(() {
-      _currentFilter = filter;
-    });
+    setState(() => _currentFilter = filter);
     context.read<LogBloc>().add(ApplyFilterEvent(filter));
   }
 
   void _applyFilter() {
-    if (_currentFilter != null) {
-      context.read<LogBloc>().add(ApplyFilterEvent(_currentFilter!));
-    }
+    final effective = (_currentFilter ?? const LogFilter()).copyWith(profileId: _selectedProfileId);
+    context.read<LogBloc>().add(ApplyFilterEvent(effective));
   }
 
   Future<void> _showFilterDialog() async {
@@ -789,11 +809,66 @@ class _LogsScreenState extends State<LogsScreen> {
     );
 
     if (result != null) {
-      setState(() {
-        _currentFilter = result;
-      });
-      context.read<LogBloc>().add(ApplyFilterEvent(result));
+      setState(() => _currentFilter = result);
+      final effective = result.copyWith(profileId: _selectedProfileId);
+      context.read<LogBloc>().add(ApplyFilterEvent(effective));
     }
+  }
+
+  void _showProfileSelector() {
+    final profileState = context.read<ProfileBloc>().state;
+    if (profileState is! ProfileLoaded) return;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  Text('Filter by Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            const Divider(),
+            ListTile(
+              leading: Icon(
+                Icons.all_inclusive,
+                color: _selectedProfileId == null ? Theme.of(context).colorScheme.primary : null,
+              ),
+              title: const Text('All Profiles'),
+              trailing: _selectedProfileId == null
+                  ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                  : null,
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _selectedProfileId = null);
+                _loadLogsWithProfile();
+              },
+            ),
+            ...profileState.profiles.map((profile) => ListTile(
+              leading: Icon(
+                Icons.folder_outlined,
+                color: profile.id == _selectedProfileId ? Theme.of(context).colorScheme.primary : null,
+              ),
+              title: Text(profile.name),
+              trailing: profile.id == _selectedProfileId
+                  ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                  : null,
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _selectedProfileId = profile.id);
+                _loadLogsWithProfile();
+              },
+            )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showClearDialog(bool filteredOnly) {
@@ -814,10 +889,9 @@ class _LogsScreenState extends State<LogsScreen> {
             ),
             TextButton(
               onPressed: () {
-                if (filteredOnly && _currentFilter != null) {
-                  context
-                      .read<LogBloc>()
-                      .add(ClearFilteredLogsEvent(_currentFilter!));
+                final effective = (_currentFilter ?? const LogFilter()).copyWith(profileId: _selectedProfileId);
+                if (filteredOnly) {
+                  context.read<LogBloc>().add(ClearFilteredLogsEvent(effective));
                 } else {
                   context.read<LogBloc>().add(ClearLogsEvent());
                 }
@@ -944,8 +1018,10 @@ class _LogsScreenState extends State<LogsScreen> {
     }
 
     final now = DateTime.now();
+    final profileId = log.profileId.isNotEmpty ? log.profileId : (_selectedProfileId ?? 'default');
     final newEndpoint = Endpoint(
       id: now.millisecondsSinceEpoch.toString(),
+      profileId: profileId,
       pattern: pattern,
       matchType: MatchType.exact,
       mode: EndpointMode.mock,
@@ -963,7 +1039,7 @@ class _LogsScreenState extends State<LogsScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EndpointFormScreen(endpoint: newEndpoint),
+        builder: (context) => EndpointFormScreen(endpoint: newEndpoint, profileId: profileId),
       ),
     );
 

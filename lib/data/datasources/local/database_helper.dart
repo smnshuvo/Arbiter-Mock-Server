@@ -24,7 +24,7 @@ class DatabaseHelper {
       final path = join(dbPath, filePath);
       return openDatabase(
         path,
-        version: 2,
+        version: 3,
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
@@ -35,7 +35,7 @@ class DatabaseHelper {
       return databaseFactoryFfi.openDatabase(
         inMemoryDatabasePath,
         options: OpenDatabaseOptions(
-          version: 2,
+          version: 3,
           onCreate: _createDB,
           onUpgrade: _onUpgrade,
         ),
@@ -47,8 +47,32 @@ class DatabaseHelper {
 
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''
+      CREATE TABLE profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        port INTEGER NOT NULL DEFAULT 8080,
+        settings TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    ''');
+
+    final now = DateTime.now().toIso8601String();
+    await db.insert('profiles', {
+      'id': 'default',
+      'name': 'Default',
+      'description': '',
+      'port': 8080,
+      'settings': '{}',
+      'createdAt': now,
+      'updatedAt': now,
+    });
+
+    await db.execute('''
       CREATE TABLE endpoints (
         id TEXT PRIMARY KEY,
+        profileId TEXT NOT NULL DEFAULT 'default',
         pattern TEXT NOT NULL,
         matchType TEXT NOT NULL,
         mode TEXT NOT NULL,
@@ -67,6 +91,7 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE request_logs (
         id TEXT PRIMARY KEY,
+        profileId TEXT NOT NULL DEFAULT 'default',
         timestamp TEXT NOT NULL,
         method TEXT NOT NULL,
         url TEXT NOT NULL,
@@ -80,27 +105,44 @@ class DatabaseHelper {
       )
     ''');
 
-    await db.execute('''
-      CREATE INDEX idx_logs_timestamp ON request_logs(timestamp)
-    ''');
-
-    await db.execute('''
-      CREATE INDEX idx_logs_method ON request_logs(method)
-    ''');
-
-    await db.execute('''
-      CREATE INDEX idx_logs_url ON request_logs(url)
-    ''');
+    await db.execute('CREATE INDEX idx_logs_timestamp ON request_logs(timestamp)');
+    await db.execute('CREATE INDEX idx_logs_method ON request_logs(method)');
+    await db.execute('CREATE INDEX idx_logs_url ON request_logs(url)');
+    await db.execute('CREATE INDEX idx_logs_profile ON request_logs(profileId)');
+    await db.execute('CREATE INDEX idx_endpoints_profile ON endpoints(profileId)');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // Add statusCode column to existing endpoints table
+      await db.execute('ALTER TABLE endpoints ADD COLUMN statusCode INTEGER NOT NULL DEFAULT 200');
+    }
+    if (oldVersion < 3) {
+      final now = DateTime.now().toIso8601String();
       await db.execute('''
-        ALTER TABLE endpoints ADD COLUMN statusCode INTEGER NOT NULL DEFAULT 200
+        CREATE TABLE IF NOT EXISTS profiles (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          port INTEGER NOT NULL DEFAULT 8080,
+          settings TEXT NOT NULL DEFAULT '{}',
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL
+        )
       ''');
+      await db.insert('profiles', {
+        'id': 'default',
+        'name': 'Default',
+        'description': '',
+        'port': 8080,
+        'settings': '{}',
+        'createdAt': now,
+        'updatedAt': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
-      print('Database upgraded from version $oldVersion to $newVersion');
+      await db.execute("ALTER TABLE endpoints ADD COLUMN profileId TEXT NOT NULL DEFAULT 'default'");
+      await db.execute("ALTER TABLE request_logs ADD COLUMN profileId TEXT NOT NULL DEFAULT 'default'");
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_logs_profile ON request_logs(profileId)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_endpoints_profile ON endpoints(profileId)');
     }
   }
 

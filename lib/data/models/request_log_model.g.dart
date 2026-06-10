@@ -9,6 +9,7 @@ part of 'request_log_model.dart';
 RequestLogModel _$RequestLogModelFromJson(Map<String, dynamic> json) =>
     RequestLogModel(
       id: json['id'] as String,
+      profileId: json['profileId'] as String? ?? 'default',
       timestamp: json['timestamp'] as String,
       method: json['method'] as String,
       url: json['url'] as String,
@@ -24,6 +25,7 @@ RequestLogModel _$RequestLogModelFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$RequestLogModelToJson(RequestLogModel instance) =>
     <String, dynamic>{
       'id': instance.id,
+      'profileId': instance.profileId,
       'timestamp': instance.timestamp,
       'method': instance.method,
       'url': instance.url,

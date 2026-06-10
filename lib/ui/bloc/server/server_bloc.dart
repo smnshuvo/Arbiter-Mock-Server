@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import '../../../core/services/server_manager.dart';
 import '../../../domain/usecases/server_usecases.dart';
 
 // Events
@@ -56,6 +57,37 @@ class SetUseDeviceIpEvent extends ServerEvent {
 
 class LoadDeviceIpEvent extends ServerEvent {}
 
+class StartProfileEvent extends ServerEvent {
+  final String profileId;
+  final String profileName;
+  final int port;
+  final bool useDeviceIp;
+  final String? passThroughUrl;
+  final bool autoPassThrough;
+
+  StartProfileEvent({
+    required this.profileId,
+    required this.profileName,
+    required this.port,
+    this.useDeviceIp = false,
+    this.passThroughUrl,
+    this.autoPassThrough = false,
+  });
+
+  @override
+  List<Object?> get props => [profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough];
+}
+
+class StopProfileEvent extends ServerEvent {
+  final String profileId;
+  StopProfileEvent(this.profileId);
+
+  @override
+  List<Object?> get props => [profileId];
+}
+
+class StopAllProfilesEvent extends ServerEvent {}
+
 // States
 abstract class ServerState extends Equatable {
   @override
@@ -69,6 +101,7 @@ class ServerLoading extends ServerState {}
 class ServerRunning extends ServerState {
   final String url;
   final int port;
+  final String profileId;
   final String? globalPassThroughUrl;
   final bool autoPassThrough;
   final bool useDeviceIp;
@@ -77,6 +110,7 @@ class ServerRunning extends ServerState {
   ServerRunning(
       this.url,
       this.port, {
+        this.profileId = 'default',
         this.globalPassThroughUrl,
         this.autoPassThrough = false,
         this.useDeviceIp = false,
@@ -84,7 +118,7 @@ class ServerRunning extends ServerState {
       });
 
   @override
-  List<Object?> get props => [url, port, globalPassThroughUrl, autoPassThrough, useDeviceIp, deviceIp];
+  List<Object?> get props => [url, port, profileId, globalPassThroughUrl, autoPassThrough, useDeviceIp, deviceIp];
 }
 
 class ServerStopped extends ServerState {
@@ -104,6 +138,15 @@ class ServerStopped extends ServerState {
 
   @override
   List<Object?> get props => [port, globalPassThroughUrl, autoPassThrough, useDeviceIp, deviceIp];
+}
+
+class MultiServerRunning extends ServerState {
+  final List<RunningServerInfo> runningServers;
+
+  MultiServerRunning(this.runningServers);
+
+  @override
+  List<Object?> get props => [runningServers];
 }
 
 class ServerError extends ServerState {
@@ -129,6 +172,10 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
   final SetUseDeviceIp setUseDeviceIp;
   final GetUseDeviceIp getUseDeviceIp;
   final GetDeviceIpAddress getDeviceIpAddress;
+  final StartProfile startProfile;
+  final StopProfile stopProfile;
+  final StopAllProfiles stopAllProfiles;
+  final GetRunningServers getRunningServers;
 
   ServerBloc({
     required this.startServer,
@@ -143,6 +190,10 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     required this.setUseDeviceIp,
     required this.getUseDeviceIp,
     required this.getDeviceIpAddress,
+    required this.startProfile,
+    required this.stopProfile,
+    required this.stopAllProfiles,
+    required this.getRunningServers,
   }) : super(ServerInitial()) {
     on<StartServerEvent>(_onStartServer);
     on<StopServerEvent>(_onStopServer);
@@ -152,27 +203,25 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     on<SetAutoPassThroughEvent>(_onSetAutoPassThrough);
     on<SetUseDeviceIpEvent>(_onSetUseDeviceIp);
     on<LoadDeviceIpEvent>(_onLoadDeviceIp);
+    on<StartProfileEvent>(_onStartProfile);
+    on<StopProfileEvent>(_onStopProfile);
+    on<StopAllProfilesEvent>(_onStopAllProfiles);
   }
 
-  Future<void> _onStartServer(
-      StartServerEvent event,
-      Emitter<ServerState> emit,
-      ) async {
+  Future<void> _onStartServer(StartServerEvent event, Emitter<ServerState> emit) async {
     emit(ServerLoading());
     try {
       await startServer(event.port, useDeviceIp: event.useDeviceIp);
       final url = getServerUrl();
       final passThroughUrl = getGlobalPassThroughUrl();
-      final autoPassThrough = getAutoPassThrough();
-      final useDeviceIp = getUseDeviceIp();
-      final deviceIp = useDeviceIp ? await getDeviceIpAddress() : null;
+      final autoPassThrough_ = getAutoPassThrough();
+      final useDeviceIp_ = getUseDeviceIp();
+      final deviceIp = useDeviceIp_ ? await getDeviceIpAddress() : null;
 
-      emit(ServerRunning(
-        url,
-        event.port,
+      emit(ServerRunning(url, event.port,
         globalPassThroughUrl: passThroughUrl,
-        autoPassThrough: autoPassThrough,
-        useDeviceIp: useDeviceIp,
+        autoPassThrough: autoPassThrough_,
+        useDeviceIp: useDeviceIp_,
         deviceIp: deviceIp,
       ));
     } catch (e) {
@@ -180,64 +229,55 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     }
   }
 
-  Future<void> _onStopServer(
-      StopServerEvent event,
-      Emitter<ServerState> emit,
-      ) async {
-    print('ServerBloc: StopServerEvent received');
+  Future<void> _onStopServer(StopServerEvent event, Emitter<ServerState> emit) async {
+    // Capture state before emitting ServerLoading — after emit, state changes
+    final currentState = state;
     emit(ServerLoading());
     try {
-      final port = (state is ServerRunning) ? (state as ServerRunning).port : 8080;
+      final port = currentState is ServerRunning ? currentState.port : 8080;
+      final profileId = currentState is ServerRunning ? currentState.profileId : 'default';
       final passThroughUrl = getGlobalPassThroughUrl();
-      final autoPassThrough = getAutoPassThrough();
-      final useDeviceIp = getUseDeviceIp();
-      final deviceIp = useDeviceIp ? await getDeviceIpAddress() : null;
+      final autoPassThrough_ = getAutoPassThrough();
+      final useDeviceIp_ = getUseDeviceIp();
+      final deviceIp = useDeviceIp_ ? await getDeviceIpAddress() : null;
 
-      print('ServerBloc: Calling stopServer()');
-      await stopServer();
-      print('ServerBloc: Server stopped successfully');
+      // Stop the correct profile, not always 'default'
+      await stopProfile(profileId);
 
-      emit(ServerStopped(
-        port,
+      emit(ServerStopped(port,
         globalPassThroughUrl: passThroughUrl,
-        autoPassThrough: autoPassThrough,
-        useDeviceIp: useDeviceIp,
+        autoPassThrough: autoPassThrough_,
+        useDeviceIp: useDeviceIp_,
         deviceIp: deviceIp,
       ));
-      print('ServerBloc: ServerStopped state emitted');
     } catch (e) {
-      print('ServerBloc: Error stopping server: $e');
       emit(ServerError(e.toString()));
     }
   }
 
-  Future<void> _onCheckServerStatus(
-      CheckServerStatusEvent event,
-      Emitter<ServerState> emit,
-      ) async {
+  Future<void> _onCheckServerStatus(CheckServerStatusEvent event, Emitter<ServerState> emit) async {
     try {
-      final isRunning = getServerStatus();
+      final running = getRunningServers();
       final passThroughUrl = getGlobalPassThroughUrl();
-      final autoPassThrough = getAutoPassThrough();
-      final useDeviceIp = getUseDeviceIp();
-      final deviceIp = useDeviceIp ? await getDeviceIpAddress() : null;
+      final autoPassThrough_ = getAutoPassThrough();
+      final useDeviceIp_ = getUseDeviceIp();
 
-      if (isRunning) {
-        final url = getServerUrl();
-        emit(ServerRunning(
-          url,
-          8080,
+      if (running.length > 1) {
+        emit(MultiServerRunning(running));
+      } else if (running.length == 1) {
+        final srv = running.first;
+        emit(ServerRunning(srv.url, srv.port,
+          profileId: srv.profileId,
           globalPassThroughUrl: passThroughUrl,
-          autoPassThrough: autoPassThrough,
-          useDeviceIp: useDeviceIp,
-          deviceIp: deviceIp,
+          autoPassThrough: autoPassThrough_,
+          useDeviceIp: useDeviceIp_,
         ));
       } else {
-        emit(ServerStopped(
-          8080,
+        final deviceIp = useDeviceIp_ ? await getDeviceIpAddress() : null;
+        emit(ServerStopped(8080,
           globalPassThroughUrl: passThroughUrl,
-          autoPassThrough: autoPassThrough,
-          useDeviceIp: useDeviceIp,
+          autoPassThrough: autoPassThrough_,
+          useDeviceIp: useDeviceIp_,
           deviceIp: deviceIp,
         ));
       }
@@ -246,16 +286,12 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     }
   }
 
-  Future<void> _onSetServerPort(
-      SetServerPortEvent event,
-      Emitter<ServerState> emit,
-      ) async {
+  Future<void> _onSetServerPort(SetServerPortEvent event, Emitter<ServerState> emit) async {
     try {
       await setServerPort(event.port);
       if (state is ServerStopped) {
         final currentState = state as ServerStopped;
-        emit(ServerStopped(
-          event.port,
+        emit(ServerStopped(event.port,
           globalPassThroughUrl: currentState.globalPassThroughUrl,
           autoPassThrough: currentState.autoPassThrough,
           useDeviceIp: currentState.useDeviceIp,
@@ -267,34 +303,28 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     }
   }
 
-  Future<void> _onSetGlobalPassThroughUrl(
-      SetGlobalPassThroughUrlEvent event,
-      Emitter<ServerState> emit,
-      ) async {
+  Future<void> _onSetGlobalPassThroughUrl(SetGlobalPassThroughUrlEvent event, Emitter<ServerState> emit) async {
     try {
       await setGlobalPassThroughUrl(event.url);
       final isRunning = getServerStatus();
-      final autoPassThrough = getAutoPassThrough();
-      final useDeviceIp = getUseDeviceIp();
-      final deviceIp = useDeviceIp ? await getDeviceIpAddress() : null;
+      final autoPassThrough_ = getAutoPassThrough();
+      final useDeviceIp_ = getUseDeviceIp();
+      final deviceIp = useDeviceIp_ ? await getDeviceIpAddress() : null;
 
       if (isRunning && state is ServerRunning) {
         final currentState = state as ServerRunning;
-        emit(ServerRunning(
-          currentState.url,
-          currentState.port,
+        emit(ServerRunning(currentState.url, currentState.port,
           globalPassThroughUrl: event.url,
-          autoPassThrough: autoPassThrough,
-          useDeviceIp: useDeviceIp,
+          autoPassThrough: autoPassThrough_,
+          useDeviceIp: useDeviceIp_,
           deviceIp: deviceIp,
         ));
       } else if (state is ServerStopped) {
         final currentState = state as ServerStopped;
-        emit(ServerStopped(
-          currentState.port,
+        emit(ServerStopped(currentState.port,
           globalPassThroughUrl: event.url,
-          autoPassThrough: autoPassThrough,
-          useDeviceIp: useDeviceIp,
+          autoPassThrough: autoPassThrough_,
+          useDeviceIp: useDeviceIp_,
           deviceIp: deviceIp,
         ));
       }
@@ -303,34 +333,28 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     }
   }
 
-  Future<void> _onSetAutoPassThrough(
-      SetAutoPassThroughEvent event,
-      Emitter<ServerState> emit,
-      ) async {
+  Future<void> _onSetAutoPassThrough(SetAutoPassThroughEvent event, Emitter<ServerState> emit) async {
     try {
       await setAutoPassThrough(event.enabled);
       final isRunning = getServerStatus();
       final passThroughUrl = getGlobalPassThroughUrl();
-      final useDeviceIp = getUseDeviceIp();
-      final deviceIp = useDeviceIp ? await getDeviceIpAddress() : null;
+      final useDeviceIp_ = getUseDeviceIp();
+      final deviceIp = useDeviceIp_ ? await getDeviceIpAddress() : null;
 
       if (isRunning && state is ServerRunning) {
         final currentState = state as ServerRunning;
-        emit(ServerRunning(
-          currentState.url,
-          currentState.port,
+        emit(ServerRunning(currentState.url, currentState.port,
           globalPassThroughUrl: passThroughUrl,
           autoPassThrough: event.enabled,
-          useDeviceIp: useDeviceIp,
+          useDeviceIp: useDeviceIp_,
           deviceIp: deviceIp,
         ));
       } else if (state is ServerStopped) {
         final currentState = state as ServerStopped;
-        emit(ServerStopped(
-          currentState.port,
+        emit(ServerStopped(currentState.port,
           globalPassThroughUrl: passThroughUrl,
           autoPassThrough: event.enabled,
-          useDeviceIp: useDeviceIp,
+          useDeviceIp: useDeviceIp_,
           deviceIp: deviceIp,
         ));
       }
@@ -339,23 +363,18 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     }
   }
 
-  Future<void> _onSetUseDeviceIp(
-      SetUseDeviceIpEvent event,
-      Emitter<ServerState> emit,
-      ) async {
+  Future<void> _onSetUseDeviceIp(SetUseDeviceIpEvent event, Emitter<ServerState> emit) async {
     try {
       await setUseDeviceIp(event.enabled);
-      final isRunning = getServerStatus();
       final passThroughUrl = getGlobalPassThroughUrl();
-      final autoPassThrough = getAutoPassThrough();
+      final autoPassThrough_ = getAutoPassThrough();
       final deviceIp = event.enabled ? await getDeviceIpAddress() : null;
 
       if (state is ServerStopped) {
         final currentState = state as ServerStopped;
-        emit(ServerStopped(
-          currentState.port,
+        emit(ServerStopped(currentState.port,
           globalPassThroughUrl: passThroughUrl,
-          autoPassThrough: autoPassThrough,
+          autoPassThrough: autoPassThrough_,
           useDeviceIp: event.enabled,
           deviceIp: deviceIp,
         ));
@@ -365,26 +384,72 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     }
   }
 
-  Future<void> _onLoadDeviceIp(
-      LoadDeviceIpEvent event,
-      Emitter<ServerState> emit,
-      ) async {
+  Future<void> _onLoadDeviceIp(LoadDeviceIpEvent event, Emitter<ServerState> emit) async {
     try {
       final deviceIp = await getDeviceIpAddress();
-      final useDeviceIp = getUseDeviceIp();
+      final useDeviceIp_ = getUseDeviceIp();
 
       if (state is ServerStopped) {
         final currentState = state as ServerStopped;
-        emit(ServerStopped(
-          currentState.port,
+        emit(ServerStopped(currentState.port,
           globalPassThroughUrl: currentState.globalPassThroughUrl,
           autoPassThrough: currentState.autoPassThrough,
-          useDeviceIp: useDeviceIp,
+          useDeviceIp: useDeviceIp_,
           deviceIp: deviceIp,
         ));
       }
+    } catch (_) {
+      // Silently fail — not critical
+    }
+  }
+
+  Future<void> _onStartProfile(StartProfileEvent event, Emitter<ServerState> emit) async {
+    emit(ServerLoading());
+    try {
+      await startProfile(
+        profileId: event.profileId,
+        profileName: event.profileName,
+        port: event.port,
+        useDeviceIp: event.useDeviceIp,
+        passThroughUrl: event.passThroughUrl,
+        autoPassThrough: event.autoPassThrough,
+      );
+      final running = getRunningServers();
+      if (running.length > 1) {
+        emit(MultiServerRunning(running));
+      } else if (running.length == 1) {
+        final srv = running.first;
+        emit(ServerRunning(srv.url, srv.port, profileId: srv.profileId));
+      }
     } catch (e) {
-      // Silently fail, not critical
+      emit(ServerError(e.toString()));
+    }
+  }
+
+  Future<void> _onStopProfile(StopProfileEvent event, Emitter<ServerState> emit) async {
+    try {
+      await stopProfile(event.profileId);
+      final running = getRunningServers();
+      if (running.isEmpty) {
+        emit(ServerStopped(8080));
+      } else if (running.length == 1) {
+        final srv = running.first;
+        emit(ServerRunning(srv.url, srv.port, profileId: srv.profileId));
+      } else {
+        emit(MultiServerRunning(running));
+      }
+    } catch (e) {
+      emit(ServerError(e.toString()));
+    }
+  }
+
+  Future<void> _onStopAllProfiles(StopAllProfilesEvent event, Emitter<ServerState> emit) async {
+    emit(ServerLoading());
+    try {
+      await stopAllProfiles();
+      emit(ServerStopped(8080));
+    } catch (e) {
+      emit(ServerError(e.toString()));
     }
   }
 }

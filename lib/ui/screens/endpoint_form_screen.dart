@@ -6,8 +6,9 @@ import 'conditional_mock_screen.dart';
 
 class EndpointFormScreen extends StatefulWidget {
   final Endpoint? endpoint;
+  final String profileId;
 
-  const EndpointFormScreen({Key? key, this.endpoint}) : super(key: key);
+  const EndpointFormScreen({Key? key, this.endpoint, this.profileId = 'default'}) : super(key: key);
 
   @override
   State<EndpointFormScreen> createState() => _EndpointFormScreenState();
@@ -284,6 +285,7 @@ class _EndpointFormScreenState extends State<EndpointFormScreen> {
       final endpoint = Endpoint(
         id: widget.endpoint?.id ??
             DateTime.now().millisecondsSinceEpoch.toString(),
+        profileId: widget.endpoint?.profileId ?? widget.profileId,
         pattern: _patternController.text,
         matchType: _matchType,
         mode: _mode,

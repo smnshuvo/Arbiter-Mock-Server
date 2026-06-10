@@ -1,5 +1,6 @@
 import '../repositories/server_repository.dart';
 import '../entities/interception_mode.dart';
+import '../../core/services/server_manager.dart';
 
 class StartServer {
   final ServerRepository repository;
@@ -159,4 +160,55 @@ class GetServerInterceptionMode {
   InterceptionMode call() {
     return repository.getInterceptionMode();
   }
+}
+
+class StartProfile {
+  final ServerRepository repository;
+  StartProfile(this.repository);
+
+  Future<void> call({
+    required String profileId,
+    required String profileName,
+    required int port,
+    bool useDeviceIp = false,
+    String? passThroughUrl,
+    bool autoPassThrough = false,
+  }) async {
+    await repository.startProfile(
+      profileId: profileId,
+      profileName: profileName,
+      port: port,
+      useDeviceIp: useDeviceIp,
+      passThroughUrl: passThroughUrl,
+      autoPassThrough: autoPassThrough,
+    );
+  }
+}
+
+class StopProfile {
+  final ServerRepository repository;
+  StopProfile(this.repository);
+
+  Future<void> call(String profileId) => repository.stopProfile(profileId);
+}
+
+class StopAllProfiles {
+  final ServerRepository repository;
+  StopAllProfiles(this.repository);
+
+  Future<void> call() => repository.stopAllProfiles();
+}
+
+class GetRunningServers {
+  final ServerRepository repository;
+  GetRunningServers(this.repository);
+
+  List<RunningServerInfo> call() => repository.getRunningServers();
+}
+
+class IsProfileRunning {
+  final ServerRepository repository;
+  IsProfileRunning(this.repository);
+
+  bool call(String profileId) => repository.isProfileRunning(profileId);
 }

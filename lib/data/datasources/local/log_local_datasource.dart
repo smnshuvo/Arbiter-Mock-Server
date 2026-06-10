@@ -27,6 +27,11 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
     if (filter != null) {
       List<String> conditions = [];
 
+      if (filter.profileId != null) {
+        conditions.add('profileId = ?');
+        whereArgs.add(filter.profileId!);
+      }
+
       if (filter.methods != null && filter.methods!.isNotEmpty) {
         final methodNames = filter.methods!.map((m) => m.name.toUpperCase()).toList();
         conditions.add('method IN (${List.filled(methodNames.length, '?').join(',')})');
@@ -114,6 +119,11 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
     String whereClause = '';
     List<dynamic> whereArgs = [];
     List<String> conditions = [];
+
+    if (filter.profileId != null) {
+      conditions.add('profileId = ?');
+      whereArgs.add(filter.profileId!);
+    }
 
     if (filter.methods != null && filter.methods!.isNotEmpty) {
       final methodNames = filter.methods!.map((m) => m.name.toUpperCase()).toList();

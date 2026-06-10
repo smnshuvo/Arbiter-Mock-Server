@@ -9,7 +9,13 @@ abstract class EndpointEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-class LoadEndpointsEvent extends EndpointEvent {}
+class LoadEndpointsEvent extends EndpointEvent {
+  final String profileId;
+  LoadEndpointsEvent(this.profileId);
+
+  @override
+  List<Object?> get props => [profileId];
+}
 
 class CreateEndpointEvent extends EndpointEvent {
   final Endpoint endpoint;
@@ -29,21 +35,38 @@ class UpdateEndpointEvent extends EndpointEvent {
 
 class DeleteEndpointEvent extends EndpointEvent {
   final String id;
-  DeleteEndpointEvent(this.id);
+  final String profileId;
+  DeleteEndpointEvent(this.id, this.profileId);
 
   @override
-  List<Object?> get props => [id];
+  List<Object?> get props => [id, profileId];
 }
 
 class ImportEndpointsEvent extends EndpointEvent {
   final List<Endpoint> endpoints;
-  ImportEndpointsEvent(this.endpoints);
+  final String profileId;
+  ImportEndpointsEvent(this.endpoints, this.profileId);
 
   @override
-  List<Object?> get props => [endpoints];
+  List<Object?> get props => [endpoints, profileId];
 }
 
-class ExportEndpointsEvent extends EndpointEvent {}
+class ExportEndpointsEvent extends EndpointEvent {
+  final String profileId;
+  ExportEndpointsEvent(this.profileId);
+
+  @override
+  List<Object?> get props => [profileId];
+}
+
+class ToggleAllEndpointsEvent extends EndpointEvent {
+  final String profileId;
+  final bool enabled;
+  ToggleAllEndpointsEvent({required this.profileId, required this.enabled});
+
+  @override
+  List<Object?> get props => [profileId, enabled];
+}
 
 // States
 abstract class EndpointState extends Equatable {
@@ -57,11 +80,12 @@ class EndpointLoading extends EndpointState {}
 
 class EndpointLoaded extends EndpointState {
   final List<Endpoint> endpoints;
+  final String profileId;
 
-  EndpointLoaded(this.endpoints);
+  EndpointLoaded(this.endpoints, this.profileId);
 
   @override
-  List<Object?> get props => [endpoints];
+  List<Object?> get props => [endpoints, profileId];
 }
 
 class EndpointExported extends EndpointState {
@@ -90,6 +114,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
   final DeleteEndpoint deleteEndpoint;
   final ImportEndpoints importEndpoints;
   final ExportEndpoints exportEndpoints;
+  final ToggleAllEndpoints toggleAllEndpoints;
 
   EndpointBloc({
     required this.getAllEndpoints,
@@ -98,6 +123,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     required this.deleteEndpoint,
     required this.importEndpoints,
     required this.exportEndpoints,
+    required this.toggleAllEndpoints,
   }) : super(EndpointInitial()) {
     on<LoadEndpointsEvent>(_onLoadEndpoints);
     on<CreateEndpointEvent>(_onCreateEndpoint);
@@ -105,83 +131,76 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     on<DeleteEndpointEvent>(_onDeleteEndpoint);
     on<ImportEndpointsEvent>(_onImportEndpoints);
     on<ExportEndpointsEvent>(_onExportEndpoints);
+    on<ToggleAllEndpointsEvent>(_onToggleAllEndpoints);
   }
 
-  Future<void> _onLoadEndpoints(
-      LoadEndpointsEvent event,
-      Emitter<EndpointState> emit,
-      ) async {
+  Future<void> _onLoadEndpoints(LoadEndpointsEvent event, Emitter<EndpointState> emit) async {
     emit(EndpointLoading());
     try {
-      final endpoints = await getAllEndpoints();
-      emit(EndpointLoaded(endpoints));
+      final endpoints = await getAllEndpoints(profileId: event.profileId);
+      emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }
   }
 
-  Future<void> _onCreateEndpoint(
-      CreateEndpointEvent event,
-      Emitter<EndpointState> emit,
-      ) async {
+  Future<void> _onCreateEndpoint(CreateEndpointEvent event, Emitter<EndpointState> emit) async {
     try {
       await createEndpoint(event.endpoint);
-      final endpoints = await getAllEndpoints();
-      emit(EndpointLoaded(endpoints));
+      final endpoints = await getAllEndpoints(profileId: event.endpoint.profileId);
+      emit(EndpointLoaded(endpoints, event.endpoint.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }
   }
 
-  Future<void> _onUpdateEndpoint(
-      UpdateEndpointEvent event,
-      Emitter<EndpointState> emit,
-      ) async {
+  Future<void> _onUpdateEndpoint(UpdateEndpointEvent event, Emitter<EndpointState> emit) async {
     try {
       await updateEndpoint(event.endpoint);
-      final endpoints = await getAllEndpoints();
-      emit(EndpointLoaded(endpoints));
+      final endpoints = await getAllEndpoints(profileId: event.endpoint.profileId);
+      emit(EndpointLoaded(endpoints, event.endpoint.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }
   }
 
-  Future<void> _onDeleteEndpoint(
-      DeleteEndpointEvent event,
-      Emitter<EndpointState> emit,
-      ) async {
+  Future<void> _onDeleteEndpoint(DeleteEndpointEvent event, Emitter<EndpointState> emit) async {
     try {
       await deleteEndpoint(event.id);
-      final endpoints = await getAllEndpoints();
-      emit(EndpointLoaded(endpoints));
+      final endpoints = await getAllEndpoints(profileId: event.profileId);
+      emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }
   }
 
-  Future<void> _onImportEndpoints(
-      ImportEndpointsEvent event,
-      Emitter<EndpointState> emit,
-      ) async {
+  Future<void> _onImportEndpoints(ImportEndpointsEvent event, Emitter<EndpointState> emit) async {
     emit(EndpointLoading());
     try {
-      await importEndpoints(event.endpoints);
-      final endpoints = await getAllEndpoints();
-      emit(EndpointLoaded(endpoints));
+      await importEndpoints(event.endpoints, profileId: event.profileId);
+      final endpoints = await getAllEndpoints(profileId: event.profileId);
+      emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }
   }
 
-  Future<void> _onExportEndpoints(
-      ExportEndpointsEvent event,
-      Emitter<EndpointState> emit,
-      ) async {
+  Future<void> _onExportEndpoints(ExportEndpointsEvent event, Emitter<EndpointState> emit) async {
     try {
-      final jsonData = await exportEndpoints();
+      final jsonData = await exportEndpoints(profileId: event.profileId);
       emit(EndpointExported(jsonData));
-      final endpoints = await getAllEndpoints();
-      emit(EndpointLoaded(endpoints));
+      final endpoints = await getAllEndpoints(profileId: event.profileId);
+      emit(EndpointLoaded(endpoints, event.profileId));
+    } catch (e) {
+      emit(EndpointError(e.toString()));
+    }
+  }
+
+  Future<void> _onToggleAllEndpoints(ToggleAllEndpointsEvent event, Emitter<EndpointState> emit) async {
+    try {
+      await toggleAllEndpoints(profileId: event.profileId, enabled: event.enabled);
+      final endpoints = await getAllEndpoints(profileId: event.profileId);
+      emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }

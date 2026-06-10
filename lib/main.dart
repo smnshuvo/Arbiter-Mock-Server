@@ -8,11 +8,11 @@ import 'ui/bloc/dependency_container.dart' as di;
 import 'ui/bloc/endpoint/endpoint_bloc.dart';
 import 'ui/bloc/interception/interception_bloc.dart';
 import 'ui/bloc/log/log_bloc.dart';
+import 'ui/bloc/profile/profile_bloc.dart';
 import 'ui/bloc/server/server_bloc.dart';
 import 'ui/bloc/settings/settings_bloc.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/welcome_screen.dart';
-import 'ui/bloc/dependency_container.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +39,7 @@ class MyApp extends StatelessWidget {
         BlocProvider(create: (_) => di.sl<LogBloc>()),
         BlocProvider(create: (_) => di.sl<InterceptionBloc>()),
         BlocProvider(create: (_) => di.sl<SettingsBloc>()),
+        BlocProvider(create: (_) => di.sl<ProfileBloc>()..add(LoadProfilesEvent())),
       ],
       child: BlocBuilder<ThemeCubit, ThemeMode>(
         builder: (context, themeMode) {
