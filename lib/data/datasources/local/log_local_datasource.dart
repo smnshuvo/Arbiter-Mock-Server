@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:sqflite/sqflite.dart';
 
+import '../../../domain/entities/request_log.dart';
 import '../../../domain/repositories/log_repository.dart';
 import '../../models/request_log_model.dart';
 import 'database_helper.dart';
@@ -10,12 +13,17 @@ abstract class LogLocalDataSource {
   Future<void> insertLog(RequestLogModel log);
   Future<void> clearLogs();
   Future<void> clearFilteredLogs(LogFilter filter);
+  Stream<RequestLog> get newLogStream;
 }
 
 class LogLocalDataSourceImpl implements LogLocalDataSource {
   final DatabaseHelper databaseHelper;
+  final _streamController = StreamController<RequestLog>.broadcast();
 
   LogLocalDataSourceImpl(this.databaseHelper);
+
+  @override
+  Stream<RequestLog> get newLogStream => _streamController.stream;
 
   @override
   Future<List<RequestLogModel>> getAllLogs({LogFilter? filter}) async {
@@ -104,6 +112,7 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
       log.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    _streamController.add(log.toEntity());
   }
 
   @override

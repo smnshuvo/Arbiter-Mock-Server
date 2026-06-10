@@ -73,6 +73,7 @@ Future<void> init() async {
       importEndpoints: sl(),
       exportEndpoints: sl(),
       toggleAllEndpoints: sl(),
+      batchCreateEndpointsFromLogs: sl(),
     ),
   );
 
@@ -82,6 +83,7 @@ Future<void> init() async {
       clearLogs: sl(),
       clearFilteredLogs: sl(),
       exportLogs: sl(),
+      watchNewLogs: sl(),
     ),
   );
 
@@ -142,6 +144,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => ImportEndpoints(sl()));
   sl.registerLazySingleton(() => ExportEndpoints(sl()));
   sl.registerLazySingleton(() => ToggleAllEndpoints(sl()));
+  sl.registerLazySingleton(() => BatchCreateEndpointsFromLogs(sl()));
 
   // Use cases - Log
   sl.registerLazySingleton(() => GetAllLogs(sl()));
@@ -149,6 +152,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => ClearLogs(sl()));
   sl.registerLazySingleton(() => ClearFilteredLogs(sl()));
   sl.registerLazySingleton(() => ExportLogs(sl()));
+  sl.registerLazySingleton(() => WatchNewLogs(sl()));
 
   // Use cases - Interception
   sl.registerLazySingleton(() => WatchPendingInterceptions(sl()));
