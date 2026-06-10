@@ -35,9 +35,13 @@ class _LogsScreenState extends State<LogsScreen> {
   bool _isSelectionMode = false;
   final Set<String> _selectedLogIds = {};
 
+  // Saved refs for safe use in dispose()
+  late final LogBloc _logBloc;
+
   @override
   void initState() {
     super.initState();
+    _logBloc = context.read<LogBloc>();
     final profileState = context.read<ProfileBloc>().state;
     if (profileState is ProfileLoaded) {
       _selectedProfileId = profileState.activeProfileId;
@@ -48,7 +52,7 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   void dispose() {
     _searchController.dispose();
-    context.read<LogBloc>().add(StopWatchingLogsEvent());
+    _logBloc.add(StopWatchingLogsEvent());
     super.dispose();
   }
 
@@ -148,7 +152,7 @@ class _LogsScreenState extends State<LogsScreen> {
             final isStreaming = state is LogLoaded && state.isStreaming;
             return IconButton(
               icon: Icon(isStreaming ? Icons.pause_circle_outline : Icons.play_circle_outline),
-              tooltip: isStreaming ? 'Stop live updates' : 'Start live updates',
+              tooltip: isStreaming ? 'Pause live updates' : 'Resume live updates',
               onPressed: () {
                 if (isStreaming) {
                   context.read<LogBloc>().add(StopWatchingLogsEvent());
@@ -164,32 +168,53 @@ class _LogsScreenState extends State<LogsScreen> {
           onPressed: _showProfileSelector,
           tooltip: 'Switch Profile',
         ),
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          onPressed: _loadLogsWithProfile,
-          tooltip: 'Reload Logs',
-        ),
-        IconButton(
-          icon: const Icon(Icons.filter_list),
-          onPressed: _showFilterDialog,
-          tooltip: 'Filter',
-        ),
-        IconButton(
-          icon: const Icon(Icons.share),
-          onPressed: _exportLogs,
-          tooltip: 'Export',
-        ),
         PopupMenuButton<String>(
           onSelected: (value) {
-            if (value == 'clear_all') {
-              _showClearDialog(false);
-            } else if (value == 'clear_filtered') {
-              _showClearDialog(true);
+            switch (value) {
+              case 'filter':
+                _showFilterDialog();
+              case 'export':
+                _exportLogs();
+              case 'clear_all':
+                _showClearDialog(false);
+              case 'clear_filtered':
+                _showClearDialog(true);
             }
           },
-          itemBuilder: (context) => [
-            const PopupMenuItem(value: 'clear_all', child: Text('Clear All Logs')),
-            const PopupMenuItem(value: 'clear_filtered', child: Text('Clear Filtered Logs')),
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'filter',
+              child: Row(children: [
+                Icon(Icons.filter_list, size: 20),
+                SizedBox(width: 12),
+                Text('Filter'),
+              ]),
+            ),
+            PopupMenuItem(
+              value: 'export',
+              child: Row(children: [
+                Icon(Icons.share, size: 20),
+                SizedBox(width: 12),
+                Text('Export'),
+              ]),
+            ),
+            PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'clear_filtered',
+              child: Row(children: [
+                Icon(Icons.filter_alt_off, size: 20),
+                SizedBox(width: 12),
+                Text('Clear Filtered Logs'),
+              ]),
+            ),
+            PopupMenuItem(
+              value: 'clear_all',
+              child: Row(children: [
+                Icon(Icons.delete_sweep, size: 20),
+                SizedBox(width: 12),
+                Text('Clear All Logs'),
+              ]),
+            ),
           ],
         ),
       ],
@@ -626,13 +651,32 @@ class _LogsScreenState extends State<LogsScreen> {
                   : setState(() => _selectedLog = log),
               onLongPress: () => _enterSelectionMode(log.id),
             )
-          : ExpansionTile(
-              leading: _isSelectionMode
-                  ? Checkbox(
-                      value: isSelected,
-                      onChanged: (_) => _toggleSelection(log.id),
+          : GestureDetector(
+              onLongPress: _isSelectionMode ? null : () => _enterSelectionMode(log.id),
+              child: _isSelectionMode
+                  ? ListTile(
+                      leading: Checkbox(
+                        value: isSelected,
+                        onChanged: (_) => _toggleSelection(log.id),
+                      ),
+                      title: Text(log.url,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      subtitle: Wrap(
+                        spacing: 4,
+                        children: [
+                          _buildChip(log.method.name, Colors.blue),
+                          _buildChip(
+                              log.logType == LogType.mock ? 'Mock' : 'Pass-through',
+                              log.logType == LogType.mock ? Colors.green : Colors.orange),
+                          _buildChip('${log.responseTimeMs}ms', Colors.purple),
+                        ],
+                      ),
+                      onTap: () => _toggleSelection(log.id),
                     )
-                  : CircleAvatar(
+                  : ExpansionTile(
+              leading: CircleAvatar(
                       backgroundColor: statusColor.withValues(alpha: 0.2),
                       child: Text(log.statusCode.toString(),
                           style: TextStyle(
@@ -654,9 +698,7 @@ class _LogsScreenState extends State<LogsScreen> {
                   _buildChip('${log.responseTimeMs}ms', Colors.purple),
                 ],
               ),
-              trailing: _isSelectionMode
-                  ? null
-                  : PopupMenuButton<String>(
+              trailing: PopupMenuButton<String>(
                       icon: const Icon(Icons.more_vert),
                       onSelected: (value) {
                         if (value == 'create_endpoint') _createEndpointFromLog(log);
@@ -672,12 +714,7 @@ class _LogsScreenState extends State<LogsScreen> {
                         ),
                       ],
                     ),
-              onExpansionChanged: (_isSelectionMode)
-                  ? (_) => _toggleSelection(log.id)
-                  : null,
-              children: _isSelectionMode
-                  ? []
-                  : [
+              children: [
                       Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
@@ -721,7 +758,8 @@ class _LogsScreenState extends State<LogsScreen> {
                         ),
                       ),
                     ],
-            ),
+                  ),
+              ),
     );
   }
 
