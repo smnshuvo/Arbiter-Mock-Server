@@ -69,18 +69,20 @@ class BatchCreateEndpointsFromLogs {
   final EndpointRepository repository;
   BatchCreateEndpointsFromLogs(this.repository);
 
-  Future<void> call({
+  /// Returns the number of endpoints actually created (duplicates are skipped).
+  Future<int> call({
     required List<RequestLog> logs,
     required String profileId,
     required int delayMs,
   }) async {
+    int created = 0;
     final now = DateTime.now();
-    final endpoints = logs.map((log) {
+    for (final log in logs) {
       String pattern = log.url;
       if (pattern.contains('?')) pattern = pattern.split('?').first;
       if (pattern.startsWith('/')) pattern = pattern.substring(1);
 
-      return Endpoint(
+      final endpoint = Endpoint(
         id: '${now.millisecondsSinceEpoch}_${log.id}',
         profileId: profileId,
         pattern: pattern,
@@ -93,11 +95,17 @@ class BatchCreateEndpointsFromLogs {
         createdAt: now,
         updatedAt: now,
         isEnabled: true,
-        conditionalMocks: [],
+        conditionalMocks: const [],
         useConditionalMock: false,
       );
-    }).toList();
 
-    await repository.importEndpoints(endpoints, profileId: profileId);
+      try {
+        await repository.createEndpoint(endpoint);
+        created++;
+      } catch (_) {
+        // Skip duplicates silently
+      }
+    }
+    return created;
   }
 }

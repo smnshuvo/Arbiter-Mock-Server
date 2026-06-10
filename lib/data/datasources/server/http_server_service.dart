@@ -421,25 +421,34 @@ class HttpServerService {
   }
 
   Endpoint? _findMatchingEndpoint(String url, List<Endpoint> endpoints) {
+    // Normalize: shelf gives "" for root "/", strip leading slash elsewhere
+    final normalizedUrl = url.startsWith('/') ? url.substring(1) : url;
+
     for (final endpoint in endpoints) {
       if (!endpoint.isEnabled) continue;
 
+      // Normalize pattern the same way
+      final normalizedPattern = endpoint.pattern.startsWith('/')
+          ? endpoint.pattern.substring(1)
+          : endpoint.pattern;
+
       switch (endpoint.matchType) {
         case MatchType.exact:
-          if (url == endpoint.pattern || url.endsWith(endpoint.pattern)) {
+          if (normalizedUrl == normalizedPattern) return endpoint;
+          // Suffix match only for non-empty patterns — empty pattern via endsWith
+          // would match every URL
+          if (normalizedPattern.isNotEmpty &&
+              normalizedUrl.endsWith(normalizedPattern)) {
             return endpoint;
           }
           break;
         case MatchType.wildcard:
-          final pattern = endpoint.pattern.replaceAll('*', '.*');
-          if (RegExp(pattern).hasMatch(url)) {
-            return endpoint;
-          }
+          final pattern = normalizedPattern.replaceAll('*', '.*');
+          if (RegExp(pattern).hasMatch(normalizedUrl)) return endpoint;
           break;
         case MatchType.regex:
-          if (RegExp(endpoint.pattern).hasMatch(url)) {
-            return endpoint;
-          }
+          // Regex operates on original URL for maximum flexibility
+          if (RegExp(endpoint.pattern).hasMatch(url)) return endpoint;
           break;
       }
     }
