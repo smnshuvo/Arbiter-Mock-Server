@@ -7,6 +7,7 @@ part 'request_log_model.g.dart';
 @JsonSerializable()
 class RequestLogModel {
   final String id;
+  final String profileId;
   final String timestamp;
   final String method;
   final String url;
@@ -20,6 +21,7 @@ class RequestLogModel {
 
   RequestLogModel({
     required this.id,
+    this.profileId = 'default',
     required this.timestamp,
     required this.method,
     required this.url,
@@ -40,6 +42,7 @@ class RequestLogModel {
   factory RequestLogModel.fromEntity(RequestLog log) {
     return RequestLogModel(
       id: log.id,
+      profileId: log.profileId,
       timestamp: log.timestamp.toIso8601String(),
       method: log.method.name,
       url: log.url,
@@ -56,6 +59,7 @@ class RequestLogModel {
   RequestLog toEntity() {
     return RequestLog(
       id: id,
+      profileId: profileId,
       timestamp: DateTime.parse(timestamp),
       method: RequestMethodExtension.fromString(method),
       url: url,
@@ -75,6 +79,7 @@ class RequestLogModel {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'profileId': profileId,
       'timestamp': timestamp,
       'method': method,
       'url': url,
@@ -91,6 +96,7 @@ class RequestLogModel {
   factory RequestLogModel.fromMap(Map<String, dynamic> map) {
     return RequestLogModel(
       id: map['id'],
+      profileId: map['profileId'] ?? 'default',
       timestamp: map['timestamp'],
       method: map['method'],
       url: map['url'],

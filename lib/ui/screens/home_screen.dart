@@ -5,10 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/services/server_manager.dart';
 import '../../domain/entities/interception_mode.dart';
+import '../../domain/entities/profile.dart';
 import '../bloc/interception/interception_bloc.dart';
 import '../bloc/interception/interception_event.dart';
 import '../bloc/interception/interception_state.dart';
+import '../bloc/profile/profile_bloc.dart';
 import '../bloc/server/server_bloc.dart';
 import '../dialog/interception_dialog.dart';
 import '../widgets/glowing_icon_widget.dart';
@@ -16,6 +19,8 @@ import '../widgets/grey_out_icon_widget.dart';
 import 'endpoint_screen.dart';
 import 'logs_screen.dart';
 import 'settings_screen.dart';
+
+typedef _RunningServerInfo = RunningServerInfo;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -180,6 +185,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 backgroundColor: Colors.red,
               ),
             );
+            // Restore the actual running state — ServerError wipes the previous state
+            context.read<ServerBloc>().add(CheckServerStatusEvent());
           }
 
           // Update pass-through URL controller when state changes
@@ -239,8 +246,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildServerStatusCard(ServerState state) {
+    if (state is MultiServerRunning) {
+      return _buildMultiServerCard(state);
+    }
+
     final isRunning = state is ServerRunning;
     final isLoading = state is ServerLoading;
+    final runningState = state is ServerRunning ? state : null;
 
     return Card(
       elevation: 4,
@@ -294,23 +306,20 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: isLoading
                   ? null
                   : () async {
-                      if (isRunning) {
-                        context.read<ServerBloc>().add(StopServerEvent());
-                      } else {
-                        // Check notification permission before starting server
-                        final hasPermission = await _checkAndRequestNotificationPermission();
-                        
-                        if (!hasPermission) {
-                          return; // Don't start server if permission not granted
-                        }
-                        
-                        final port = int.tryParse(_portController.text) ?? 8080;
-                        final useDeviceIp = state is ServerStopped
-                            ? (state as ServerStopped).useDeviceIp
-                            : false;
+                      if (isRunning && runningState != null) {
                         context.read<ServerBloc>().add(
-                              StartServerEvent(port, useDeviceIp: useDeviceIp),
-                            );
+                          StopProfileEvent(runningState.profileId),
+                        );
+                      } else if (!isRunning) {
+                        final hasPermission = await _checkAndRequestNotificationPermission();
+                        if (!hasPermission) return;
+
+                        final stoppedState = state is ServerStopped ? state : null;
+                        final defaultPort = int.tryParse(_portController.text) ?? 8080;
+                        _showStartProfileSheet(
+                          defaultPort: defaultPort,
+                          defaultUseDeviceIp: stoppedState?.useDeviceIp ?? false,
+                        );
                       }
                     },
               icon: Icon(
@@ -327,12 +336,191 @@ class _HomeScreenState extends State<HomeScreen> {
                     const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
               ),
             ),
+            if (isRunning) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Start Another Profile'),
+                onPressed: () {
+                  _showStartProfileSheet(defaultPort: (runningState?.port ?? 8080) + 1);
+                },
+              ),
+            ],
             if (!isRunning && state is ServerStopped) ...[
               const SizedBox(height: 16),
-              _buildDeviceIpToggle(state as ServerStopped),
+              _buildDeviceIpToggle(state),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMultiServerCard(MultiServerRunning state) {
+    final servers = state.runningServers;
+    const maxVisible = 3;
+    final showSeeAll = servers.length > maxVisible;
+    final visibleServers = showSeeAll ? servers.take(maxVisible).toList() : servers;
+
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const GlowingIconWidget(
+                  iconAssetPath: iconAssetPath,
+                  size: 48,
+                  glowColor: Colors.green,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Multiple Profiles Running',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        '${servers.length} active',
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.stop_circle_outlined, color: Colors.red),
+                  label: const Text('Stop All', style: TextStyle(color: Colors.red)),
+                  onPressed: () => context.read<ServerBloc>().add(StopAllProfilesEvent()),
+                ),
+              ],
+            ),
+            const Divider(height: 20),
+            ...visibleServers.map((srv) => _buildRunningProfileRow(srv)),
+            if (showSeeAll) ...[
+              const SizedBox(height: 4),
+              _SeeAllExpander(allServers: servers, visibleCount: maxVisible),
+            ],
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Start Another Profile'),
+                onPressed: () {
+                  final usedPorts = state.runningServers.map((s) => s.port).toSet();
+                  int nextPort = 8080;
+                  while (usedPorts.contains(nextPort)) nextPort++;
+                  _showStartProfileSheet(defaultPort: nextPort, defaultUseDeviceIp: false);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRunningProfileRow(_RunningServerInfo srv) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(Icons.circle, size: 10, color: Colors.green[600]),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(srv.profileName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(srv.url, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy, size: 18),
+            tooltip: 'Copy URL',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: srv.url));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('URL copied'), duration: Duration(seconds: 1)),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.stop_circle_outlined, size: 18, color: Colors.red),
+            tooltip: 'Stop profile',
+            onPressed: () => context.read<ServerBloc>().add(StopProfileEvent(srv.profileId)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showStartProfileSheet({int defaultPort = 8080, bool defaultUseDeviceIp = false}) {
+    final profileState = context.read<ProfileBloc>().state;
+    if (profileState is! ProfileLoaded) return;
+
+    final serverState = context.read<ServerBloc>().state;
+    final runningProfileIds = serverState is MultiServerRunning
+        ? serverState.runningServers.map((s) => s.profileId).toSet()
+        : serverState is ServerRunning
+            ? <String>{serverState.profileId}
+            : const <String>{};
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _StartProfileSheet(
+        profiles: profileState.profiles,
+        runningProfileIds: runningProfileIds,
+        defaultPort: defaultPort,
+        defaultUseDeviceIp: defaultUseDeviceIp,
+        onStart: (profileId, profileName, port, useDeviceIp) {
+          Navigator.pop(ctx);
+          context.read<ServerBloc>().add(StartProfileEvent(
+            profileId: profileId,
+            profileName: profileName,
+            port: port,
+            useDeviceIp: useDeviceIp,
+          ));
+        },
+        onCreateProfile: () {
+          Navigator.pop(ctx);
+          _showCreateProfileThenStartSheet(defaultPort: defaultPort);
+        },
+      ),
+    );
+  }
+
+  void _showCreateProfileThenStartSheet({int defaultPort = 8080}) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Profile'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Profile name'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) {
+                context.read<ProfileBloc>().add(CreateProfileEvent(name: name));
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
       ),
     );
   }
@@ -382,6 +570,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPortConfiguration(ServerState state) {
+    if (state is MultiServerRunning) return const SizedBox.shrink();
     final isRunning = state is ServerRunning;
 
     return Card(
@@ -435,6 +624,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildAutoPassThroughConfig(ServerState state) {
+    if (state is MultiServerRunning) return const SizedBox.shrink();
     final isRunning = state is ServerRunning;
     final autoPassThrough = state is ServerRunning
         ? state.autoPassThrough
@@ -695,6 +885,210 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SeeAllExpander extends StatefulWidget {
+  final List<RunningServerInfo> allServers;
+  final int visibleCount;
+
+  const _SeeAllExpander({required this.allServers, required this.visibleCount});
+
+  @override
+  State<_SeeAllExpander> createState() => _SeeAllExpanderState();
+}
+
+class _SeeAllExpanderState extends State<_SeeAllExpander> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_expanded) {
+      return Column(
+        children: [
+          ...widget.allServers.skip(widget.visibleCount).map((srv) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Icon(Icons.circle, size: 10, color: Colors.green[600]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(srv.profileName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text(srv.url, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy URL',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: srv.url));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('URL copied'), duration: Duration(seconds: 1)),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.stop_circle_outlined, size: 18, color: Colors.red),
+                  tooltip: 'Stop profile',
+                  onPressed: () => context.read<ServerBloc>().add(StopProfileEvent(srv.profileId)),
+                ),
+              ],
+            ),
+          )),
+          TextButton(
+            onPressed: () => setState(() => _expanded = false),
+            child: const Text('Show less'),
+          ),
+        ],
+      );
+    }
+
+    return TextButton(
+      onPressed: () => setState(() => _expanded = true),
+      child: Text('See all (${widget.allServers.length})'),
+    );
+  }
+}
+
+class _StartProfileSheet extends StatefulWidget {
+  final List<Profile> profiles;
+  final Set<String> runningProfileIds;
+  final int defaultPort;
+  final bool defaultUseDeviceIp;
+  final void Function(String profileId, String profileName, int port, bool useDeviceIp) onStart;
+  final VoidCallback? onCreateProfile;
+
+  const _StartProfileSheet({
+    required this.profiles,
+    required this.onStart,
+    this.runningProfileIds = const {},
+    this.defaultPort = 8080,
+    this.defaultUseDeviceIp = false,
+    this.onCreateProfile,
+  });
+
+  @override
+  State<_StartProfileSheet> createState() => _StartProfileSheetState();
+}
+
+class _StartProfileSheetState extends State<_StartProfileSheet> {
+  String? _selectedProfileId;
+  late TextEditingController _portController;
+  late bool _useDeviceIp;
+
+  List<Profile> get _availableProfiles =>
+      widget.profiles.where((p) => !widget.runningProfileIds.contains(p.id)).toList();
+
+  @override
+  void initState() {
+    super.initState();
+    _portController = TextEditingController(text: widget.defaultPort.toString());
+    _useDeviceIp = widget.defaultUseDeviceIp;
+    final available = _availableProfiles;
+    if (available.isNotEmpty) {
+      _selectedProfileId = available.first.id;
+    }
+  }
+
+  @override
+  void dispose() {
+    _portController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final available = _availableProfiles;
+    final allRunning = available.isEmpty;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16, right: 16, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Start Server', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          if (allRunning) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+              ),
+              child: const Text(
+                'All profiles are already running. Create a new profile to start another server instance.',
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Create New Profile'),
+              onPressed: widget.onCreateProfile,
+            ),
+          ] else ...[
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(
+                labelText: 'Profile',
+                border: OutlineInputBorder(),
+              ),
+              value: _selectedProfileId,
+              items: available
+                  .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
+                  .toList(),
+              onChanged: (val) => setState(() => _selectedProfileId = val),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _portController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Port',
+                border: OutlineInputBorder(),
+                helperText: 'Each running profile must use a unique port',
+              ),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              title: const Text('Use Device IP'),
+              subtitle: const Text('Allow other devices to connect'),
+              value: _useDeviceIp,
+              onChanged: (val) => setState(() => _useDeviceIp = val),
+              contentPadding: EdgeInsets.zero,
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: _selectedProfileId == null ? null : () {
+                final port = int.tryParse(_portController.text) ?? widget.defaultPort;
+                final profile = widget.profiles.firstWhere((p) => p.id == _selectedProfileId);
+                widget.onStart(_selectedProfileId!, profile.name, port, _useDeviceIp);
+              },
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: const Text('Start'),
+            ),
+            if (widget.onCreateProfile != null) ...[
+              const SizedBox(height: 4),
+              TextButton.icon(
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Or create a new profile'),
+                onPressed: widget.onCreateProfile,
+              ),
+            ],
+          ],
+        ],
+      ),
     );
   }
 }

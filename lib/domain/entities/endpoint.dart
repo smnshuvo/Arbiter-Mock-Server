@@ -48,6 +48,7 @@ class ConditionalMock extends Equatable {
 
 class Endpoint extends Equatable {
   final String id;
+  final String profileId;
   final String pattern;
   final MatchType matchType;
   final EndpointMode mode;
@@ -63,6 +64,7 @@ class Endpoint extends Equatable {
 
   const Endpoint({
     required this.id,
+    this.profileId = 'default',
     required this.pattern,
     required this.matchType,
     required this.mode,
@@ -79,6 +81,7 @@ class Endpoint extends Equatable {
 
   Endpoint copyWith({
     String? id,
+    String? profileId,
     String? pattern,
     MatchType? matchType,
     EndpointMode? mode,
@@ -94,6 +97,7 @@ class Endpoint extends Equatable {
   }) {
     return Endpoint(
       id: id ?? this.id,
+      profileId: profileId ?? this.profileId,
       pattern: pattern ?? this.pattern,
       matchType: matchType ?? this.matchType,
       mode: mode ?? this.mode,
@@ -112,6 +116,7 @@ class Endpoint extends Equatable {
   @override
   List<Object?> get props => [
     id,
+    profileId,
     pattern,
     matchType,
     mode,

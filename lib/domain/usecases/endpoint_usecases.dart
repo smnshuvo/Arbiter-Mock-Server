@@ -3,17 +3,15 @@ import '../repositories/endpoint_repository.dart';
 
 class GetAllEndpoints {
   final EndpointRepository repository;
-
   GetAllEndpoints(this.repository);
 
-  Future<List<Endpoint>> call() async {
-    return await repository.getAllEndpoints();
+  Future<List<Endpoint>> call({String? profileId}) async {
+    return await repository.getAllEndpoints(profileId: profileId);
   }
 }
 
 class CreateEndpoint {
   final EndpointRepository repository;
-
   CreateEndpoint(this.repository);
 
   Future<void> call(Endpoint endpoint) async {
@@ -23,7 +21,6 @@ class CreateEndpoint {
 
 class UpdateEndpoint {
   final EndpointRepository repository;
-
   UpdateEndpoint(this.repository);
 
   Future<void> call(Endpoint endpoint) async {
@@ -33,7 +30,6 @@ class UpdateEndpoint {
 
 class DeleteEndpoint {
   final EndpointRepository repository;
-
   DeleteEndpoint(this.repository);
 
   Future<void> call(String id) async {
@@ -43,20 +39,27 @@ class DeleteEndpoint {
 
 class ImportEndpoints {
   final EndpointRepository repository;
-
   ImportEndpoints(this.repository);
 
-  Future<void> call(List<Endpoint> endpoints) async {
-    await repository.importEndpoints(endpoints);
+  Future<void> call(List<Endpoint> endpoints, {required String profileId}) async {
+    await repository.importEndpoints(endpoints, profileId: profileId);
   }
 }
 
 class ExportEndpoints {
   final EndpointRepository repository;
-
   ExportEndpoints(this.repository);
 
-  Future<String> call() async {
-    return await repository.exportEndpoints();
+  Future<String> call({required String profileId}) async {
+    return await repository.exportEndpoints(profileId: profileId);
+  }
+}
+
+class ToggleAllEndpoints {
+  final EndpointRepository repository;
+  ToggleAllEndpoints(this.repository);
+
+  Future<void> call({required String profileId, required bool enabled}) async {
+    await repository.toggleAllEndpoints(profileId: profileId, enabled: enabled);
   }
 }
