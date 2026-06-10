@@ -236,12 +236,12 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
   Future<void> _onBatchCreateFromLogs(BatchCreateEndpointsFromLogsEvent event, Emitter<EndpointState> emit) async {
     emit(EndpointLoading());
     try {
-      await batchCreateEndpointsFromLogs(
+      final created = await batchCreateEndpointsFromLogs(
         logs: event.logs,
         profileId: event.profileId,
         delayMs: event.delayMs,
       );
-      emit(BatchCreateSuccessState(event.logs.length, event.profileId));
+      emit(BatchCreateSuccessState(created, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }
