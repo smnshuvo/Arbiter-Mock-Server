@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../entities/request_log.dart';
 
 class LogFilter {
@@ -47,4 +49,5 @@ abstract class LogRepository {
   Future<void> clearLogs();
   Future<void> clearFilteredLogs(LogFilter filter);
   Future<String> exportLogs({LogFilter? filter});
+  Stream<RequestLog> get newLogStream;
 }

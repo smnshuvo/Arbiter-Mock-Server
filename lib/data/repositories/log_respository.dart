@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import '../../domain/entities/request_log.dart';
 import '../../domain/repositories/log_repository.dart';
@@ -48,4 +49,7 @@ class LogRepositoryImpl implements LogRepository {
       'logs': jsonList,
     });
   }
+
+  @override
+  Stream<RequestLog> get newLogStream => localDataSource.newLogStream;
 }
