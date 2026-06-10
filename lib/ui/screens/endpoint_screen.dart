@@ -277,7 +277,7 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
           value: endpoint.isEnabled,
           onChanged: (value) {
             context.read<EndpointBloc>().add(UpdateEndpointEvent(
-              endpoint.copyWith(isEnabled: value, updatedAt: DateTime.now()),
+              endpoint.copyWith(isEnabled: value),
             ));
           },
         ),
