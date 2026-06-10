@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../domain/entities/endpoint.dart';
 import '../../../domain/entities/request_log.dart';
+import '../../../domain/exceptions/endpoint_exceptions.dart';
 import '../../../domain/usecases/endpoint_usecases.dart';
 
 // Events
@@ -102,6 +103,15 @@ class EndpointInitial extends EndpointState {}
 
 class EndpointLoading extends EndpointState {}
 
+class EndpointDuplicateFound extends EndpointState {
+  final Endpoint existing;
+  final Endpoint incoming;
+  EndpointDuplicateFound({required this.existing, required this.incoming});
+
+  @override
+  List<Object?> get props => [existing, incoming];
+}
+
 class EndpointLoaded extends EndpointState {
   final List<Endpoint> endpoints;
   final String profileId;
@@ -176,6 +186,8 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
       await createEndpoint(event.endpoint);
       final endpoints = await getAllEndpoints(profileId: event.endpoint.profileId);
       emit(EndpointLoaded(endpoints, event.endpoint.profileId));
+    } on DuplicateEndpointException catch (e) {
+      emit(EndpointDuplicateFound(existing: e.existing, incoming: event.endpoint));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }

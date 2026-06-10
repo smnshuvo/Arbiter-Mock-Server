@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../../../domain/exceptions/endpoint_exceptions.dart';
 import '../../models/endpoint_model.dart';
 import 'database_helper.dart';
 
@@ -56,8 +57,8 @@ class EndpointLocalDataSourceImpl implements EndpointLocalDataSource {
       limit: 1,
     );
     if (existing.isNotEmpty) {
-      throw Exception(
-          'An endpoint with pattern "${endpoint.pattern}" already exists in this profile');
+      throw DuplicateEndpointException(
+          EndpointModel.fromMap(existing.first).toEntity());
     }
     await db.insert('endpoints', endpoint.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
