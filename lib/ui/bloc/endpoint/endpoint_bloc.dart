@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../domain/entities/endpoint.dart';
+import '../../../domain/entities/request_log.dart';
 import '../../../domain/usecases/endpoint_usecases.dart';
 
 // Events
@@ -68,6 +69,29 @@ class ToggleAllEndpointsEvent extends EndpointEvent {
   List<Object?> get props => [profileId, enabled];
 }
 
+class BatchCreateEndpointsFromLogsEvent extends EndpointEvent {
+  final List<RequestLog> logs;
+  final String profileId;
+  final int delayMs;
+  BatchCreateEndpointsFromLogsEvent({
+    required this.logs,
+    required this.profileId,
+    required this.delayMs,
+  });
+
+  @override
+  List<Object?> get props => [logs, profileId, delayMs];
+}
+
+class BatchCreateSuccessState extends EndpointState {
+  final int count;
+  final String profileId;
+  BatchCreateSuccessState(this.count, this.profileId);
+
+  @override
+  List<Object?> get props => [count, profileId];
+}
+
 // States
 abstract class EndpointState extends Equatable {
   @override
@@ -115,6 +139,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
   final ImportEndpoints importEndpoints;
   final ExportEndpoints exportEndpoints;
   final ToggleAllEndpoints toggleAllEndpoints;
+  final BatchCreateEndpointsFromLogs batchCreateEndpointsFromLogs;
 
   EndpointBloc({
     required this.getAllEndpoints,
@@ -124,6 +149,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     required this.importEndpoints,
     required this.exportEndpoints,
     required this.toggleAllEndpoints,
+    required this.batchCreateEndpointsFromLogs,
   }) : super(EndpointInitial()) {
     on<LoadEndpointsEvent>(_onLoadEndpoints);
     on<CreateEndpointEvent>(_onCreateEndpoint);
@@ -132,6 +158,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     on<ImportEndpointsEvent>(_onImportEndpoints);
     on<ExportEndpointsEvent>(_onExportEndpoints);
     on<ToggleAllEndpointsEvent>(_onToggleAllEndpoints);
+    on<BatchCreateEndpointsFromLogsEvent>(_onBatchCreateFromLogs);
   }
 
   Future<void> _onLoadEndpoints(LoadEndpointsEvent event, Emitter<EndpointState> emit) async {
@@ -201,6 +228,20 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
       await toggleAllEndpoints(profileId: event.profileId, enabled: event.enabled);
       final endpoints = await getAllEndpoints(profileId: event.profileId);
       emit(EndpointLoaded(endpoints, event.profileId));
+    } catch (e) {
+      emit(EndpointError(e.toString()));
+    }
+  }
+
+  Future<void> _onBatchCreateFromLogs(BatchCreateEndpointsFromLogsEvent event, Emitter<EndpointState> emit) async {
+    emit(EndpointLoading());
+    try {
+      await batchCreateEndpointsFromLogs(
+        logs: event.logs,
+        profileId: event.profileId,
+        delayMs: event.delayMs,
+      );
+      emit(BatchCreateSuccessState(event.logs.length, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }

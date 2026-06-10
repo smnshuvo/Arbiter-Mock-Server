@@ -1,4 +1,5 @@
 import '../entities/endpoint.dart';
+import '../entities/request_log.dart';
 import '../repositories/endpoint_repository.dart';
 
 class GetAllEndpoints {
@@ -61,5 +62,42 @@ class ToggleAllEndpoints {
 
   Future<void> call({required String profileId, required bool enabled}) async {
     await repository.toggleAllEndpoints(profileId: profileId, enabled: enabled);
+  }
+}
+
+class BatchCreateEndpointsFromLogs {
+  final EndpointRepository repository;
+  BatchCreateEndpointsFromLogs(this.repository);
+
+  Future<void> call({
+    required List<RequestLog> logs,
+    required String profileId,
+    required int delayMs,
+  }) async {
+    final now = DateTime.now();
+    final endpoints = logs.map((log) {
+      String pattern = log.url;
+      if (pattern.contains('?')) pattern = pattern.split('?').first;
+      if (pattern.startsWith('/')) pattern = pattern.substring(1);
+
+      return Endpoint(
+        id: '${now.millisecondsSinceEpoch}_${log.id}',
+        profileId: profileId,
+        pattern: pattern,
+        matchType: MatchType.exact,
+        mode: EndpointMode.mock,
+        mockResponse: log.responseBody ?? '{}',
+        statusCode: log.statusCode,
+        delayMs: delayMs,
+        targetUrl: null,
+        createdAt: now,
+        updatedAt: now,
+        isEnabled: true,
+        conditionalMocks: [],
+        useConditionalMock: false,
+      );
+    }).toList();
+
+    await repository.importEndpoints(endpoints, profileId: profileId);
   }
 }
