@@ -18,6 +18,7 @@ class HttpServerService {
   String? _currentIpAddress;
   String? _globalPassThroughUrl;
   bool _autoPassThrough = false;
+  final String profileId;
   final LogLocalDataSource logDataSource;
   final Function() onEndpointsNeeded;
   final InterceptionManager interceptionManager;
@@ -27,6 +28,7 @@ class HttpServerService {
     required this.logDataSource,
     required this.onEndpointsNeeded,
     required this.interceptionManager,
+    this.profileId = 'default',
     this.onRequestReceived,
   });
 
@@ -526,6 +528,7 @@ class HttpServerService {
     try {
       final log = RequestLog(
         id: id,
+        profileId: profileId,
         timestamp: DateTime.now(),
         method: RequestMethodExtension.fromString(request.method),
         url: request.url.toString(),

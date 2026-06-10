@@ -9,6 +9,7 @@ part of 'endpoint_model.dart';
 EndpointModel _$EndpointModelFromJson(Map<String, dynamic> json) =>
     EndpointModel(
       id: json['id'] as String,
+      profileId: json['profileId'] as String? ?? 'default',
       pattern: json['pattern'] as String,
       matchType: json['matchType'] as String,
       mode: json['mode'] as String,
@@ -26,6 +27,7 @@ EndpointModel _$EndpointModelFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$EndpointModelToJson(EndpointModel instance) =>
     <String, dynamic>{
       'id': instance.id,
+      'profileId': instance.profileId,
       'pattern': instance.pattern,
       'matchType': instance.matchType,
       'mode': instance.mode,

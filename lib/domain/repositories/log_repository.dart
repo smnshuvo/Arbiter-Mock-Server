@@ -7,6 +7,7 @@ class LogFilter {
   final DateTime? startDate;
   final DateTime? endDate;
   final String? searchQuery;
+  final String? profileId;
 
   const LogFilter({
     this.methods,
@@ -15,7 +16,28 @@ class LogFilter {
     this.startDate,
     this.endDate,
     this.searchQuery,
+    this.profileId,
   });
+
+  LogFilter copyWith({
+    List<RequestMethod>? methods,
+    List<int>? statusCodes,
+    List<LogType>? logTypes,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? searchQuery,
+    String? profileId,
+  }) {
+    return LogFilter(
+      methods: methods ?? this.methods,
+      statusCodes: statusCodes ?? this.statusCodes,
+      logTypes: logTypes ?? this.logTypes,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      searchQuery: searchQuery ?? this.searchQuery,
+      profileId: profileId ?? this.profileId,
+    );
+  }
 }
 
 abstract class LogRepository {

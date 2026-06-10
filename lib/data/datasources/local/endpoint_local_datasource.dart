@@ -4,12 +4,13 @@ import '../../models/endpoint_model.dart';
 import 'database_helper.dart';
 
 abstract class EndpointLocalDataSource {
-  Future<List<EndpointModel>> getAllEndpoints();
+  Future<List<EndpointModel>> getAllEndpoints({String? profileId});
   Future<EndpointModel?> getEndpointById(String id);
   Future<void> insertEndpoint(EndpointModel endpoint);
   Future<void> updateEndpoint(EndpointModel endpoint);
   Future<void> deleteEndpoint(String id);
-  Future<void> deleteAllEndpoints();
+  Future<void> deleteAllEndpoints({String? profileId});
+  Future<void> toggleAllEndpoints({required String profileId, required bool enabled});
 }
 
 class EndpointLocalDataSourceImpl implements EndpointLocalDataSource {
@@ -18,10 +19,12 @@ class EndpointLocalDataSourceImpl implements EndpointLocalDataSource {
   EndpointLocalDataSourceImpl(this.databaseHelper);
 
   @override
-  Future<List<EndpointModel>> getAllEndpoints() async {
+  Future<List<EndpointModel>> getAllEndpoints({String? profileId}) async {
     final db = await databaseHelper.database;
     final List<Map<String, dynamic>> maps = await db.query(
       'endpoints',
+      where: profileId != null ? 'profileId = ?' : null,
+      whereArgs: profileId != null ? [profileId] : null,
       orderBy: 'updatedAt DESC',
     );
 
@@ -75,8 +78,23 @@ class EndpointLocalDataSourceImpl implements EndpointLocalDataSource {
   }
 
   @override
-  Future<void> deleteAllEndpoints() async {
+  Future<void> deleteAllEndpoints({String? profileId}) async {
     final db = await databaseHelper.database;
-    await db.delete('endpoints');
+    await db.delete(
+      'endpoints',
+      where: profileId != null ? 'profileId = ?' : null,
+      whereArgs: profileId != null ? [profileId] : null,
+    );
+  }
+
+  @override
+  Future<void> toggleAllEndpoints({required String profileId, required bool enabled}) async {
+    final db = await databaseHelper.database;
+    await db.update(
+      'endpoints',
+      {'isEnabled': enabled ? 1 : 0, 'updatedAt': DateTime.now().toIso8601String()},
+      where: 'profileId = ?',
+      whereArgs: [profileId],
+    );
   }
 }

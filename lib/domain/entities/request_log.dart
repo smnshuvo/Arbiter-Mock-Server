@@ -6,6 +6,7 @@ enum LogType { mock, passThrough }
 
 class RequestLog extends Equatable {
   final String id;
+  final String profileId;
   final DateTime timestamp;
   final RequestMethod method;
   final String url;
@@ -19,6 +20,7 @@ class RequestLog extends Equatable {
 
   const RequestLog({
     required this.id,
+    this.profileId = 'default',
     required this.timestamp,
     required this.method,
     required this.url,
@@ -34,6 +36,7 @@ class RequestLog extends Equatable {
   @override
   List<Object?> get props => [
     id,
+    profileId,
     timestamp,
     method,
     url,

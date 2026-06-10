@@ -10,8 +10,8 @@ class EndpointRepositoryImpl implements EndpointRepository {
   EndpointRepositoryImpl(this.localDataSource);
 
   @override
-  Future<List<Endpoint>> getAllEndpoints() async {
-    final models = await localDataSource.getAllEndpoints();
+  Future<List<Endpoint>> getAllEndpoints({String? profileId}) async {
+    final models = await localDataSource.getAllEndpoints(profileId: profileId);
     return models.map((model) => model.toEntity()).toList();
   }
 
@@ -44,25 +44,27 @@ class EndpointRepositoryImpl implements EndpointRepository {
   }
 
   @override
-  Future<void> importEndpoints(List<Endpoint> endpoints) async {
-    // Clear existing endpoints
-    await localDataSource.deleteAllEndpoints();
-
-    // Insert new endpoints
+  Future<void> importEndpoints(List<Endpoint> endpoints, {required String profileId}) async {
+    await localDataSource.deleteAllEndpoints(profileId: profileId);
     for (final endpoint in endpoints) {
-      final model = EndpointModel.fromEntity(endpoint);
+      final model = EndpointModel.fromEntity(endpoint.copyWith(profileId: profileId));
       await localDataSource.insertEndpoint(model);
     }
   }
 
   @override
-  Future<String> exportEndpoints() async {
-    final models = await localDataSource.getAllEndpoints();
+  Future<String> exportEndpoints({required String profileId}) async {
+    final models = await localDataSource.getAllEndpoints(profileId: profileId);
     final jsonList = models.map((model) => model.toJson()).toList();
     return jsonEncode({
       'version': '1.0',
       'exportDate': DateTime.now().toIso8601String(),
       'endpoints': jsonList,
     });
+  }
+
+  @override
+  Future<void> toggleAllEndpoints({required String profileId, required bool enabled}) async {
+    await localDataSource.toggleAllEndpoints(profileId: profileId, enabled: enabled);
   }
 }

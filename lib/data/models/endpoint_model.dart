@@ -7,6 +7,7 @@ part 'endpoint_model.g.dart';
 @JsonSerializable()
 class EndpointModel {
   final String id;
+  final String profileId;
   final String pattern;
   final String matchType;
   final String mode;
@@ -22,6 +23,7 @@ class EndpointModel {
 
   EndpointModel({
     required this.id,
+    this.profileId = 'default',
     required this.pattern,
     required this.matchType,
     required this.mode,
@@ -44,6 +46,7 @@ class EndpointModel {
   factory EndpointModel.fromEntity(Endpoint endpoint) {
     return EndpointModel(
       id: endpoint.id,
+      profileId: endpoint.profileId,
       pattern: endpoint.pattern,
       matchType: endpoint.matchType.name,
       mode: endpoint.mode.name,
@@ -76,6 +79,7 @@ class EndpointModel {
 
     return Endpoint(
       id: id,
+      profileId: profileId,
       pattern: pattern,
       matchType: MatchType.values.firstWhere(
             (e) => e.name == matchType,
@@ -100,6 +104,7 @@ class EndpointModel {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'profileId': profileId,
       'pattern': pattern,
       'matchType': matchType,
       'mode': mode,
@@ -118,6 +123,7 @@ class EndpointModel {
   factory EndpointModel.fromMap(Map<String, dynamic> map) {
     return EndpointModel(
       id: map['id'],
+      profileId: map['profileId'] ?? 'default',
       pattern: map['pattern'],
       matchType: map['matchType'],
       mode: map['mode'],

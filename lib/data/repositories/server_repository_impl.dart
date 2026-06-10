@@ -1,108 +1,142 @@
-import '../../domain/repositories/server_repository.dart';
-import '../../domain/repositories/settings_repository.dart';
-import '../../domain/entities/interception_mode.dart';
-import '../datasources/server/http_server_service.dart';
-import '../datasources/server/interception_manager.dart';
+import '../../core/services/server_manager.dart';
 import '../../core/utils/network_utils.dart';
 import '../../core/services/foreground_service.dart';
+import '../../data/datasources/server/interception_manager.dart';
+import '../../domain/entities/interception_mode.dart';
+import '../../domain/repositories/server_repository.dart';
 
 class ServerRepositoryImpl implements ServerRepository {
-  final HttpServerService serverService;
+  final ServerManager serverManager;
   final InterceptionManager interceptionManager;
   final ForegroundService foregroundService;
-  final SettingsRepository settingsRepository;
+
+  // In-memory defaults for the single-profile (default) use case
+  int _port = 8080;
+  String? _globalPassThroughUrl;
+  bool _autoPassThrough = false;
+  bool _useDeviceIp = false;
 
   ServerRepositoryImpl(
-    this.serverService,
+    this.serverManager,
     this.interceptionManager,
     this.foregroundService,
-    this.settingsRepository,
   );
+
+  // ── Single-profile (default) helpers ────────────────────────────────────
 
   @override
   Future<void> startServer(int port, {bool useDeviceIp = false}) async {
-    // Start foreground service before starting HTTP server
     await foregroundService.startForegroundService();
-    // Start HTTP server
-    await serverService.start(port, useDeviceIp: useDeviceIp);
+    await serverManager.startProfile(
+      profileId: 'default',
+      profileName: 'Default',
+      port: port,
+      useDeviceIp: useDeviceIp,
+      passThroughUrl: _globalPassThroughUrl,
+      autoPassThrough: _autoPassThrough,
+    );
   }
 
   @override
   Future<void> stopServer() async {
-    // Stop HTTP server first
-    await serverService.stop();
-    // Stop foreground service after HTTP server stops
+    await serverManager.stopProfile('default');
     await foregroundService.stopForegroundService();
   }
 
   @override
-  bool isServerRunning() {
-    return serverService.isRunning;
-  }
+  bool isServerRunning() => serverManager.isProfileRunning('default');
 
   @override
-  String getServerUrl() {
-    return serverService.serverUrl;
-  }
+  String getServerUrl() => serverManager.getServerUrl('default') ?? 'http://localhost:$_port';
 
   @override
-  int getCurrentPort() {
-    return serverService.port;
-  }
+  int getCurrentPort() => _port;
 
   @override
   Future<void> setPort(int port) async {
-    serverService.port = port;
+    _port = port;
   }
 
   @override
   Future<void> setGlobalPassThroughUrl(String? url) async {
-    serverService.globalPassThroughUrl = url;
+    _globalPassThroughUrl = url;
   }
 
   @override
-  String? getGlobalPassThroughUrl() {
-    return serverService.globalPassThroughUrl;
-  }
+  String? getGlobalPassThroughUrl() => _globalPassThroughUrl;
 
   @override
   Future<void> setAutoPassThrough(bool enabled) async {
-    serverService.autoPassThrough = enabled;
+    _autoPassThrough = enabled;
   }
 
   @override
-  bool isAutoPassThroughEnabled() {
-    return serverService.autoPassThrough;
-  }
+  bool isAutoPassThroughEnabled() => _autoPassThrough;
 
   @override
   Future<void> setUseDeviceIp(bool enabled) async {
-    serverService.useDeviceIp = enabled;
+    _useDeviceIp = enabled;
   }
 
   @override
-  bool isUsingDeviceIp() {
-    return serverService.useDeviceIp;
+  bool isUsingDeviceIp() => _useDeviceIp;
+
+  @override
+  Future<String?> getDeviceIpAddress() => NetworkUtils.getDeviceIpAddress();
+
+  // ── Multi-profile operations ─────────────────────────────────────────────
+
+  @override
+  Future<void> startProfile({
+    required String profileId,
+    required String profileName,
+    required int port,
+    bool useDeviceIp = false,
+    String? passThroughUrl,
+    bool autoPassThrough = false,
+  }) async {
+    if (serverManager.getRunningCount() == 0) {
+      await foregroundService.startForegroundService();
+    }
+    await serverManager.startProfile(
+      profileId: profileId,
+      profileName: profileName,
+      port: port,
+      useDeviceIp: useDeviceIp,
+      passThroughUrl: passThroughUrl,
+      autoPassThrough: autoPassThrough,
+    );
   }
 
   @override
-  Future<String?> getDeviceIpAddress() async {
-    return await NetworkUtils.getDeviceIpAddress();
-  }
-
-  @override
-  Future<void> setInterceptionEnabled(bool enabled) async {
-    if (enabled) {
-      interceptionManager.setMode(InterceptionMode.both);
-    } else {
-      interceptionManager.setMode(InterceptionMode.none);
+  Future<void> stopProfile(String profileId) async {
+    await serverManager.stopProfile(profileId);
+    if (serverManager.getRunningCount() == 0) {
+      await foregroundService.stopForegroundService();
     }
   }
 
   @override
-  bool isInterceptionEnabled() {
-    return interceptionManager.isEnabled;
+  Future<void> stopAllProfiles() async {
+    await serverManager.stopAll();
+    await foregroundService.stopForegroundService();
   }
+
+  @override
+  bool isProfileRunning(String profileId) => serverManager.isProfileRunning(profileId);
+
+  @override
+  List<RunningServerInfo> getRunningServers() => serverManager.runningServers;
+
+  // ── Interception ─────────────────────────────────────────────────────────
+
+  @override
+  Future<void> setInterceptionEnabled(bool enabled) async {
+    interceptionManager.setMode(enabled ? InterceptionMode.both : InterceptionMode.none);
+  }
+
+  @override
+  bool isInterceptionEnabled() => interceptionManager.isEnabled;
 
   @override
   Future<void> setInterceptionMode(InterceptionMode mode) async {
@@ -110,7 +144,5 @@ class ServerRepositoryImpl implements ServerRepository {
   }
 
   @override
-  InterceptionMode getInterceptionMode() {
-    return interceptionManager.mode;
-  }
+  InterceptionMode getInterceptionMode() => interceptionManager.mode;
 }
