@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 2.1.1 (Build 7)
+
+• Fixed: Auto Pass-Through now binds to each profile individually — the URL and toggle are configured in the Start Server sheet, pre-filled from the profile's saved settings, and persisted to the database so the URL is remembered across restarts
+
+---
+
 ## Version 2.1.0 (Build 6)
 
 • Live log streaming — see requests in real time as they hit your mock server

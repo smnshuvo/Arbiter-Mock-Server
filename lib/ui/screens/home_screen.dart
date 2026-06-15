@@ -32,8 +32,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _portController =
       TextEditingController(text: '8080');
-  final TextEditingController _passThroughUrlController =
-      TextEditingController();
 
   static const iconAssetPath = 'assets/app_icon/app_icon.png';
   static const sunIconAssetPath = 'assets/sun.png';
@@ -80,7 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _portController.dispose();
-    _passThroughUrlController.dispose();
     super.dispose();
   }
 
@@ -189,16 +186,6 @@ class _HomeScreenState extends State<HomeScreen> {
             context.read<ServerBloc>().add(CheckServerStatusEvent());
           }
 
-          // Update pass-through URL controller when state changes
-          if (state is ServerRunning || state is ServerStopped) {
-            final url = state is ServerRunning
-                ? state.globalPassThroughUrl
-                : (state as ServerStopped).globalPassThroughUrl;
-            if (url != null && url != _passThroughUrlController.text) {
-              _passThroughUrlController.text = url;
-            }
-          }
-
           // Stop foreground service when server stops
           if (state is ServerStopped) {
             print('HomeScreen: Server stopped, stopping foreground service');
@@ -230,8 +217,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   _buildServerStatusCard(state),
                   const SizedBox(height: 16),
                   _buildPortConfiguration(state),
-                  const SizedBox(height: 16),
-                  _buildAutoPassThroughConfig(state),
                   const SizedBox(height: 16),
                   _buildInterceptionConfig(state),
                   const SizedBox(height: 24),
@@ -480,13 +465,26 @@ class _HomeScreenState extends State<HomeScreen> {
         runningProfileIds: runningProfileIds,
         defaultPort: defaultPort,
         defaultUseDeviceIp: defaultUseDeviceIp,
-        onStart: (profileId, profileName, port, useDeviceIp) {
+        onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough) {
           Navigator.pop(ctx);
+          // Save pass-through settings back to the profile so the URL persists
+          final profile = profileState.profiles.firstWhere((p) => p.id == profileId);
+          final updatedProfile = profile.copyWith(
+            settings: profile.settings.copyWith(
+              globalPassThroughUrl: passThroughUrl,
+              clearPassThroughUrl: passThroughUrl == null,
+              autoPassThrough: autoPassThrough,
+            ),
+            updatedAt: DateTime.now(),
+          );
+          context.read<ProfileBloc>().add(UpdateProfileEvent(updatedProfile));
           context.read<ServerBloc>().add(StartProfileEvent(
             profileId: profileId,
             profileName: profileName,
             port: port,
             useDeviceIp: useDeviceIp,
+            passThroughUrl: passThroughUrl,
+            autoPassThrough: autoPassThrough,
           ));
         },
         onCreateProfile: () {
@@ -617,92 +615,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAutoPassThroughConfig(ServerState state) {
-    if (state is MultiServerRunning) return const SizedBox.shrink();
-    final isRunning = state is ServerRunning;
-    final autoPassThrough = state is ServerRunning
-        ? state.autoPassThrough
-        : (state is ServerStopped ? state.autoPassThrough : false);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Auto Pass-Through',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Forward unmatched requests to base URL',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Switch(
-                  value: autoPassThrough,
-                  onChanged: (value) {
-                    context
-                        .read<ServerBloc>()
-                        .add(SetAutoPassThroughEvent(value));
-                  },
-                ),
-              ],
-            ),
-            if (autoPassThrough) ...[
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passThroughUrlController,
-                decoration: InputDecoration(
-                  border: const OutlineInputBorder(),
-                  labelText: 'Global Pass-Through Base URL',
-                  hintText: 'https://api.example.com',
-                  helperText:
-                      'Requests will be forwarded as: base_url + request_path',
-                  suffixIcon: isRunning
-                      ? const Icon(Icons.lock, color: Colors.grey)
-                      : null,
-                ),
-                enabled: !isRunning,
-                onChanged: (value) {
-                  context
-                      .read<ServerBloc>()
-                      .add(SetGlobalPassThroughUrlEvent(value));
-                },
-              ),
-              if (isRunning)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Stop the server to change the pass-through URL',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ),
-            ],
           ],
         ),
       ),
@@ -960,7 +872,7 @@ class _StartProfileSheet extends StatefulWidget {
   final Set<String> runningProfileIds;
   final int defaultPort;
   final bool defaultUseDeviceIp;
-  final void Function(String profileId, String profileName, int port, bool useDeviceIp) onStart;
+  final void Function(String profileId, String profileName, int port, bool useDeviceIp, String? passThroughUrl, bool autoPassThrough) onStart;
   final VoidCallback? onCreateProfile;
 
   const _StartProfileSheet({
@@ -980,6 +892,8 @@ class _StartProfileSheetState extends State<_StartProfileSheet> {
   String? _selectedProfileId;
   late TextEditingController _portController;
   late bool _useDeviceIp;
+  bool _autoPassThrough = false;
+  late TextEditingController _passThroughUrlController;
 
   List<Profile> get _availableProfiles =>
       widget.profiles.where((p) => !widget.runningProfileIds.contains(p.id)).toList();
@@ -992,12 +906,29 @@ class _StartProfileSheetState extends State<_StartProfileSheet> {
     final available = _availableProfiles;
     if (available.isNotEmpty) {
       _selectedProfileId = available.first.id;
+      _autoPassThrough = available.first.settings.autoPassThrough;
+      _passThroughUrlController = TextEditingController(
+        text: available.first.settings.globalPassThroughUrl ?? '',
+      );
+    } else {
+      _passThroughUrlController = TextEditingController();
     }
+  }
+
+  void _onProfileSelected(String? profileId) {
+    if (profileId == null) return;
+    final profile = widget.profiles.firstWhere((p) => p.id == profileId);
+    setState(() {
+      _selectedProfileId = profileId;
+      _autoPassThrough = profile.settings.autoPassThrough;
+      _passThroughUrlController.text = profile.settings.globalPassThroughUrl ?? '';
+    });
   }
 
   @override
   void dispose() {
     _portController.dispose();
+    _passThroughUrlController.dispose();
     super.dispose();
   }
 
@@ -1046,7 +977,7 @@ class _StartProfileSheetState extends State<_StartProfileSheet> {
               items: available
                   .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
                   .toList(),
-              onChanged: (val) => setState(() => _selectedProfileId = val),
+              onChanged: (val) => _onProfileSelected(val),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1066,12 +997,35 @@ class _StartProfileSheetState extends State<_StartProfileSheet> {
               onChanged: (val) => setState(() => _useDeviceIp = val),
               contentPadding: EdgeInsets.zero,
             ),
+            SwitchListTile(
+              title: const Text('Auto Pass-Through'),
+              subtitle: const Text('Forward unmatched requests to base URL'),
+              value: _autoPassThrough,
+              onChanged: (val) => setState(() => _autoPassThrough = val),
+              contentPadding: EdgeInsets.zero,
+            ),
+            if (_autoPassThrough) ...[
+              TextField(
+                controller: _passThroughUrlController,
+                decoration: const InputDecoration(
+                  labelText: 'Pass-Through Base URL',
+                  border: OutlineInputBorder(),
+                  hintText: 'https://api.example.com',
+                  helperText: 'Unmatched requests forward to: base_url + path',
+                ),
+                keyboardType: TextInputType.url,
+              ),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 8),
             ElevatedButton(
               onPressed: _selectedProfileId == null ? null : () {
                 final port = int.tryParse(_portController.text) ?? widget.defaultPort;
                 final profile = widget.profiles.firstWhere((p) => p.id == _selectedProfileId);
-                widget.onStart(_selectedProfileId!, profile.name, port, _useDeviceIp);
+                final url = _autoPassThrough && _passThroughUrlController.text.trim().isNotEmpty
+                    ? _passThroughUrlController.text.trim()
+                    : null;
+                widget.onStart(_selectedProfileId!, profile.name, port, _useDeviceIp, url, _autoPassThrough);
               },
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
