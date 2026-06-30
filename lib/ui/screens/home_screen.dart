@@ -590,9 +590,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _showStartProfileSheet({int defaultPort = 8080, bool defaultUseDeviceIp = false}) {
-    final profileState = context.read<ProfileBloc>().state;
-    if (profileState is! ProfileLoaded) return;
+  Future<void> _showStartProfileSheet({int defaultPort = 8080, bool defaultUseDeviceIp = false}) async {
+    var profileState = context.read<ProfileBloc>().state;
+    if (profileState is! ProfileLoaded) {
+      // Right after launch the profiles are still being read from the DB. Without
+      // waiting, this first tap on "Start Server" would be silently dropped and
+      // the user would have to tap again. Kick off / wait for the load instead.
+      final profileBloc = context.read<ProfileBloc>();
+      if (profileState is ProfileInitial) profileBloc.add(LoadProfilesEvent());
+      profileState = await profileBloc.stream
+          .firstWhere((s) => s is ProfileLoaded || s is ProfileError)
+          .timeout(const Duration(seconds: 3), onTimeout: () => profileBloc.state);
+      if (!mounted) return;
+    }
+    final loaded = profileState;
+    if (loaded is! ProfileLoaded) return;
 
     final serverState = context.read<ServerBloc>().state;
     final runningProfileIds = serverState is MultiServerRunning
@@ -605,14 +617,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context: context,
       isScrollControlled: true,
       builder: (ctx) => _StartProfileSheet(
-        profiles: profileState.profiles,
+        profiles: loaded.profiles,
         runningProfileIds: runningProfileIds,
         defaultPort: defaultPort,
         defaultUseDeviceIp: defaultUseDeviceIp,
         onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough) {
           Navigator.pop(ctx);
           // Save pass-through settings back to the profile so the URL persists
-          final profile = profileState.profiles.firstWhere((p) => p.id == profileId);
+          final profile = loaded.profiles.firstWhere((p) => p.id == profileId);
           final updatedProfile = profile.copyWith(
             settings: profile.settings.copyWith(
               globalPassThroughUrl: passThroughUrl,
