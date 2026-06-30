@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Arbiter Live Activity palette (matches the Claude Design spec) -->
+    <color name="ar_blue">#FF5FA0FF</color>
+    <color name="ar_green">#FF3FD07A</color>
+    <color name="ar_amber">#FFF0A92E</color>
+    <color name="ar_red">#FFFF6B6B</color>
+    <color name="ar_text">#FFE9EEF4</color>
+    <color name="ar_path">#FFCDD6E2</color>
+    <color name="ar_muted">#FF7A8595</color>
+    <color name="ar_card">#FF1D2025</color>
+    <color name="ar_inner">#FF15181D</color>
+    <color name="ar_body_bg">#FF0F1217</color>
+    <color name="ar_accent_blue">#FF3B82F6</color>
+    <color name="ar_btn_subtle">#22FFFFFF</color>
+    <color name="ar_btn_danger">#1FEF4444</color>
+    <color name="ar_btn_primary_text">#FF06121F</color>
+</resources>

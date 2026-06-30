@@ -20,6 +20,32 @@ class ToggleShowEndpointHitsEvent extends SettingsEvent {
   List<Object?> get props => [value];
 }
 
+class ToggleShowFloatingOverlayEvent extends SettingsEvent {
+  final bool value;
+
+  ToggleShowFloatingOverlayEvent(this.value);
+
+  @override
+  List<Object?> get props => [value];
+}
+
+class SetOverlayContentEvent extends SettingsEvent {
+  final bool method;
+  final bool endpoint;
+  final bool status;
+  final bool time;
+
+  SetOverlayContentEvent({
+    required this.method,
+    required this.endpoint,
+    required this.status,
+    required this.time,
+  });
+
+  @override
+  List<Object?> get props => [method, endpoint, status, time];
+}
+
 // States
 abstract class SettingsState extends Equatable {
   @override
@@ -55,6 +81,8 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   SettingsBloc(this.settingsRepository) : super(SettingsInitial()) {
     on<LoadSettingsEvent>(_onLoadSettings);
     on<ToggleShowEndpointHitsEvent>(_onToggleShowEndpointHits);
+    on<ToggleShowFloatingOverlayEvent>(_onToggleShowFloatingOverlay);
+    on<SetOverlayContentEvent>(_onSetOverlayContent);
   }
 
   Future<void> _onLoadSettings(
@@ -76,6 +104,37 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   ) async {
     try {
       await settingsRepository.setShowEndpointHitsInNotifications(event.value);
+      final settings = await settingsRepository.getSettings();
+      emit(SettingsLoaded(settings));
+    } catch (e) {
+      emit(SettingsError(e.toString()));
+    }
+  }
+
+  Future<void> _onToggleShowFloatingOverlay(
+    ToggleShowFloatingOverlayEvent event,
+    Emitter<SettingsState> emit,
+  ) async {
+    try {
+      await settingsRepository.setShowFloatingOverlay(event.value);
+      final settings = await settingsRepository.getSettings();
+      emit(SettingsLoaded(settings));
+    } catch (e) {
+      emit(SettingsError(e.toString()));
+    }
+  }
+
+  Future<void> _onSetOverlayContent(
+    SetOverlayContentEvent event,
+    Emitter<SettingsState> emit,
+  ) async {
+    try {
+      await settingsRepository.setOverlayContent(
+        method: event.method,
+        endpoint: event.endpoint,
+        status: event.status,
+        time: event.time,
+      );
       final settings = await settingsRepository.getSettings();
       emit(SettingsLoaded(settings));
     } catch (e) {

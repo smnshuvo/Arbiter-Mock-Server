@@ -1,5 +1,6 @@
 import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
 import 'package:arbiter_mock_server/core/services/foreground_service.dart';
+import 'package:arbiter_mock_server/core/services/overlay_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,6 +9,8 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/services/server_manager.dart';
 import '../../domain/entities/interception_mode.dart';
 import '../../domain/entities/profile.dart';
+import '../../domain/repositories/settings_repository.dart';
+import '../bloc/dependency_container.dart';
 import '../bloc/interception/interception_bloc.dart';
 import '../bloc/interception/interception_event.dart';
 import '../bloc/interception/interception_state.dart';
@@ -29,7 +32,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _portController =
       TextEditingController(text: '8080');
 
@@ -40,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     print('HomeScreen: ============================================');
     print('HomeScreen: initState called');
     print('HomeScreen: Initializing ForegroundService');
@@ -67,6 +71,37 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     };
     
+    // Floating overlay live activity (Android) — actions drive the existing blocs.
+    OverlayService.initialize();
+    OverlayService.onStopServerRequested = () async {
+      if (!mounted) return false;
+      final serverState = context.read<ServerBloc>().state;
+      context.read<ServerBloc>().add(
+            serverState is MultiServerRunning
+                ? StopAllProfilesEvent()
+                : StopServerEvent(),
+          );
+      return true;
+    };
+    OverlayService.onInterceptionContinue = (id) {
+      if (mounted) {
+        context.read<InterceptionBloc>().add(ContinueWithoutModificationEvent(id));
+      }
+    };
+    OverlayService.onInterceptionDrop = (id) {
+      if (mounted) {
+        context.read<InterceptionBloc>().add(CancelInterceptionEvent(id));
+      }
+    };
+    OverlayService.onOpenLogs = () {
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const LogsScreen()),
+        );
+      }
+    };
+
     print('HomeScreen: Callback set successfully');
     print('HomeScreen: Checking server status');
     context.read<ServerBloc>().add(CheckServerStatusEvent());
@@ -75,10 +110,69 @@ class _HomeScreenState extends State<HomeScreen> {
     print('HomeScreen: ============================================');
   }
 
+  final OverlayService _overlay = OverlayService();
+
+  /// Shows or hides the floating overlay based on the persisted Settings toggle,
+  /// the granted permission, and whether a server is running.
+  Future<void> _syncOverlay(ServerState state) async {
+    final ({String address, int port})? running = switch (state) {
+      ServerRunning s => (address: Uri.tryParse(s.url)?.host ?? 'localhost', port: s.port),
+      MultiServerRunning s when s.runningServers.isNotEmpty =>
+        (address: Uri.tryParse(s.runningServers.first.url)?.host ?? 'localhost', port: s.runningServers.first.port),
+      _ => null,
+    };
+
+    if (running == null) {
+      await _overlay.hide();
+      return;
+    }
+
+    final settings = await sl<SettingsRepository>().getSettings();
+    if (!settings.showFloatingOverlay || !await _overlay.hasPermission()) {
+      await _overlay.hide();
+      return;
+    }
+
+    await _overlay.show();
+    await _overlay.setServerStatus(address: running.address, port: running.port);
+    await _overlay.setOverlayContent(
+      method: settings.overlayShowMethod,
+      endpoint: settings.overlayShowEndpoint,
+      status: settings.overlayShowStatus,
+      time: settings.overlayShowTime,
+    );
+  }
+
+  /// Flips the overlay to/from the intercepted call-to-action.
+  void _syncOverlayInterception(InterceptionState state) {
+    if (state is InterceptionPending) {
+      final i = state.interception;
+      _overlay.setIntercepted(
+        id: i.id,
+        type: i.isResponse ? 'response' : 'request',
+        method: i.method,
+        url: i.url,
+        statusCode: i.isResponse ? i.statusCode : null,
+        body: i.isResponse ? i.responseBody : i.body,
+      );
+    } else {
+      _overlay.clearIntercepted();
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _portController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-show the overlay after the user returns from granting the permission.
+    if (state == AppLifecycleState.resumed && mounted) {
+      _syncOverlay(context.read<ServerBloc>().state);
+    }
   }
 
   Future<bool> _checkAndRequestNotificationPermission() async {
@@ -153,11 +247,13 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
+            onPressed: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
+              // The overlay toggle may have changed; re-evaluate against server state.
+              if (mounted) _syncOverlay(context.read<ServerBloc>().state);
             },
             tooltip: 'Settings',
           ),
@@ -191,10 +287,13 @@ class _HomeScreenState extends State<HomeScreen> {
             print('HomeScreen: Server stopped, stopping foreground service');
             ForegroundService().stopForegroundService();
           }
+
+          _syncOverlay(state);
         },
         builder: (context, state) {
           return BlocListener<InterceptionBloc, InterceptionState>(
             listener: (context, interceptionState) {
+              _syncOverlayInterception(interceptionState);
               if (interceptionState is InterceptionPending) {
                 showDialog(
                   context: context,
