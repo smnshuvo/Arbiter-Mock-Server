@@ -101,6 +101,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       }
     };
+    OverlayService.onToggleInterception = (enabled) {
+      if (mounted) {
+        context.read<InterceptionBloc>().add(
+              SetInterceptionModeEvent(
+                enabled ? InterceptionMode.both : InterceptionMode.none,
+              ),
+            );
+      }
+    };
 
     print('HomeScreen: Callback set successfully');
     print('HomeScreen: Checking server status');
@@ -111,10 +120,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   final OverlayService _overlay = OverlayService();
+  bool _isForeground = true;
+  bool _interceptionDialogOpen = false;
 
-  /// Shows or hides the floating overlay based on the persisted Settings toggle,
-  /// the granted permission, and whether a server is running.
+  /// Shows or hides the floating overlay. The overlay floats over OTHER apps, so
+  /// it is shown only when Arbiter is backgrounded (and the Settings toggle is
+  /// on, the permission is granted, and a server is running). When Arbiter is in
+  /// front it is hidden so it never covers the in-app UI (e.g. the edit dialog).
   Future<void> _syncOverlay(ServerState state) async {
+    final interceptionState = context.read<InterceptionBloc>().state;
+    final interceptionOn =
+        interceptionState is InterceptionEnabled || interceptionState is InterceptionPending;
+
     final ({String address, int port})? running = switch (state) {
       ServerRunning s => (address: Uri.tryParse(s.url)?.host ?? 'localhost', port: s.port),
       MultiServerRunning s when s.runningServers.isNotEmpty =>
@@ -128,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     final settings = await sl<SettingsRepository>().getSettings();
-    if (!settings.showFloatingOverlay || !await _overlay.hasPermission()) {
+    if (!settings.showFloatingOverlay || _isForeground || !await _overlay.hasPermission()) {
       await _overlay.hide();
       return;
     }
@@ -141,6 +158,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       status: settings.overlayShowStatus,
       time: settings.overlayShowTime,
     );
+    await _overlay.setInterceptionEnabled(interceptionOn);
   }
 
   /// Flips the overlay to/from the intercepted call-to-action.
@@ -158,6 +176,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else {
       _overlay.clearIntercepted();
     }
+    // Reflect the on/off state in the overlay's interception switch.
+    if (state is InterceptionEnabled || state is InterceptionPending) {
+      _overlay.setInterceptionEnabled(true);
+    } else if (state is InterceptionDisabled) {
+      _overlay.setInterceptionEnabled(false);
+    }
+  }
+
+  void _showInterceptionDialog(InterceptionPending state) {
+    _interceptionDialogOpen = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => BlocProvider.value(
+        value: context.read<InterceptionBloc>(),
+        child: InterceptionDialog(
+          interception: state.interception,
+          timeoutSeconds: state.timeoutSeconds,
+        ),
+      ),
+    ).then((_) => _interceptionDialogOpen = false);
   }
 
   @override
@@ -169,8 +208,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Re-show the overlay after the user returns from granting the permission.
-    if (state == AppLifecycleState.resumed && mounted) {
+    if (!mounted) return;
+    if (state == AppLifecycleState.resumed) {
+      _isForeground = true;
+      // Arbiter is back in front: hide the overlay so it doesn't cover the UI.
+      _syncOverlay(context.read<ServerBloc>().state);
+      // Surface the dialog for a still-held intercept (e.g. after tapping Edit).
+      final interceptionState = context.read<InterceptionBloc>().state;
+      if (interceptionState is InterceptionPending && !_interceptionDialogOpen) {
+        _showInterceptionDialog(interceptionState);
+      }
+    } else if (state == AppLifecycleState.paused) {
+      _isForeground = false;
+      // Arbiter went to the background: float the overlay over the foreground app.
       _syncOverlay(context.read<ServerBloc>().state);
     }
   }
@@ -294,18 +344,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           return BlocListener<InterceptionBloc, InterceptionState>(
             listener: (context, interceptionState) {
               _syncOverlayInterception(interceptionState);
-              if (interceptionState is InterceptionPending) {
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (dialogContext) => BlocProvider.value(
-                    value: context.read<InterceptionBloc>(),
-                    child: InterceptionDialog(
-                      interception: interceptionState.interception,
-                      timeoutSeconds: interceptionState.timeoutSeconds,
-                    ),
-                  ),
-                );
+              // Only show the in-app dialog while Arbiter is in front; when it is
+              // backgrounded the floating overlay handles intercepts. This avoids
+              // a stale dialog appearing on return for an already-resolved hold.
+              if (interceptionState is InterceptionPending &&
+                  _isForeground &&
+                  !_interceptionDialogOpen) {
+                _showInterceptionDialog(interceptionState);
               }
             },
             child: SingleChildScrollView(

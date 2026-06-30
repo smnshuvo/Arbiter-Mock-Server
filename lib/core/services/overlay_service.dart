@@ -23,6 +23,9 @@ class OverlayService {
   /// Called when the user taps "Logs" in the overlay.
   static void Function()? onOpenLogs;
 
+  /// Called when the user flips the interception switch in the overlay.
+  static void Function(bool enabled)? onToggleInterception;
+
   static bool get _supported => Platform.isAndroid;
 
   /// Registers the handler for actions coming from the overlay. Call once at startup.
@@ -42,6 +45,9 @@ class OverlayService {
           return true;
         case 'openLogs':
           onOpenLogs?.call();
+          return true;
+        case 'toggleInterception':
+          onToggleInterception?.call(args['enabled'] as bool? ?? false);
           return true;
         default:
           return false;
@@ -121,6 +127,10 @@ class OverlayService {
 
   /// Returns the overlay to the live feed.
   Future<void> clearIntercepted() => _invoke('clearIntercepted');
+
+  /// Reflects the current interception on/off state in the overlay switch.
+  Future<void> setInterceptionEnabled(bool enabled) =>
+      _invoke('setInterceptionEnabled', {'enabled': enabled});
 
   Future<void> _invoke(String method, [Map<String, dynamic>? args]) async {
     if (!_supported) return;

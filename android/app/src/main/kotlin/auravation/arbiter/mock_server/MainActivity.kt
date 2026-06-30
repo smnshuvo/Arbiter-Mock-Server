@@ -111,6 +111,10 @@ class MainActivity : FlutterActivity() {
                     )
                     result.success(true)
                 }
+                "setInterceptionEnabled" -> {
+                    OverlayController.setInterceptionEnabled(call.argument<Boolean>("enabled") ?: false)
+                    result.success(true)
+                }
                 "setIntercepted" -> {
                     OverlayController.setIntercepted(
                         call.argument<String>("id") ?: "",
