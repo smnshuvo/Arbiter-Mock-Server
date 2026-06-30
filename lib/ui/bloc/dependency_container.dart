@@ -3,6 +3,7 @@ import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/foreground_service.dart';
+import '../../core/services/overlay_service.dart';
 import '../../core/services/server_manager.dart';
 import '../../data/datasources/local/database_helper.dart';
 import '../../data/datasources/local/endpoint_local_datasource.dart';
@@ -22,6 +23,7 @@ import '../../domain/repositories/server_repository.dart';
 import '../../domain/repositories/interception_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../../domain/entities/endpoint.dart';
+import '../../domain/entities/request_log.dart';
 import '../../domain/usecases/endpoint_usecases.dart';
 import '../../domain/usecases/log_usecases.dart';
 import '../../domain/usecases/profile_usecases.dart';
@@ -230,6 +232,7 @@ Future<void> init() async {
   // Core
   sl.registerLazySingleton(() => DatabaseHelper.instance);
   sl.registerLazySingleton(() => ForegroundService());
+  sl.registerLazySingleton(() => OverlayService());
   sl.registerLazySingleton(() => ThemeCubit());
 
   // Use cases - Foreground Service
@@ -283,4 +286,17 @@ Future<void> setupRequestNotificationCallback() async {
       // Silently handle errors in notification callback
     }
   };
+
+  // Feed the Android floating overlay with the full request log (status + method).
+  // The native side keeps only the latest few rows; this fire-and-forget
+  // subscription stays lightweight and no-ops when the overlay isn't shown.
+  final overlay = sl<OverlayService>();
+  sl<WatchNewLogs>()().listen((log) {
+    overlay.pushLog(
+      method: log.method.name,
+      path: log.url,
+      statusCode: log.statusCode,
+      responseTimeMs: log.responseTimeMs,
+    );
+  });
 }

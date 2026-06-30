@@ -4,21 +4,30 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "auravation.arbiter.mock_server/foreground_service"
+    private val OVERLAY_CHANNEL = "auravation.arbiter.mock_server/overlay"
     private var methodChannel: MethodChannel? = null
+    private var overlayChannel: MethodChannel? = null
     private var stopServerReceiver: BroadcastReceiver? = null
     private var isReceiverRegistered = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
+
+        overlayChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL)
+        overlayChannel?.setMethodCallHandler { call, result -> handleOverlay(call, result) }
+        OverlayController.attachChannel(overlayChannel)
+
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -62,6 +71,65 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /** Floating overlay channel: Dart drives the system-wide overlay window. */
+    private fun handleOverlay(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            when (call.method) {
+                "hasOverlayPermission" -> result.success(OverlayController.hasPermission(this))
+                "requestOverlayPermission" -> {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    result.success(true)
+                }
+                "showOverlay" -> { OverlayController.show(this); result.success(OverlayController.isShowing) }
+                "hideOverlay" -> { OverlayController.hide(); result.success(true) }
+                "setServerStatus" -> {
+                    OverlayController.setServerStatus(
+                        call.argument<String>("address") ?: "localhost",
+                        call.argument<Int>("port") ?: 0,
+                    )
+                    result.success(true)
+                }
+                "pushLog" -> {
+                    OverlayController.pushLog(
+                        call.argument<String>("method") ?: "GET",
+                        call.argument<String>("path") ?: "/",
+                        call.argument<Int>("statusCode") ?: 0,
+                        call.argument<Int>("responseTimeMs") ?: 0,
+                    )
+                    result.success(true)
+                }
+                "setOverlayContent" -> {
+                    OverlayController.setOverlayContent(
+                        call.argument<Boolean>("method") ?: true,
+                        call.argument<Boolean>("endpoint") ?: true,
+                        call.argument<Boolean>("status") ?: true,
+                        call.argument<Boolean>("time") ?: false,
+                    )
+                    result.success(true)
+                }
+                "setIntercepted" -> {
+                    OverlayController.setIntercepted(
+                        call.argument<String>("id") ?: "",
+                        call.argument<String>("type") == "response",
+                        call.argument<String>("method") ?: "GET",
+                        call.argument<String>("url") ?: "/",
+                        call.argument<Int>("statusCode"),
+                        call.argument<String>("body"),
+                    )
+                    result.success(true)
+                }
+                "clearIntercepted" -> { OverlayController.clearIntercepted(); result.success(true) }
+                else -> result.notImplemented()
+            }
+        } catch (e: Exception) {
+            result.error("OVERLAY_ERROR", e.message, null)
+        }
+    }
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "============================================")
@@ -94,6 +162,8 @@ class MainActivity : FlutterActivity() {
         Log.d("MainActivity", "onDestroy called - Unregistering broadcast receiver")
         // Only unregister when activity is completely destroyed
         unregisterStopServerReceiver()
+        // The engine is torn down with the activity; drop the stale channel reference.
+        OverlayController.attachChannel(null)
         Log.d("MainActivity", "============================================")
     }
 

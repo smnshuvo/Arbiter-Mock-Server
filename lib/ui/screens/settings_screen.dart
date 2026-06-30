@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../core/services/overlay_service.dart';
 import '../../domain/entities/settings.dart';
 import '../bloc/settings/settings_bloc.dart';
+import '../dialog/overlay_priming_sheet.dart';
+import 'overlay_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -46,6 +51,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _buildNotificationSettingsCard(state.settings),
                 const SizedBox(height: 16),
+                if (Platform.isAndroid) ...[
+                  _buildOverlaySettingsCard(state.settings),
+                  const SizedBox(height: 16),
+                ],
                 _buildInfoCard(),
               ],
             );
@@ -155,6 +164,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildOverlaySettingsCard(Settings settings) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.layers_outlined,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Live Activity',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Float a draggable activity over other apps',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Design-styled preview of the floating bubble.
+            const _OverlayPreviewChip(),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).highlightColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.open_in_new,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Show floating overlay',
+                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Watch and intercept requests while testing in other apps',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: settings.showFloatingOverlay,
+                    onChanged: (value) => _onToggleOverlay(value),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.tune, color: Theme.of(context).colorScheme.primary),
+              title: const Text(
+                'What the bubble shows',
+                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'Method, endpoint, status, response time',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const OverlaySettingsScreen()),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Enabling the overlay shows in-app priming, then the system permission
+  /// prompt, before persisting the preference.
+  Future<void> _onToggleOverlay(bool value) async {
+    final overlay = OverlayService();
+    if (!value) {
+      await overlay.hide();
+      if (!mounted) return;
+      context.read<SettingsBloc>().add(ToggleShowFloatingOverlayEvent(false));
+      return;
+    }
+
+    if (!await overlay.hasPermission()) {
+      if (!mounted) return;
+      final proceed = await showOverlayPrimingSheet(context);
+      if (!proceed) return; // leave the toggle off
+      await overlay.requestPermission();
+    }
+    if (!mounted) return;
+    context.read<SettingsBloc>().add(ToggleShowFloatingOverlayEvent(true));
+  }
+
   Widget _buildInfoCard() {
     return Card(
       elevation: 2,
@@ -221,6 +352,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A compact dark preview of the floating overlay bubble (Live Activity design).
+class _OverlayPreviewChip extends StatelessWidget {
+  const _OverlayPreviewChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF243A52), Color(0xFF1A2740)],
+        ),
+      ),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1D2025),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.13)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(color: Color(0xFF3FD07A), shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 10),
+              const Text('GET', style: TextStyle(color: Color(0xFF5FA0FF), fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 8),
+              const Text('/v1/users', style: TextStyle(color: Color(0xFFE9EEF4), fontFamily: 'monospace', fontSize: 12)),
+              const SizedBox(width: 8),
+              const Text('200', style: TextStyle(color: Color(0xFF3FD07A), fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold)),
+            ],
+          ),
         ),
       ),
     );

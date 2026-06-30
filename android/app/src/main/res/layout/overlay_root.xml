@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <!-- ============ COLLAPSED BUBBLE ============ -->
+    <LinearLayout
+        android:id="@+id/ov_bubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/ov_bubble"
+        android:elevation="8dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
+
+        <ImageView
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:contentDescription="@null"
+            android:background="@drawable/ov_dot_green" />
+
+        <TextView
+            android:id="@+id/ov_bubble_method"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:fontFamily="monospace"
+            android:text="GET"
+            android:textColor="@color/ar_blue"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/ov_bubble_path"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxWidth="150dp"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:fontFamily="monospace"
+            android:text="/v1/users"
+            android:textColor="@color/ar_text"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/ov_bubble_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:fontFamily="monospace"
+            android:text="200"
+            android:textColor="@color/ar_green"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/ov_bubble_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:fontFamily="monospace"
+            android:text="42ms"
+            android:textColor="#FF9AA3B0"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/ov_bubble_idle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:fontFamily="monospace"
+            android:text="Arbiter"
+            android:textColor="@color/ar_muted"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- ============ EXPANDED FEED ============ -->
+    <LinearLayout
+        android:id="@+id/ov_feed"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/ov_card"
+        android:elevation="10dp"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/ov_feed_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="13dp">
+
+            <TextView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:background="@drawable/ov_a_badge"
+                android:gravity="center"
+                android:text="A"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="9dp"
+                android:text="Arbiter"
+                android:textColor="@color/ar_path"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/ov_running_badge"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:fontFamily="monospace"
+                android:text="RUNNING"
+                android:textColor="@color/ar_green"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:maxWidth="80dp" />
+
+            <TextView
+                android:id="@+id/ov_feed_collapse"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:gravity="center"
+                android:text="–"
+                android:textColor="@color/ar_muted"
+                android:textSize="18sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/ov_feed_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="localhost:8080 · 0 reqs · 0 errors"
+            android:textColor="@color/ar_muted"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/ov_inner">
+
+            <LinearLayout android:id="@+id/ov_row0" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="13dp" android:paddingEnd="13dp" android:paddingTop="10dp" android:paddingBottom="10dp">
+                <TextView android:id="@+id/ov_row0_method" android:layout_width="44dp" android:layout_height="wrap_content" android:fontFamily="monospace" android:textSize="10sp" android:textStyle="bold" android:textColor="@color/ar_blue" />
+                <TextView android:id="@+id/ov_row0_path" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="9dp" android:ellipsize="end" android:singleLine="true" android:fontFamily="monospace" android:textSize="12sp" android:textColor="@color/ar_path" />
+                <TextView android:id="@+id/ov_row0_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="9dp" android:fontFamily="monospace" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/ar_green" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/ov_row1" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="13dp" android:paddingEnd="13dp" android:paddingTop="10dp" android:paddingBottom="10dp">
+                <TextView android:id="@+id/ov_row1_method" android:layout_width="44dp" android:layout_height="wrap_content" android:fontFamily="monospace" android:textSize="10sp" android:textStyle="bold" android:textColor="@color/ar_green" />
+                <TextView android:id="@+id/ov_row1_path" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="9dp" android:ellipsize="end" android:singleLine="true" android:fontFamily="monospace" android:textSize="12sp" android:textColor="@color/ar_path" />
+                <TextView android:id="@+id/ov_row1_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="9dp" android:fontFamily="monospace" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/ar_green" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/ov_row2" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="13dp" android:paddingEnd="13dp" android:paddingTop="10dp" android:paddingBottom="10dp">
+                <TextView android:id="@+id/ov_row2_method" android:layout_width="44dp" android:layout_height="wrap_content" android:fontFamily="monospace" android:textSize="10sp" android:textStyle="bold" android:textColor="@color/ar_amber" />
+                <TextView android:id="@+id/ov_row2_path" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="9dp" android:ellipsize="end" android:singleLine="true" android:fontFamily="monospace" android:textSize="12sp" android:textColor="@color/ar_path" />
+                <TextView android:id="@+id/ov_row2_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="9dp" android:fontFamily="monospace" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/ar_amber" />
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/ov_row3" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingStart="13dp" android:paddingEnd="13dp" android:paddingTop="10dp" android:paddingBottom="10dp">
+                <TextView android:id="@+id/ov_row3_method" android:layout_width="44dp" android:layout_height="wrap_content" android:fontFamily="monospace" android:textSize="10sp" android:textStyle="bold" android:textColor="@color/ar_red" />
+                <TextView android:id="@+id/ov_row3_path" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="9dp" android:ellipsize="end" android:singleLine="true" android:fontFamily="monospace" android:textSize="12sp" android:textColor="@color/ar_path" />
+                <TextView android:id="@+id/ov_row3_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="9dp" android:fontFamily="monospace" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/ar_red" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="11dp">
+
+            <TextView android:id="@+id/ov_action_pause" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:padding="9dp" android:text="PAUSE" android:textColor="@color/ar_blue" android:textSize="13sp" />
+            <TextView android:id="@+id/ov_action_stop" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:padding="9dp" android:text="STOP" android:textColor="@color/ar_red" android:textSize="13sp" />
+            <TextView android:id="@+id/ov_action_logs" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:padding="9dp" android:text="LOGS" android:textColor="@color/ar_path" android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ============ INTERCEPTED ============ -->
+    <LinearLayout
+        android:id="@+id/ov_intercept"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/ov_card"
+        android:clipToOutline="true"
+        android:elevation="10dp"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:id="@+id/ov_int_accent"
+            android:layout_width="match_parent"
+            android:layout_height="5dp"
+            android:clipChildren="true">
+
+            <View
+                android:id="@+id/ov_int_sweep"
+                android:layout_width="120dp"
+                android:layout_height="match_parent" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/ov_int_body_wrap"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:id="@+id/ov_int_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="13dp">
+
+                <TextView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:background="@drawable/ov_a_badge"
+                    android:gravity="center"
+                    android:text="A"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="9dp"
+                    android:text="Arbiter"
+                    android:textColor="@color/ar_path"
+                    android:textSize="12sp" />
+
+                <Chronometer
+                    android:id="@+id/ov_int_timer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:fontFamily="monospace"
+                    android:text="held 0:00"
+                    android:textColor="@color/ar_muted"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/ov_int_dot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="●"
+                    android:textColor="@color/ar_amber"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:id="@+id/ov_int_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="9dp"
+                    android:text="Request intercepted"
+                    android:textColor="@color/ar_amber"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/ov_int_sub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:layout_marginStart="18dp"
+                android:text="An outbound request is being held."
+                android:textColor="@color/ar_path"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="13dp"
+                android:background="@drawable/ov_inner"
+                android:paddingStart="13dp"
+                android:paddingEnd="13dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp">
+
+                <TextView android:id="@+id/ov_int_method" android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="monospace" android:text="POST" android:textColor="@color/ar_green" android:textSize="11sp" android:textStyle="bold" />
+                <TextView android:id="@+id/ov_int_path" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:ellipsize="end" android:singleLine="true" android:fontFamily="monospace" android:text="/v1/orders" android:textColor="@color/ar_text" android:textSize="13sp" />
+                <TextView android:id="@+id/ov_int_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:fontFamily="monospace" android:text="200" android:textColor="@color/ar_green" android:textSize="12sp" android:textStyle="bold" android:visibility="gone" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/ov_int_resp_body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="9dp"
+                android:background="@drawable/ov_body"
+                android:padding="11dp"
+                android:fontFamily="monospace"
+                android:maxLines="3"
+                android:ellipsize="end"
+                android:textColor="@color/ar_muted"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="14dp">
+
+                <TextView android:id="@+id/ov_int_continue" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1.6" android:gravity="center" android:background="@drawable/ov_btn_primary" android:padding="13dp" android:text="Continue" android:textColor="@color/ar_btn_primary_text" android:textSize="13sp" android:textStyle="bold" />
+                <TextView android:id="@+id/ov_int_edit" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="9dp" android:gravity="center" android:background="@drawable/ov_btn_subtle" android:padding="13dp" android:text="Edit" android:textColor="@color/ar_text" android:textSize="13sp" />
+                <TextView android:id="@+id/ov_int_drop" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="9dp" android:gravity="center" android:background="@drawable/ov_btn_danger" android:padding="13dp" android:text="Drop" android:textColor="@color/ar_red" android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
