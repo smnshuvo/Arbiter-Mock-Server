@@ -21,7 +21,7 @@ import '../../domain/repositories/profile_repository.dart';
 import '../../domain/repositories/server_repository.dart';
 import '../../domain/repositories/interception_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
-import '../../domain/entities/endpoint.dart';
+import '../../domain/entities/request_log.dart';
 import '../../domain/usecases/endpoint_usecases.dart';
 import '../../domain/usecases/log_usecases.dart';
 import '../../domain/usecases/profile_usecases.dart';
@@ -238,49 +238,23 @@ Future<void> init() async {
   sl.registerLazySingleton(() => UpdateForegroundServiceNotification(sl()));
 }
 
-// Set up request notification callback after all dependencies are registered
+// Feed the Android Live Activity notification with the live request log feed.
+// Set up after all dependencies are registered. The native side keeps only the
+// latest few rows and tracks running totals, so this fire-and-forget subscription
+// stays lightweight on the request hot path.
 Future<void> setupRequestNotificationCallback() async {
-  final serverManager = sl<ServerManager>();
-  serverManager.onRequestReceived = (profileId, method, path, timestamp) async {
+  final foregroundService = sl<ForegroundService>();
+  sl<WatchNewLogs>()().listen((log) async {
     try {
-      final settingsRepository = sl<SettingsRepository>();
-      final settings = await settingsRepository.getSettings();
-      if (settings.showEndpointHitsInNotifications) {
-        final getAllEndpoints = sl<GetAllEndpoints>();
-        final endpoints = await getAllEndpoints(profileId: profileId);
-
-        String? endpointName;
-        for (final endpoint in endpoints) {
-          if (!endpoint.isEnabled) continue;
-          bool matches = false;
-          switch (endpoint.matchType) {
-            case MatchType.exact:
-              matches = path == endpoint.pattern || path.endsWith(endpoint.pattern);
-              break;
-            case MatchType.wildcard:
-              final pattern = endpoint.pattern.replaceAll('*', '.*');
-              matches = RegExp(pattern).hasMatch(path);
-              break;
-            case MatchType.regex:
-              matches = RegExp(endpoint.pattern).hasMatch(path);
-              break;
-          }
-          if (matches) {
-            endpointName = endpoint.pattern;
-            break;
-          }
-        }
-
-        final foregroundService = sl<ForegroundService>();
-        await foregroundService.updateNotification(
-          method: method,
-          path: path,
-          timestamp: timestamp,
-          endpointName: endpointName,
-        );
-      }
+      final settings = await sl<SettingsRepository>().getSettings();
+      if (!settings.showEndpointHitsInNotifications) return;
+      await foregroundService.pushLog(
+        method: log.method.name,
+        path: log.url,
+        statusCode: log.statusCode,
+      );
     } catch (_) {
-      // Silently handle errors in notification callback
+      // Silently handle errors in the notification feed.
     }
-  };
+  });
 }

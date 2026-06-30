@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_notif_card">
+
+    <!-- Accent strip; color set at runtime (amber for request, blue for response) -->
+    <ImageView
+        android:id="@+id/int_accent"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:contentDescription="@null"
+        android:background="@color/ar_amber" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="13dp">
+
+            <TextView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:background="@drawable/bg_a_badge"
+                android:gravity="center"
+                android:text="A"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="9dp"
+                android:text="Arbiter"
+                android:textColor="@color/ar_path"
+                android:textSize="12sp" />
+
+            <Chronometer
+                android:id="@+id/int_timer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end"
+                android:fontFamily="monospace"
+                android:text="held 0:00"
+                android:textColor="@color/ar_muted"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Title -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/int_dot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textColor="@color/ar_amber"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/int_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="9dp"
+                android:text="Request intercepted"
+                android:textColor="@color/ar_amber"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/int_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:layout_marginStart="18dp"
+            android:text="An outbound request is being held."
+            android:textColor="@color/ar_path"
+            android:textSize="12sp" />
+
+        <!-- Endpoint chip -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="13dp"
+            android:background="@drawable/bg_notif_inner"
+            android:paddingStart="13dp"
+            android:paddingEnd="13dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp">
+
+            <TextView
+                android:id="@+id/int_method"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:text="POST"
+                android:textColor="@color/ar_green"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/int_path"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:fontFamily="monospace"
+                android:text="/v1/orders"
+                android:textColor="@color/ar_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/int_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:fontFamily="monospace"
+                android:text="200"
+                android:textColor="@color/ar_green"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Response body preview (response intercept only) -->
+        <TextView
+            android:id="@+id/int_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="9dp"
+            android:background="@drawable/bg_notif_body"
+            android:padding="11dp"
+            android:fontFamily="monospace"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:textColor="@color/ar_muted"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <!-- Actions -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="14dp">
+
+            <TextView
+                android:id="@+id/int_continue"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.6"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_primary"
+                android:padding="13dp"
+                android:text="Continue"
+                android:textColor="@color/ar_btn_primary_text"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/int_edit"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="9dp"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_subtle"
+                android:padding="13dp"
+                android:text="Edit"
+                android:textColor="@color/ar_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/int_drop"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="9dp"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_danger"
+                android:padding="13dp"
+                android:text="Drop"
+                android:textColor="@color/ar_red"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

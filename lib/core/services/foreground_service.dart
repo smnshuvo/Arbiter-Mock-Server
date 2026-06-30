@@ -8,6 +8,18 @@ class ForegroundService {
   /// Callback function to be called when stop server is requested from notification
   static Future<bool> Function()? onStopServerRequested;
 
+  /// Called when the user releases a held request/response ("Continue").
+  static void Function(String id)? onInterceptionContinue;
+
+  /// Called when the user drops a held request/response ("Drop").
+  static void Function(String id)? onInterceptionDrop;
+
+  /// Called when the user taps "Edit" on a held request/response.
+  static void Function(String id)? onInterceptionEdit;
+
+  /// Called when the user taps "Logs" in the notification.
+  static void Function()? onOpenLogs;
+
   /// Initialize the foreground service and set up method call handler
   /// This should be called once at app startup
   static void initialize() {
@@ -23,26 +35,31 @@ class ForegroundService {
       print('ForegroundService: Method name: ${call.method}');
       print('ForegroundService: Arguments: ${call.arguments}');
       
+      final args = (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
+      final id = args['id'] as String? ?? '';
       switch (call.method) {
         case 'stopServer':
-          print('ForegroundService: STOP SERVER requested from notification');
-          print('ForegroundService: Checking if onStopServerRequested callback is set...');
           if (onStopServerRequested != null) {
-            print('ForegroundService: Callback is set, executing...');
             try {
-              final result = await onStopServerRequested!();
-              print('ForegroundService: Callback completed successfully with result: $result');
-              return result;
-            } catch (e, stackTrace) {
-              print('ForegroundService: ERROR in callback execution: $e');
-              print('ForegroundService: StackTrace: $stackTrace');
+              return await onStopServerRequested!();
+            } catch (e) {
+              print('ForegroundService: ERROR in stop callback: $e');
               return false;
             }
-          } else {
-            print('ForegroundService: ERROR - onStopServerRequested callback is NULL!');
-            print('ForegroundService: This means HomeScreen did not set the callback');
-            return false;
           }
+          return false;
+        case 'interceptionContinue':
+          onInterceptionContinue?.call(id);
+          return true;
+        case 'interceptionDrop':
+          onInterceptionDrop?.call(id);
+          return true;
+        case 'interceptionEdit':
+          onInterceptionEdit?.call(id);
+          return true;
+        case 'openLogs':
+          onOpenLogs?.call();
+          return true;
         default:
           print('ForegroundService: WARNING - Unknown method: ${call.method}');
           return false;
@@ -126,6 +143,55 @@ class ForegroundService {
     } catch (e) {
       print('Unexpected error updating notification: $e');
       return false;
+    }
+  }
+
+  // ── Live Activity (Android ongoing notification) ───────────────────────────
+
+  /// Updates the notification header (address + port).
+  Future<void> setServerStatus({required String address, required int port}) =>
+      _invoke('setServerStatus', {'address': address, 'port': port});
+
+  /// Appends a request to the live feed. The native side keeps the latest few
+  /// rows and tracks running totals.
+  Future<void> pushLog({
+    required String method,
+    required String path,
+    required int statusCode,
+  }) =>
+      _invoke('pushLog', {
+        'method': method,
+        'path': path,
+        'statusCode': statusCode,
+      });
+
+  /// Flips the notification to the intercepted call-to-action.
+  Future<void> setIntercepted({
+    required String id,
+    required String type, // 'request' | 'response'
+    required String method,
+    required String url,
+    int? statusCode,
+    String? body,
+  }) =>
+      _invoke('setIntercepted', {
+        'id': id,
+        'type': type,
+        'method': method,
+        'url': url,
+        if (statusCode != null) 'statusCode': statusCode,
+        if (body != null) 'body': body,
+      });
+
+  /// Returns the notification to the live feed.
+  Future<void> clearIntercepted() => _invoke('clearIntercepted');
+
+  Future<void> _invoke(String method, [Map<String, dynamic>? args]) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod(method, args);
+    } on PlatformException {
+      // Best-effort; never block the server hot path on UI updates.
     }
   }
 }

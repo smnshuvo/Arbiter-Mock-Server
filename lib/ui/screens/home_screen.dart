@@ -67,6 +67,29 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     };
     
+    // Live Activity notification actions → drive the existing blocs.
+    ForegroundService.onInterceptionContinue = (id) {
+      if (mounted) {
+        context.read<InterceptionBloc>().add(ContinueWithoutModificationEvent(id));
+      }
+    };
+    ForegroundService.onInterceptionDrop = (id) {
+      if (mounted) {
+        context.read<InterceptionBloc>().add(CancelInterceptionEvent(id));
+      }
+    };
+    // "Edit" foregrounds the app; the InterceptionPending listener below already
+    // auto-opens the full dialog, so no extra action is needed here.
+    ForegroundService.onInterceptionEdit = (_) {};
+    ForegroundService.onOpenLogs = () {
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const LogsScreen()),
+        );
+      }
+    };
+
     print('HomeScreen: Callback set successfully');
     print('HomeScreen: Checking server status');
     context.read<ServerBloc>().add(CheckServerStatusEvent());
@@ -79,6 +102,41 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _portController.dispose();
     super.dispose();
+  }
+
+  final ForegroundService _foregroundService = ForegroundService();
+
+  /// Pushes server start/stop into the Android Live Activity notification header.
+  void _syncLiveActivityStatus(ServerState state) {
+    if (state is ServerRunning) {
+      _foregroundService.setServerStatus(
+        address: Uri.tryParse(state.url)?.host ?? 'localhost',
+        port: state.port,
+      );
+    } else if (state is MultiServerRunning && state.runningServers.isNotEmpty) {
+      final first = state.runningServers.first;
+      _foregroundService.setServerStatus(
+        address: Uri.tryParse(first.url)?.host ?? 'localhost',
+        port: first.port,
+      );
+    }
+  }
+
+  /// Flips the Live Activity notification to/from the intercepted call-to-action.
+  void _syncLiveActivityInterception(InterceptionState state) {
+    if (state is InterceptionPending) {
+      final i = state.interception;
+      _foregroundService.setIntercepted(
+        id: i.id,
+        type: i.isResponse ? 'response' : 'request',
+        method: i.method,
+        url: i.url,
+        statusCode: i.isResponse ? i.statusCode : null,
+        body: i.isResponse ? i.responseBody : i.body,
+      );
+    } else {
+      _foregroundService.clearIntercepted();
+    }
   }
 
   Future<bool> _checkAndRequestNotificationPermission() async {
@@ -191,10 +249,13 @@ class _HomeScreenState extends State<HomeScreen> {
             print('HomeScreen: Server stopped, stopping foreground service');
             ForegroundService().stopForegroundService();
           }
+
+          _syncLiveActivityStatus(state);
         },
         builder: (context, state) {
           return BlocListener<InterceptionBloc, InterceptionState>(
             listener: (context, interceptionState) {
+              _syncLiveActivityInterception(interceptionState);
               if (interceptionState is InterceptionPending) {
                 showDialog(
                   context: context,
