@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../domain/entities/interception_request.dart';
 import '../bloc/interception/interception_bloc.dart';
 import '../bloc/interception/interception_event.dart';
+import '../bloc/interception/interception_state.dart';
 
 class InterceptionDialog extends StatefulWidget {
   final InterceptionRequest interception;
@@ -29,6 +30,15 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
   late int _remainingSeconds;
   Timer? _timer;
   bool _isModified = false;
+  bool _dismissed = false;
+
+  void _dismiss() {
+    if (_dismissed) return;
+    _dismissed = true;
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
 
   @override
   void initState() {
@@ -79,7 +89,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
     context.read<InterceptionBloc>().add(
           ContinueWithoutModificationEvent(widget.interception.id),
         );
-    Navigator.of(context).pop();
+    _dismiss();
   }
 
   void _modifyAndContinue() {
@@ -97,14 +107,14 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
             statusCode: statusCode,
           ),
         );
-    Navigator.of(context).pop();
+    _dismiss();
   }
 
   void _cancel() {
     context.read<InterceptionBloc>().add(
           CancelInterceptionEvent(widget.interception.id),
         );
-    Navigator.of(context).pop();
+    _dismiss();
   }
 
   String _formatJson(String? text) {
@@ -119,9 +129,18 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600),
+    return BlocListener<InterceptionBloc, InterceptionState>(
+      // Close this dialog if its interception is resolved elsewhere (e.g. the
+      // floating overlay's Continue/Drop, or an auto-timeout).
+      listener: (context, state) {
+        if (state is InterceptionCompleted &&
+            state.id == widget.interception.id) {
+          _dismiss();
+        }
+      },
+      child: Dialog(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 800, maxHeight: 600),
         child: Column(
           children: [
             _buildHeader(),
@@ -146,6 +165,7 @@ class _InterceptionDialogState extends State<InterceptionDialog> {
             ),
             _buildActions(),
           ],
+        ),
         ),
       ),
     );

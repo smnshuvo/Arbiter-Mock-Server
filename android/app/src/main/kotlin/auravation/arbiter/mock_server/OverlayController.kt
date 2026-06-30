@@ -17,6 +17,7 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.Animation
 import android.view.animation.TranslateAnimation
 import android.widget.Chronometer
+import android.widget.Switch
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodChannel
@@ -68,6 +69,9 @@ object OverlayController {
     private var showEndpoint = true
     private var showStatus = true
     private var showTime = false
+
+    private var interceptionEnabled = false
+    private var updatingSwitch = false
 
     val isShowing: Boolean get() = rootView != null
 
@@ -153,6 +157,11 @@ object OverlayController {
         render()
     }
 
+    fun setInterceptionEnabled(enabled: Boolean) {
+        interceptionEnabled = enabled
+        render()
+    }
+
     fun setIntercepted(id: String, isResponse: Boolean, method: String, url: String, statusCode: Int?, body: String?) {
         intercept = Intercept(id, isResponse, method, url, statusCode, body, SystemClock.elapsedRealtime())
         render()
@@ -177,6 +186,10 @@ object OverlayController {
             .setOnTouchListener(dragListener(ctx) {})
 
         view.findViewById<View>(R.id.ov_feed_collapse).setOnClickListener { expanded = false; render() }
+        view.findViewById<Switch>(R.id.ov_interception_switch).setOnCheckedChangeListener { _, isChecked ->
+            if (updatingSwitch) return@setOnCheckedChangeListener
+            channel?.invokeMethod("toggleInterception", mapOf("enabled" to isChecked))
+        }
         view.findViewById<View>(R.id.ov_action_pause).setOnClickListener { feedPaused = !feedPaused; render() }
         view.findViewById<View>(R.id.ov_action_stop).setOnClickListener { channel?.invokeMethod("stopServer", null) }
         view.findViewById<View>(R.id.ov_action_logs).setOnClickListener {
@@ -286,6 +299,13 @@ object OverlayController {
     private fun renderFeed(view: View) {
         view.findViewById<TextView>(R.id.ov_feed_sub).text = "$endpoint · $totalReqs reqs · $errorCount errors"
         (view.findViewById<TextView>(R.id.ov_action_pause)).text = if (feedPaused) "RESUME" else "PAUSE"
+
+        val sw = view.findViewById<Switch>(R.id.ov_interception_switch)
+        if (sw.isChecked != interceptionEnabled) {
+            updatingSwitch = true
+            sw.isChecked = interceptionEnabled
+            updatingSwitch = false
+        }
 
         val rows = intArrayOf(R.id.ov_row0, R.id.ov_row1, R.id.ov_row2, R.id.ov_row3)
         val methods = intArrayOf(R.id.ov_row0_method, R.id.ov_row1_method, R.id.ov_row2_method, R.id.ov_row3_method)
