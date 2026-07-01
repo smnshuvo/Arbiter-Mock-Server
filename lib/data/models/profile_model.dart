@@ -47,6 +47,7 @@ class ProfileModel {
   final String name;
   final String description;
   final int port;
+  final String type;
   final int isActive;
   final String settings;
   final String createdAt;
@@ -57,6 +58,7 @@ class ProfileModel {
     required this.name,
     required this.description,
     required this.port,
+    this.type = 'http',
     required this.isActive,
     required this.settings,
     required this.createdAt,
@@ -75,6 +77,7 @@ class ProfileModel {
       name: profile.name,
       description: profile.description ?? '',
       port: profile.port,
+      type: profile.type.name,
       isActive: 0,
       settings: jsonEncode(settingsModel.toJson()),
       createdAt: profile.createdAt.toIso8601String(),
@@ -94,6 +97,10 @@ class ProfileModel {
       name: name,
       description: description.isEmpty ? null : description,
       port: port,
+      type: ServerType.values.firstWhere(
+        (t) => t.name == type,
+        orElse: () => ServerType.http,
+      ),
       settings: profileSettings,
       createdAt: DateTime.parse(createdAt),
       updatedAt: DateTime.parse(updatedAt),
@@ -106,6 +113,7 @@ class ProfileModel {
       'name': name,
       'description': description,
       'port': port,
+      'type': type,
       'settings': settings,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
@@ -118,6 +126,7 @@ class ProfileModel {
       name: map['name'],
       description: map['description'] ?? '',
       port: map['port'] ?? 8080,
+      type: map['type'] ?? 'http',
       isActive: map['isActive'] ?? 0,
       settings: map['settings'] ?? '{}',
       createdAt: map['createdAt'],

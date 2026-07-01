@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+enum ServerType { http, ftp }
+
 class ProfileSettings extends Equatable {
   final String? globalPassThroughUrl;
   final bool autoPassThrough;
@@ -33,6 +35,7 @@ class Profile extends Equatable {
   final String name;
   final String? description;
   final int port;
+  final ServerType type;
   final ProfileSettings settings;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -42,6 +45,7 @@ class Profile extends Equatable {
     required this.name,
     this.description,
     this.port = 8080,
+    this.type = ServerType.http,
     required this.settings,
     required this.createdAt,
     required this.updatedAt,
@@ -52,6 +56,7 @@ class Profile extends Equatable {
     String? name,
     String? description,
     int? port,
+    ServerType? type,
     ProfileSettings? settings,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -61,6 +66,7 @@ class Profile extends Equatable {
       name: name ?? this.name,
       description: description ?? this.description,
       port: port ?? this.port,
+      type: type ?? this.type,
       settings: settings ?? this.settings,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -68,5 +74,5 @@ class Profile extends Equatable {
   }
 
   @override
-  List<Object?> get props => [id, name, description, port, settings, createdAt, updatedAt];
+  List<Object?> get props => [id, name, description, port, type, settings, createdAt, updatedAt];
 }

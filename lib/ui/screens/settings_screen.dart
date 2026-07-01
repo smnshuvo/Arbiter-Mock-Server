@@ -3,7 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/services/overlay_service.dart';
+import '../../domain/entities/interception_mode.dart';
 import '../../domain/entities/settings.dart';
+import '../bloc/interception/interception_bloc.dart';
+import '../bloc/interception/interception_event.dart';
+import '../bloc/interception/interception_state.dart';
 import '../bloc/settings/settings_bloc.dart';
 import '../dialog/overlay_priming_sheet.dart';
 import 'overlay_settings_screen.dart';
@@ -49,6 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                _buildInterceptionCard(),
+                const SizedBox(height: 16),
                 _buildNotificationSettingsCard(state.settings),
                 const SizedBox(height: 16),
                 if (Platform.isAndroid) ...[
@@ -63,6 +69,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
           return const SizedBox.shrink();
         },
       ),
+    );
+  }
+
+  Widget _buildInterceptionCard() {
+    return BlocBuilder<InterceptionBloc, InterceptionState>(
+      builder: (context, interceptionState) {
+        final mode = interceptionState is InterceptionEnabled
+            ? interceptionState.mode
+            : (interceptionState is InterceptionPending
+                ? interceptionState.mode
+                : InterceptionMode.none);
+        final enabled = mode != InterceptionMode.none;
+
+        return Card(
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.swap_horiz,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'Real-time Interception',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (interceptionState is InterceptionPending)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Text(
+                                    'PENDING',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Pause requests for manual inspection',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: enabled,
+                      onChanged: (value) {
+                        context.read<InterceptionBloc>().add(
+                              SetInterceptionModeEvent(
+                                value
+                                    ? InterceptionMode.both
+                                    : InterceptionMode.none,
+                              ),
+                            );
+                      },
+                    ),
+                  ],
+                ),
+                if (enabled) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Interception Mode',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<InterceptionMode>(
+                    initialValue: mode,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    items: [
+                      InterceptionMode.requestOnly,
+                      InterceptionMode.responseOnly,
+                      InterceptionMode.both,
+                    ]
+                        .map((m) => DropdownMenuItem(
+                              value: m,
+                              child: Text(m.displayName),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        context.read<InterceptionBloc>().add(
+                              SetInterceptionModeEvent(value),
+                            );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).highlightColor,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline,
+                            color: Colors.blue.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Requests will pause for 30 seconds allowing you to inspect and modify them',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
