@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:arbiter_mock_server/core/ads/ad_config.dart';
 import 'package:arbiter_mock_server/core/ads/ad_service.dart';
@@ -6,6 +7,7 @@ import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
 import 'package:arbiter_mock_server/core/services/file_server_service.dart';
 import 'package:arbiter_mock_server/core/services/foreground_service.dart';
 import 'package:arbiter_mock_server/core/services/overlay_service.dart';
+import 'package:arbiter_mock_server/core/services/menu_bar_activity_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -90,9 +92,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     };
 
-    // Floating overlay live activity (Android) — actions drive the existing blocs.
+    // Floating overlay live activity (Android) and macOS menu bar Live Activity —
+    // both drive the existing blocs. They share the same control surface, so the
+    // callbacks are wired to both native services.
     OverlayService.initialize();
-    OverlayService.onStopServerRequested = () async {
+    MenuBarActivityService.initialize();
+    Future<bool> stopServer() async {
       if (!mounted) return false;
       final serverState = context.read<ServerBloc>().state;
       context.read<ServerBloc>().add(
@@ -101,17 +106,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 : StopServerEvent(),
           );
       return true;
-    };
-    OverlayService.onInterceptionContinue = (id) {
+    }
+
+    OverlayService.onStopServerRequested = stopServer;
+    MenuBarActivityService.onStopServerRequested = stopServer;
+
+    void continueInterception(String id) {
       if (mounted) {
         context.read<InterceptionBloc>().add(ContinueWithoutModificationEvent(id));
       }
-    };
-    OverlayService.onInterceptionDrop = (id) {
+    }
+
+    OverlayService.onInterceptionContinue = continueInterception;
+    MenuBarActivityService.onInterceptionContinue = continueInterception;
+
+    void dropInterception(String id) {
       if (mounted) {
         context.read<InterceptionBloc>().add(CancelInterceptionEvent(id));
       }
-    };
+    }
+
+    OverlayService.onInterceptionDrop = dropInterception;
+    MenuBarActivityService.onInterceptionDrop = dropInterception;
+
+    // Android overlay extras: open logs and toggle interception directly.
     OverlayService.onOpenLogs = () {
       if (mounted) {
         Navigator.push(
@@ -129,6 +147,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             );
       }
     };
+    // macOS "Edit" opens the full interception dialog. The native side already brings
+    // the app forward, and the dialog auto-opens on a pending intercept (see the
+    // InterceptionPending listener below), so no extra Dart action is needed.
 
     print('HomeScreen: Callback set successfully');
     print('HomeScreen: Checking server status');
@@ -280,7 +301,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  final MenuBarActivityService _menuBar = MenuBarActivityService();
+
+  /// Reflects server start/stop in the macOS menu bar Live Activity (no-op elsewhere).
+  void _syncMenuBarStatus(ServerState state) {
+    if (state is ServerRunning) {
+      _menuBar.show();
+      _menuBar.updateStatus(
+        running: true,
+        address: Uri.tryParse(state.url)?.host ?? 'localhost',
+        port: state.port,
+      );
+    } else if (state is MultiServerRunning && state.runningServers.isNotEmpty) {
+      final first = state.runningServers.first;
+      _menuBar.show();
+      _menuBar.updateStatus(
+        running: true,
+        address: Uri.tryParse(first.url)?.host ?? 'localhost',
+        port: first.port,
+      );
+    } else if (state is ServerStopped || state is ServerInitial) {
+      _menuBar.hide();
+    }
+  }
+
+  /// Flips the menu bar surface to/from the intercepted call-to-action.
+  void _syncMenuBarInterception(InterceptionState state) {
+    if (state is InterceptionPending) {
+      final i = state.interception;
+      _menuBar.setIntercepted(
+        id: i.id,
+        type: i.isResponse ? 'response' : 'request',
+        method: i.method,
+        url: i.url,
+        statusCode: i.isResponse ? i.statusCode : null,
+        body: i.isResponse ? i.responseBody : i.body,
+      );
+    } else {
+      _menuBar.clearIntercepted();
+    }
+  }
+
   Future<bool> _checkAndRequestNotificationPermission() async {
+    // Notification permission only gates the Android foreground service.
+    // permission_handler isn't implemented on other platforms, so skip it.
+    if (!Platform.isAndroid) {
+      return true;
+    }
+
     // Check if notification permission is granted
     final status = await Permission.notification.status;
 
@@ -424,6 +492,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             }
 
             _syncOverlay(state);
+            _syncMenuBarStatus(state);
           },
           builder: (context, state) {
             return MultiBlocListener(
@@ -431,6 +500,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 BlocListener<InterceptionBloc, InterceptionState>(
                   listener: (context, interceptionState) {
                     _syncOverlayInterception(interceptionState);
+                    _syncMenuBarInterception(interceptionState);
                     // Only show the in-app dialog while Arbiter is in front; when it is
                     // backgrounded the floating overlay handles intercepts. This avoids
                     // a stale dialog appearing on return for an already-resolved hold.
