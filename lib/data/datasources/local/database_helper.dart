@@ -24,7 +24,7 @@ class DatabaseHelper {
       final path = join(dbPath, filePath);
       return openDatabase(
         path,
-        version: 3,
+        version: 4,
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
@@ -35,7 +35,7 @@ class DatabaseHelper {
       return databaseFactoryFfi.openDatabase(
         inMemoryDatabasePath,
         options: OpenDatabaseOptions(
-          version: 3,
+          version: 4,
           onCreate: _createDB,
           onUpgrade: _onUpgrade,
         ),
@@ -52,6 +52,7 @@ class DatabaseHelper {
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         port INTEGER NOT NULL DEFAULT 8080,
+        type TEXT NOT NULL DEFAULT 'http',
         settings TEXT NOT NULL DEFAULT '{}',
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
@@ -64,6 +65,7 @@ class DatabaseHelper {
       'name': 'Default',
       'description': '',
       'port': 8080,
+      'type': 'http',
       'settings': '{}',
       'createdAt': now,
       'updatedAt': now,
@@ -143,6 +145,9 @@ class DatabaseHelper {
       await db.execute("ALTER TABLE request_logs ADD COLUMN profileId TEXT NOT NULL DEFAULT 'default'");
       await db.execute('CREATE INDEX IF NOT EXISTS idx_logs_profile ON request_logs(profileId)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_endpoints_profile ON endpoints(profileId)');
+    }
+    if (oldVersion < 4) {
+      await db.execute("ALTER TABLE profiles ADD COLUMN type TEXT NOT NULL DEFAULT 'http'");
     }
   }
 
