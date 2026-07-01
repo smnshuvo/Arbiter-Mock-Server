@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/ads/ad_service.dart';
 import '../../core/services/foreground_service.dart';
 import '../../core/services/overlay_service.dart';
+import '../../core/services/menu_bar_activity_service.dart';
 import '../../core/services/server_manager.dart';
 import '../../data/datasources/local/database_helper.dart';
 import '../../data/datasources/local/endpoint_local_datasource.dart';
@@ -242,6 +243,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => DatabaseHelper.instance);
   sl.registerLazySingleton(() => ForegroundService());
   sl.registerLazySingleton(() => OverlayService());
+  sl.registerLazySingleton(() => MenuBarActivityService());
   sl.registerLazySingleton(() => ThemeCubit());
   sl.registerLazySingleton(() => AdService(sl<SharedPreferences>()));
 
@@ -297,12 +299,20 @@ Future<void> setupRequestNotificationCallback() async {
     }
   };
 
-  // Feed the Android floating overlay with the full request log (status + method).
-  // The native side keeps only the latest few rows; this fire-and-forget
-  // subscription stays lightweight and no-ops when the overlay isn't shown.
+  // Feed the Android floating overlay and the macOS menu bar Live Activity with
+  // the full request log (status + timing). The native sides keep only the latest
+  // few rows and track the running totals, so this fire-and-forget subscription
+  // stays lightweight and no-ops when the surfaces aren't shown.
   final overlay = sl<OverlayService>();
+  final menuBar = sl<MenuBarActivityService>();
   sl<WatchNewLogs>()().listen((log) {
     overlay.pushLog(
+      method: log.method.name,
+      path: log.url,
+      statusCode: log.statusCode,
+      responseTimeMs: log.responseTimeMs,
+    );
+    menuBar.pushLog(
       method: log.method.name,
       path: log.url,
       statusCode: log.statusCode,
