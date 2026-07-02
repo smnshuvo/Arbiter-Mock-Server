@@ -2,12 +2,15 @@ package auravation.arbiter.mock_server
 
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import fi.iki.elonen.NanoHTTPD
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Embedded HTTP server (NanoHTTPD) that serves the user-picked shared folder over the
@@ -28,8 +31,62 @@ class FileServer(
     port: Int,
 ) : NanoHTTPD(port) {
 
-    /** DocumentFile for the shared root; null if the persisted permission was lost. */
-    private val root: DocumentFile? = DocumentFile.fromTreeUri(context, rootUri)
+    /**
+     * Tree document id of the shared root; null if the URI is invalid or the persisted
+     * permission was lost. All navigation goes through DocumentsContract queries keyed by
+     * document id — one ContentResolver round-trip per directory — instead of
+     * DocumentFile, whose every property access (name/size/mtime/isDirectory) is a
+     * separate IPC query and made large folder listings take seconds.
+     */
+    private val rootDocId: String? = try {
+        DocumentsContract.getTreeDocumentId(rootUri)
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Display name of the shared root (single query, cached). */
+    private val rootName: String by lazy {
+        DocumentFile.fromTreeUri(context, rootUri)?.name ?: "Shared"
+    }
+
+    /** A child row from a DocumentsContract children query. */
+    private data class ChildDoc(
+        val documentId: String,
+        val name: String,
+        val mime: String,
+        val size: Long,
+        val lastModified: Long,
+    ) {
+        val isDirectory: Boolean get() = mime == DocumentsContract.Document.MIME_TYPE_DIR
+    }
+
+    /**
+     * Tiny expiring cache. Path→id mappings are stable enough to reuse across the burst
+     * of requests a page view or video seek session produces, but must not outlive
+     * renames/rescans for long — hence the short TTL instead of explicit invalidation.
+     */
+    private class TtlCache<K : Any, V : Any>(private val ttlMs: Long) {
+        private val map = ConcurrentHashMap<K, Pair<Long, V>>()
+
+        operator fun get(key: K): V? {
+            val entry = map[key] ?: return null
+            if (System.currentTimeMillis() - entry.first > ttlMs) {
+                map.remove(key)
+                return null
+            }
+            return entry.second
+        }
+
+        operator fun set(key: K, value: V) {
+            map[key] = System.currentTimeMillis() to value
+        }
+
+        fun clear() = map.clear()
+    }
+
+    private val dirIdCache = TtlCache<String, String>(60_000)
+    private val fileDocCache = TtlCache<String, ChildDoc>(60_000)
+    private val mediaInfoCache = TtlCache<Long, Pair<String, Long>>(60_000)
 
     /** Scanned-media store, backing the /thumb and /library routes. */
     private val library: LibraryDatabase by lazy { LibraryDatabase(context) }
@@ -43,7 +100,7 @@ class FileServer(
             when {
                 session.method != Method.GET && session.method != Method.HEAD ->
                     text(Response.Status.METHOD_NOT_ALLOWED, "Only GET/HEAD are supported")
-                root == null || !root.isDirectory ->
+                rootDocId == null ->
                     text(
                         Response.Status.INTERNAL_ERROR,
                         "Shared folder is unavailable. Re-pick it in the app.",
@@ -72,16 +129,25 @@ class FileServer(
     // ---- Directory listing (T5) ---------------------------------------------
 
     private fun listDirectory(segments: List<String>): Response {
-        val dir = resolveDir(segments)
+        var docId = resolveDirDocId(segments)
             ?: return text(Response.Status.NOT_FOUND, "Folder not found")
+        var children = listChildren(docId)
+        if (children == null && segments.isNotEmpty()) {
+            // A cached id may have gone stale (rename/move); re-resolve once from scratch.
+            dirIdCache.clear()
+            fileDocCache.clear()
+            docId = resolveDirDocId(segments)
+                ?: return text(Response.Status.NOT_FOUND, "Folder not found")
+            children = listChildren(docId)
+        }
+        if (children == null) {
+            return text(Response.Status.INTERNAL_ERROR, "Cannot read folder")
+        }
 
-        val children = dir.listFiles()
-        val folders = children.filter { it.isDirectory }
-            .sortedBy { (it.name ?: "").lowercase() }
-        val files = children.filter { it.isFile }
-            .sortedBy { (it.name ?: "").lowercase() }
+        val folders = children.filter { it.isDirectory }.sortedBy { it.name.lowercase() }
+        val files = children.filter { !it.isDirectory }.sortedBy { it.name.lowercase() }
 
-        val title = if (segments.isEmpty()) (root?.name ?: "Shared") else segments.last()
+        val title = if (segments.isEmpty()) rootName else segments.last()
         // Esc/Back goes to the parent folder, or the library when already at the root.
         val upHref = if (segments.isEmpty()) {
             "/library"
@@ -109,7 +175,7 @@ class FileServer(
 
         val basePath = segments.joinToString("") { encode(it) + "/" }
         for (f in folders) {
-            val name = f.name ?: continue
+            val name = f.name
             val href = "/files/" + basePath + encode(name) + "/"
             sb.append(tile(mediaIcon = FileTypes.iconFor(name, true), name = name, meta = "Folder"))
             sb.append(actionRow(viewHref = href, viewLabel = "📂 Open", dlHref = null))
@@ -117,9 +183,9 @@ class FileServer(
         }
 
         for (f in files) {
-            val name = f.name ?: continue
+            val name = f.name
             val rawHref = "/raw/" + basePath + encode(name)
-            val meta = "${FileTypes.humanSize(f.length())} · ${FileTypes.formatDate(f.lastModified())}"
+            val meta = "${FileTypes.humanSize(f.size)} · ${FileTypes.formatDate(f.lastModified)}"
             val viewHref: String? = when {
                 FileTypes.isPlayable(name) -> "/player?v=" + encode(rawHref)
                 FileTypes.isViewableInline(name) -> rawHref
@@ -524,10 +590,9 @@ class FileServer(
 
     private fun serveFile(session: IHTTPSession, segments: List<String>): Response {
         if (segments.isEmpty()) return text(Response.Status.NOT_FOUND, "No file specified")
-        val file = resolveFile(segments)
+        val child = resolveChildDoc(segments)?.takeIf { !it.isDirectory }
             ?: return text(Response.Status.NOT_FOUND, "File not found")
-        val name = file.name ?: segments.last()
-        return serveDocument(session, file.uri, name, file.length())
+        return serveDocument(session, docUriFor(child.documentId), child.name, child.size)
     }
 
     /**
@@ -539,10 +604,15 @@ class FileServer(
             ?: return text(Response.Status.BAD_REQUEST, "Missing 'id'")
         val item = library.getById(id) ?: return text(Response.Status.NOT_FOUND, "Unknown media")
         val uri = Uri.parse(item.filePath)
-        val doc = DocumentFile.fromSingleUri(context, uri)
-        val name = doc?.name ?: item.title
-        val length = doc?.length() ?: -1L
-        return serveDocument(session, uri, name, length)
+        // name+length are two IPC queries via DocumentFile; cache them — a video seek
+        // session hits this endpoint with a burst of Range requests.
+        var info = mediaInfoCache[id]
+        if (info == null) {
+            val doc = DocumentFile.fromSingleUri(context, uri)
+            info = (doc?.name ?: item.title) to (doc?.length() ?: -1L)
+            mediaInfoCache[id] = info
+        }
+        return serveDocument(session, uri, info.first, info.second)
     }
 
     /** Shared file responder with HTTP Range support, used by /raw and /media. */
@@ -561,14 +631,25 @@ class FileServer(
             "inline"
         }
 
+        // HEAD → headers only; players probe before streaming, no need to open the file.
+        if (session.method == Method.HEAD) {
+            val res = newFixedLengthResponse(
+                Response.Status.OK, mime, java.io.ByteArrayInputStream(ByteArray(0)),
+                totalLength.coerceAtLeast(0),
+            )
+            res.addHeader("Accept-Ranges", "bytes")
+            res.addHeader("Content-Disposition", disposition)
+            return res
+        }
+
         // Range request → 206 Partial Content with only the requested window.
         if (rangeHeader != null && rangeHeader.startsWith("bytes=") && totalLength > 0) {
             val (start, end) = parseRange(rangeHeader, totalLength)
                 ?: return rangeNotSatisfiable(totalLength)
             val contentLength = end - start + 1
-            val input = context.contentResolver.openInputStream(fileUri)
+            val input = openStreamAt(fileUri, start)
                 ?: return text(Response.Status.INTERNAL_ERROR, "Cannot open file")
-            val limited = LimitedInputStream(input, start, contentLength)
+            val limited = LimitedInputStream(input, contentLength)
             val res = newFixedLengthResponse(
                 Response.Status.PARTIAL_CONTENT, mime, limited, contentLength,
             )
@@ -626,20 +707,66 @@ class FileServer(
 
     // ---- Path/URI resolution ------------------------------------------------
 
-    private fun resolveDir(segments: List<String>): DocumentFile? {
-        var current = root ?: return null
-        for (seg in segments) {
-            if (seg.isEmpty()) continue
-            current = current.findFile(seg)?.takeIf { it.isDirectory } ?: return null
+    /** All children of a directory in ONE ContentResolver query; null on provider error. */
+    private fun listChildren(parentDocId: String): List<ChildDoc>? {
+        val childrenUri =
+            DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        return try {
+            val out = ArrayList<ChildDoc>()
+            context.contentResolver.query(childrenUri, projection, null, null, null)
+                ?.use { c ->
+                    while (c.moveToNext()) {
+                        out.add(
+                            ChildDoc(
+                                documentId = c.getString(0) ?: continue,
+                                name = c.getString(1) ?: continue,
+                                mime = c.getString(2) ?: "",
+                                size = if (c.isNull(3)) -1L else c.getLong(3),
+                                lastModified = if (c.isNull(4)) 0L else c.getLong(4),
+                            ),
+                        )
+                    }
+                } ?: return null
+            out
+        } catch (e: Exception) {
+            null
         }
-        return current
     }
 
-    private fun resolveFile(segments: List<String>): DocumentFile? {
-        if (segments.isEmpty()) return null
-        val parent = resolveDir(segments.dropLast(1)) ?: return null
-        return parent.findFile(segments.last())?.takeIf { it.isFile }
+    /** Resolves path segments to a directory document id, caching each prefix. */
+    private fun resolveDirDocId(segments: List<String>): String? {
+        if (segments.isEmpty()) return rootDocId
+        val key = segments.joinToString("/")
+        dirIdCache[key]?.let { return it }
+        val parentId = resolveDirDocId(segments.dropLast(1)) ?: return null
+        val child = listChildren(parentId)
+            ?.firstOrNull { it.isDirectory && it.name == segments.last() }
+            ?: return null
+        dirIdCache[key] = child.documentId
+        return child.documentId
     }
+
+    /** Resolves path segments to a file's ChildDoc (cached — Range bursts hit this hard). */
+    private fun resolveChildDoc(segments: List<String>): ChildDoc? {
+        if (segments.isEmpty()) return null
+        val key = segments.joinToString("/")
+        fileDocCache[key]?.let { return it }
+        val parentId = resolveDirDocId(segments.dropLast(1)) ?: return null
+        val child = listChildren(parentId)?.firstOrNull { it.name == segments.last() }
+            ?: return null
+        if (!child.isDirectory) fileDocCache[key] = child
+        return child
+    }
+
+    private fun docUriFor(documentId: String): Uri =
+        DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
 
     private fun splitPath(raw: String): List<String> =
         raw.split("/").filter { it.isNotEmpty() }.map { decode(it) }
@@ -649,7 +776,7 @@ class FileServer(
     private fun breadcrumbs(segments: List<String>): String {
         val sb = StringBuilder("<nav class='crumbs'>")
         sb.append("<a href='/library'>🎬 Library</a> <span class='sep'>·</span> ")
-        sb.append("<a href='/files/'>🏠 ${escape(root?.name ?: "Shared")}</a>")
+        sb.append("<a href='/files/'>🏠 ${escape(rootName)}</a>")
         var acc = "/files/"
         for (seg in segments) {
             acc += encode(seg) + "/"
@@ -833,30 +960,52 @@ class FileServer(
         .replace("\"", "&quot;")
 
     /**
-     * Wraps a SAF input stream to expose only the bytes of a requested Range: skips to
-     * [start] on construction and refuses to read past [remaining] bytes. SAF streams are
-     * not seekable, so this uses skip() — acceptable for typical media, though very large
-     * files with frequent seeks may re-open and skip repeatedly (edge case in the plan).
+     * Opens the file positioned at [start]. Uses a real O(1) seek on the file descriptor
+     * (FileChannel.position) — SAF InputStream.skip() reads and discards every preceding
+     * byte, which made deep seeks into large videos take seconds. Falls back to
+     * skip-forward only for providers whose descriptors aren't seekable.
+     */
+    private fun openStreamAt(fileUri: Uri, start: Long): InputStream? {
+        if (start <= 0L) return context.contentResolver.openInputStream(fileUri)
+
+        try {
+            val pfd = context.contentResolver.openFileDescriptor(fileUri, "r")
+            if (pfd != null) {
+                // AutoCloseInputStream closes the descriptor when the stream is closed.
+                val stream = ParcelFileDescriptor.AutoCloseInputStream(pfd)
+                try {
+                    stream.channel.position(start)
+                    return stream
+                } catch (e: Exception) {
+                    stream.close()
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        val input = context.contentResolver.openInputStream(fileUri) ?: return null
+        var toSkip = start
+        while (toSkip > 0) {
+            val skipped = input.skip(toSkip)
+            if (skipped <= 0) {
+                // skip() can return 0 before EOF; fall back to reading and discarding.
+                if (input.read() < 0) break
+                toSkip--
+            } else {
+                toSkip -= skipped
+            }
+        }
+        return input
+    }
+
+    /**
+     * Caps a stream (already positioned at the range start) to the requested Range
+     * length so NanoHTTPD never reads past the window.
      */
     private class LimitedInputStream(
         source: InputStream,
-        start: Long,
         private var remaining: Long,
     ) : FilterInputStream(source) {
-
-        init {
-            var toSkip = start
-            while (toSkip > 0) {
-                val skipped = source.skip(toSkip)
-                if (skipped <= 0) {
-                    // skip() can return 0 before EOF; fall back to reading and discarding.
-                    if (source.read() < 0) break
-                    toSkip--
-                } else {
-                    toSkip -= skipped
-                }
-            }
-        }
 
         override fun read(): Int {
             if (remaining <= 0) return -1
