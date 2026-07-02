@@ -98,6 +98,8 @@ class FileServerService : Service() {
 
         try {
             stopServerInstance()
+            // Traffic stats are per server session.
+            FileServer.totalBytes.set(0)
             server = FileServer(applicationContext, Uri.parse(rootUriString), port).also {
                 it.start(NanoHttpdConstants.SOCKET_READ_TIMEOUT, false)
             }

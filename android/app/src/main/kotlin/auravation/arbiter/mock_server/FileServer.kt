@@ -94,22 +94,128 @@ class FileServer(
     /** Requests served since this server instance started (surfaced to the UI). */
     private val requestCounter = java.util.concurrent.atomic.AtomicInteger(0)
 
+    companion object {
+        /**
+         * App-side toggle: when false, every POST /upload is refused. Volatile so a flip
+         * from the Flutter screen takes effect on the already-running server.
+         */
+        @Volatile
+        var uploadsEnabled: Boolean = false
+
+        /**
+         * Bytes moved (served + uploaded) since the server last started. The app polls
+         * this over the MethodChannel for its speed / total-bandwidth display.
+         */
+        val totalBytes = java.util.concurrent.atomic.AtomicLong(0)
+    }
+
+    /** Wraps served streams so every byte read lands in [totalBytes]. */
+    private class CountingInputStream(delegate: InputStream) : FilterInputStream(delegate) {
+        override fun read(): Int {
+            val b = super.read()
+            if (b >= 0) totalBytes.incrementAndGet()
+            return b
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            val n = super.read(b, off, len)
+            if (n > 0) totalBytes.addAndGet(n.toLong())
+            return n
+        }
+    }
+
     override fun serve(session: IHTTPSession): Response {
         FileServerEvents.requestCount(requestCounter.incrementAndGet())
         return try {
             when {
-                session.method != Method.GET && session.method != Method.HEAD ->
-                    text(Response.Status.METHOD_NOT_ALLOWED, "Only GET/HEAD are supported")
                 rootDocId == null ->
                     text(
                         Response.Status.INTERNAL_ERROR,
                         "Shared folder is unavailable. Re-pick it in the app.",
                     )
+                session.method == Method.POST && (session.uri ?: "") == "/upload" ->
+                    handleUpload(session)
+                session.method != Method.GET && session.method != Method.HEAD ->
+                    text(Response.Status.METHOD_NOT_ALLOWED, "Only GET/HEAD are supported")
                 else -> route(session)
             }
         } catch (e: Exception) {
             text(Response.Status.INTERNAL_ERROR, "Server error: ${e.message}")
         }
+    }
+
+    // ---- Uploads --------------------------------------------------------------
+
+    /**
+     * POST /upload?dir=<path> — multipart form upload into the shared folder (or a
+     * subdirectory). Refused unless the user enabled uploads in the app. NanoHTTPD
+     * buffers each part to a temp file; we then copy it into the SAF tree.
+     */
+    private fun handleUpload(session: IHTTPSession): Response {
+        if (!uploadsEnabled) {
+            return text(Response.Status.FORBIDDEN, "Uploads are disabled in the app")
+        }
+        // parseBody consumes the multipart stream; temp-file paths land in this map
+        // keyed "f", "f2", "f3"… in insertion order, matching parameters["f"].
+        val tempFiles = LinkedHashMap<String, String>()
+        try {
+            session.parseBody(tempFiles)
+        } catch (e: Exception) {
+            return text(Response.Status.BAD_REQUEST, "Upload failed: ${e.message}")
+        }
+        val dirParam = session.parameters["dir"]?.firstOrNull() ?: ""
+        val segments = splitPath(dirParam)
+        val parentId = resolveDirDocId(segments)
+            ?: return text(Response.Status.NOT_FOUND, "Target folder not found")
+        val names = session.parameters["f"] ?: emptyList()
+        if (names.isEmpty()) return text(Response.Status.BAD_REQUEST, "No file supplied")
+
+        var saved = 0
+        var firstError: String? = null
+        names.forEachIndexed { idx, rawName ->
+            val key = if (idx == 0) "f" else "f${idx + 1}"
+            val tempPath = tempFiles[key] ?: return@forEachIndexed
+            // Some browsers send a full client path; keep only the file name.
+            val displayName = rawName.substringAfterLast('/').substringAfterLast('\\')
+                .ifBlank { "upload" }
+            try {
+                val target = DocumentsContract.createDocument(
+                    context.contentResolver, docUriFor(parentId),
+                    FileTypes.mimeFor(displayName), displayName,
+                ) ?: throw IllegalStateException("could not create file")
+                val out = context.contentResolver.openOutputStream(target)
+                    ?: throw IllegalStateException("cannot open output stream")
+                out.use { output ->
+                    java.io.FileInputStream(tempPath).use { input ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            output.write(buf, 0, n)
+                            totalBytes.addAndGet(n.toLong())
+                        }
+                    }
+                }
+                saved++
+            } catch (e: Exception) {
+                if (firstError == null) firstError = e.message
+            }
+        }
+
+        if (saved == 0) {
+            return text(
+                Response.Status.INTERNAL_ERROR,
+                "Upload failed (${firstError ?: "unknown error"}). If the shared folder was " +
+                    "picked before uploads existed, re-pick it in the app to grant write access.",
+            )
+        }
+        // 303 → the browser re-GETs the directory listing, which now shows the file(s).
+        val back = "/files/" + segments.joinToString("") { encode(it) + "/" }
+        val res = newFixedLengthResponse(
+            Response.Status.REDIRECT_SEE_OTHER, "text/plain", "Uploaded $saved file(s)",
+        )
+        res.addHeader("Location", back)
+        return res
     }
 
     private fun route(session: IHTTPSession): Response {
@@ -162,6 +268,13 @@ class FileServer(
         sb.append("<div class='wrap'>")
         sb.append(breadcrumbs(segments))
         sb.append("<p class='summary'>${folders.size} folders · ${files.size} files</p>")
+        if (uploadsEnabled) {
+            val dirParam = segments.joinToString("") { encode(it) + "/" }
+            sb.append("<form class='upload' method='POST' action='/upload?dir=${escape(dirParam)}'")
+            sb.append(" enctype='multipart/form-data'>")
+            sb.append("<input type='file' name='f' multiple required>")
+            sb.append("<button type='submit'>⬆ Upload here</button></form>")
+        }
         sb.append("<div id='grid' data-up-href='${escape(upHref)}'>")
 
         // Leading nav tile back to the media library (reachable by the D-pad).
@@ -770,7 +883,7 @@ class FileServer(
         return try {
             val res = newFixedLengthResponse(
                 Response.Status.OK, "image/jpeg",
-                java.io.FileInputStream(file), file.length(),
+                CountingInputStream(java.io.FileInputStream(file)), file.length(),
             )
             res.addHeader("Cache-Control", "max-age=86400")
             res
@@ -793,7 +906,7 @@ class FileServer(
         return try {
             val res = newFixedLengthResponse(
                 Response.Status.OK, "image/jpeg",
-                java.io.FileInputStream(file), file.length(),
+                CountingInputStream(java.io.FileInputStream(file)), file.length(),
             )
             res.addHeader("Cache-Control", "max-age=86400")
             res
@@ -975,7 +1088,7 @@ class FileServer(
             val contentLength = end - start + 1
             val input = openStreamAt(fileUri, start)
                 ?: return text(Response.Status.INTERNAL_ERROR, "Cannot open file")
-            val limited = LimitedInputStream(input, contentLength)
+            val limited = CountingInputStream(LimitedInputStream(input, contentLength))
             val res = newFixedLengthResponse(
                 Response.Status.PARTIAL_CONTENT, mime, limited, contentLength,
             )
@@ -987,6 +1100,7 @@ class FileServer(
 
         // Full response.
         val input = context.contentResolver.openInputStream(fileUri)
+            ?.let { CountingInputStream(it) }
             ?: return text(Response.Status.INTERNAL_ERROR, "Cannot open file")
         val res = if (totalLength >= 0) {
             newFixedLengthResponse(Response.Status.OK, mime, input, totalLength)
@@ -1161,6 +1275,12 @@ class FileServer(
         <style>
           #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
                 gap:18px;margin-top:20px}
+          .upload{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 0;
+                padding:10px 12px;background:var(--card);border:1px dashed var(--line);
+                border-radius:12px}
+          .upload input[type=file]{font-size:13px;color:var(--muted);max-width:100%}
+          .upload button{background:var(--accent);color:#fff;border:0;border-radius:8px;
+                padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer}
           .tile{position:relative;display:flex;flex-direction:column;background:var(--card);
                 border:1px solid var(--line);border-radius:12px;overflow:hidden;outline:none;
                 cursor:pointer;transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
