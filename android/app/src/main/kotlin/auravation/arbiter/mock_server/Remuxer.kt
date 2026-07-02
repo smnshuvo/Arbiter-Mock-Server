@@ -1,15 +1,18 @@
 package auravation.arbiter.mock_server
 
 import android.content.Context
+import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import java.io.File
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /** Outcome of a conversion attempt; [reason] is user-presentable when [ok] is false. */
 data class RemuxResult(val ok: Boolean, val reason: String? = null)
@@ -150,8 +153,22 @@ object Remuxer {
 
             val info = MediaCodec.BufferInfo()
             var lastPct = -1
+            var samplesSincePriorityCheck = 0
             while (true) {
                 if (isCancelled()) return fail(outFile, "cancelled")
+                // Adaptive politeness: crawl while the server is streaming to someone,
+                // run at normal priority (much faster) when it's idle.
+                if (++samplesSincePriorityCheck >= 200) {
+                    samplesSincePriorityCheck = 0
+                    val want = if (FileServer.activeStreamCount() > 0) {
+                        Thread.MIN_PRIORITY
+                    } else {
+                        Thread.NORM_PRIORITY
+                    }
+                    if (Thread.currentThread().priority != want) {
+                        Thread.currentThread().priority = want
+                    }
+                }
                 val track = extractor.sampleTrackIndex
                 if (track < 0) break
                 val sampleTimeUs = extractor.sampleTime
@@ -228,6 +245,15 @@ private class AudioTranscoder private constructor(private val decoder: MediaCode
         fun create(srcFormat: MediaFormat): AudioTranscoder? = try {
             val mime = srcFormat.getString(MediaFormat.KEY_MIME)!!
             val decoder = MediaCodec.createDecoderByType(mime)
+            // Ask for 16-bit PCM; some decoders (e.g. Samsung AC3/EAC3) default to
+            // float output, which the AAC encoder can't take and which breaks all
+            // byte-based timing math. Decoders that ignore this are handled by the
+            // float→16-bit conversion in feedEncoder.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                srcFormat.setInteger(
+                    MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT,
+                )
+            }
             decoder.configure(srcFormat, null, null, 0)
             decoder.start()
             AudioTranscoder(decoder)
@@ -245,6 +271,15 @@ private class AudioTranscoder private constructor(private val decoder: MediaCode
     private var encoderDone = false
     private var channels = 2
     private var sampleRate = 48_000
+    private var pcmFloat = false
+    private var convBuf: ByteBuffer? = null
+
+    // PTS anchor: timestamps are derived from PCM frames fed since the anchor, and the
+    // anchor re-syncs to the decoder's own PTS on real discontinuities (> 50ms). This
+    // kills both per-chunk rounding drift and decoder PTS jitter.
+    private var baseUs = -1L
+    private var fedFrames = 0L
+
     private val pending = ArrayList<Pair<MediaCodec.BufferInfo, ByteArray>>()
     private val decInfo = MediaCodec.BufferInfo()
     private val encInfo = MediaCodec.BufferInfo()
@@ -348,6 +383,9 @@ private class AudioTranscoder private constructor(private val decoder: MediaCode
             .getOrDefault(channels)
         sampleRate = runCatching { format.getInteger(MediaFormat.KEY_SAMPLE_RATE) }
             .getOrDefault(sampleRate)
+        pcmFloat = runCatching { format.getInteger(MediaFormat.KEY_PCM_ENCODING) }
+            .getOrDefault(AudioFormat.ENCODING_PCM_16BIT) == AudioFormat.ENCODING_PCM_FLOAT
+        if (pcmFloat) Log.i(TAG, "Decoder outputs float PCM; converting to 16-bit")
         if (encoder == null) {
             val fmt = MediaFormat.createAudioFormat(
                 MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channels,
@@ -365,14 +403,42 @@ private class AudioTranscoder private constructor(private val decoder: MediaCode
         }
     }
 
-    /** Chunks a PCM buffer into encoder input buffers, spreading timestamps by bytes. */
+    /** Converts float PCM (32-bit) to 16-bit; MediaCodec buffers are native-ordered. */
+    private fun toPcm16(src: ByteBuffer): ByteBuffer {
+        val floats = src.asFloatBuffer()
+        val n = floats.remaining()
+        val out = convBuf?.takeIf { it.capacity() >= n * 2 }
+            ?: ByteBuffer.allocateDirect(n * 2).order(ByteOrder.nativeOrder())
+                .also { convBuf = it }
+        out.clear()
+        val shorts = out.asShortBuffer()
+        for (i in 0 until n) {
+            val v = floats.get() * 32767f
+            shorts.put(v.coerceIn(-32768f, 32767f).toInt().toShort())
+        }
+        out.position(0)
+        out.limit(n * 2)
+        return out
+    }
+
+    /** Chunks a PCM buffer into encoder input buffers with anchor-derived timestamps. */
     private fun feedEncoder(
-        pcm: ByteBuffer,
+        rawPcm: ByteBuffer,
         ptsUs: Long,
         sink: ((MediaCodec.BufferInfo, ByteBuffer) -> Unit)?,
     ) {
         val enc = encoder ?: return
-        var offsetBytes = 0L
+        val pcm = if (pcmFloat) toPcm16(rawPcm) else rawPcm
+        val bytesPerFrame = 2 * channels
+
+        // Re-anchor when the decoder's PTS disagrees with our accumulated position.
+        val predicted =
+            if (baseUs >= 0) baseUs + fedFrames * 1_000_000L / sampleRate else Long.MIN_VALUE
+        if (baseUs < 0 || Math.abs(ptsUs - predicted) > 50_000) {
+            baseUs = ptsUs
+            fedFrames = 0
+        }
+
         var attempts = 0
         while (pcm.hasRemaining()) {
             val idx = enc.dequeueInputBuffer(Remuxer.TIMEOUT_US)
@@ -383,15 +449,16 @@ private class AudioTranscoder private constructor(private val decoder: MediaCode
             }
             val inBuf = enc.getInputBuffer(idx) ?: continue
             inBuf.clear()
-            val chunk = minOf(inBuf.remaining(), pcm.remaining())
-            val chunkPts =
-                ptsUs + (offsetBytes * 1_000_000L) / (sampleRate.toLong() * 2 * channels)
+            var chunk = minOf(inBuf.remaining(), pcm.remaining())
+            // Keep chunks frame-aligned so frames-fed arithmetic stays exact.
+            if (chunk > bytesPerFrame) chunk -= chunk % bytesPerFrame
+            val chunkPts = baseUs + fedFrames * 1_000_000L / sampleRate
             val savedLimit = pcm.limit()
             pcm.limit(pcm.position() + chunk)
             inBuf.put(pcm)
             pcm.limit(savedLimit)
             enc.queueInputBuffer(idx, 0, chunk, chunkPts, 0)
-            offsetBytes += chunk
+            fedFrames += chunk / bytesPerFrame
         }
     }
 
