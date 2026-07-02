@@ -23,10 +23,15 @@ class FileServerScreen extends StatefulWidget {
 class _FileServerScreenState extends State<FileServerScreen> {
   static const _portPrefKey = 'file_server_port';
   static const _uploadsPrefKey = 'file_server_uploads';
+  static const _authEnabledPrefKey = 'file_server_auth_enabled';
+  static const _authUserPrefKey = 'file_server_auth_user';
+  static const _authPassPrefKey = 'file_server_auth_pass';
 
   final FileServerService _service = FileServerService();
   final TextEditingController _portController =
       TextEditingController(text: '8080');
+  final TextEditingController _userController = TextEditingController();
+  final TextEditingController _passController = TextEditingController();
 
   StreamSubscription<FileServerEvent>? _eventsSub;
   Timer? _statsTimer;
@@ -37,6 +42,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
   String? _url;
   int _requestCount = 0;
   bool _uploadsEnabled = false;
+  bool _authEnabled = false;
 
   int _totalBytes = 0;
   int _speedBps = 0;
@@ -57,6 +63,8 @@ class _FileServerScreenState extends State<FileServerScreen> {
     _eventsSub?.cancel();
     _statsTimer?.cancel();
     _portController.dispose();
+    _userController.dispose();
+    _passController.dispose();
     super.dispose();
   }
 
@@ -64,16 +72,46 @@ class _FileServerScreenState extends State<FileServerScreen> {
     final prefs = await SharedPreferences.getInstance();
     final savedPort = prefs.getInt(_portPrefKey);
     final uploads = prefs.getBool(_uploadsPrefKey) ?? false;
+    final authEnabled = prefs.getBool(_authEnabledPrefKey) ?? false;
+    final authUser = prefs.getString(_authUserPrefKey) ?? '';
+    final authPass = prefs.getString(_authPassPrefKey) ?? '';
     final folder = await _service.getSavedFolder();
     final scanning = await _service.isScanning();
     if (!mounted) return;
     setState(() {
       if (savedPort != null) _portController.text = savedPort.toString();
       _uploadsEnabled = uploads;
+      _authEnabled = authEnabled;
+      _userController.text = authUser;
+      _passController.text = authPass;
       _folder = folder;
       _scanning = scanning;
     });
   }
+
+  /// Credentials to send natively: null user means anonymous access.
+  String? get _effectiveAuthUser {
+    if (!_authEnabled) return null;
+    final user = _userController.text.trim();
+    return user.isEmpty ? null : user;
+  }
+
+  Future<void> _setAuthEnabled(bool enabled) async {
+    setState(() => _authEnabled = enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_authEnabledPrefKey, enabled);
+    if (_running) await _applyAuthLive();
+  }
+
+  Future<void> _persistAuthFields() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_authUserPrefKey, _userController.text.trim());
+    await prefs.setString(_authPassPrefKey, _passController.text);
+    if (_running) await _applyAuthLive();
+  }
+
+  Future<void> _applyAuthLive() =>
+      _service.setAuth(_effectiveAuthUser, _passController.text);
 
   Future<void> _setUploadsEnabled(bool enabled) async {
     setState(() => _uploadsEnabled = enabled);
@@ -166,12 +204,20 @@ class _FileServerScreenState extends State<FileServerScreen> {
       _snack('Pick a folder to share first');
       return;
     }
+    if (_authEnabled &&
+        (_userController.text.trim().isEmpty || _passController.text.isEmpty)) {
+      _snack('Enter a username and password, or turn off "Require login"');
+      return;
+    }
     setState(() => _busy = true);
     await _persistPort();
+    await _persistAuthFields();
     final ok = await _service.startServer(
       port: _port,
       rootUri: folder.uri,
       uploadsEnabled: _uploadsEnabled,
+      authUser: _effectiveAuthUser,
+      authPass: _passController.text,
     );
     final ip = ok ? await _service.getLocalIp() : null;
     if (!mounted) return;
@@ -239,6 +285,8 @@ class _FileServerScreenState extends State<FileServerScreen> {
           _portField(),
           const SizedBox(height: 16),
           _uploadsToggle(),
+          const SizedBox(height: 16),
+          _accessCard(),
           const SizedBox(height: 16),
           _startStopButton(),
           if (_running && _url != null) ...[
@@ -437,6 +485,65 @@ class _FileServerScreenState extends State<FileServerScreen> {
             ),
           ),
           Switch(value: _uploadsEnabled, onChanged: _setUploadsEnabled),
+        ],
+      ),
+    );
+  }
+
+  Widget _accessCard() {
+    final cs = Theme.of(context).colorScheme;
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lock_outline, size: 24, color: AppColors.accent),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Require login',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                      _authEnabled
+                          ? 'Browsers must sign in with the credentials below.'
+                          : 'Anonymous — anyone on the network can access.',
+                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(value: _authEnabled, onChanged: _setAuthEnabled),
+            ],
+          ),
+          if (_authEnabled) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _userController,
+              onChanged: (_) => _persistAuthFields(),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: OutlineInputBorder(),
+                labelText: 'Username',
+                prefixIcon: Icon(Icons.person_outline, size: 20),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _passController,
+              onChanged: (_) => _persistAuthFields(),
+              obscureText: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                border: OutlineInputBorder(),
+                labelText: 'Password',
+                prefixIcon: Icon(Icons.key_outlined, size: 20),
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -91,6 +91,29 @@ class FileServer(
     /** Scanned-media store, backing the /thumb and /library routes. */
     private val library: LibraryDatabase by lazy { LibraryDatabase(context) }
 
+    /**
+     * The app's launcher icon rendered to PNG once, served at /icon.png for the brand
+     * header and favicon. Drawn through Canvas so adaptive (XML) icons work too.
+     */
+    private val iconPngBytes: ByteArray? by lazy {
+        try {
+            val drawable = context.packageManager.getApplicationIcon(context.packageName)
+            val size = 192
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                size, size, android.graphics.Bitmap.Config.ARGB_8888,
+            )
+            val canvas = android.graphics.Canvas(bitmap)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            val out = java.io.ByteArrayOutputStream()
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            bitmap.recycle()
+            out.toByteArray()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Requests served since this server instance started (surfaced to the UI). */
     private val requestCounter = java.util.concurrent.atomic.AtomicInteger(0)
 
@@ -107,6 +130,17 @@ class FileServer(
          * this over the MethodChannel for its speed / total-bandwidth display.
          */
         val totalBytes = java.util.concurrent.atomic.AtomicLong(0)
+
+        /**
+         * Optional HTTP Basic credentials from the app's "Require login" switch.
+         * Null/blank user = anonymous access (the default). Volatile so flips apply to
+         * the running server.
+         */
+        @Volatile
+        var authUser: String? = null
+
+        @Volatile
+        var authPass: String? = null
     }
 
     /** Wraps served streams so every byte read lands in [totalBytes]. */
@@ -126,6 +160,14 @@ class FileServer(
 
     override fun serve(session: IHTTPSession): Response {
         FileServerEvents.requestCount(requestCounter.incrementAndGet())
+        val user = authUser
+        if (!user.isNullOrEmpty() && !isAuthorized(session, user, authPass ?: "")) {
+            val res = text(Response.Status.UNAUTHORIZED, "Authentication required")
+            res.addHeader(
+                "WWW-Authenticate", "Basic realm=\"Arbiter File Server\", charset=\"UTF-8\"",
+            )
+            return res
+        }
         return try {
             when {
                 rootDocId == null ->
@@ -141,6 +183,22 @@ class FileServer(
             }
         } catch (e: Exception) {
             text(Response.Status.INTERNAL_ERROR, "Server error: ${e.message}")
+        }
+    }
+
+    /** Validates an `Authorization: Basic` header against the configured credentials. */
+    private fun isAuthorized(session: IHTTPSession, user: String, pass: String): Boolean {
+        val header = session.headers["authorization"] ?: return false
+        if (!header.startsWith("Basic ", ignoreCase = true)) return false
+        return try {
+            val supplied = android.util.Base64.decode(
+                header.substring(6).trim(), android.util.Base64.DEFAULT,
+            )
+            val expected = "$user:$pass".toByteArray(Charsets.UTF_8)
+            // Timing-safe comparison.
+            java.security.MessageDigest.isEqual(supplied, expected)
+        } catch (e: Exception) {
+            false
         }
     }
 
@@ -229,6 +287,7 @@ class FileServer(
             uri == "/player" -> playerPage(session)
             uri == "/thumb" -> serveThumb(session)
             uri == "/storyboard" -> serveStoryboard(session)
+            uri == "/icon.png" -> serveIcon()
             uri == "/subs" -> serveSubtitle(session)
             else -> text(Response.Status.NOT_FOUND, "Not found")
         }
@@ -370,7 +429,11 @@ class FileServer(
         sb.append("</div></div>")
 
         sb.append("<div id='grid'>")
-        // Leading nav tile to the full file browser (always present + D-pad reachable).
+        // Leading nav tiles (D-pad reachable): search focuses the header input via
+        // data-focus (no navigation); Browse Files opens the full file browser.
+        sb.append(tile(mediaIcon = "🔍", name = "Search", meta = "Filter the library", nav = true))
+        sb.append("<div class='tile-actions'><a class='act view' data-focus='q' href='#'>🔍 Search</a></div>")
+        sb.append("</div>")
         sb.append(tile(mediaIcon = "📁", name = "Browse Files", meta = "All files", nav = true))
         sb.append(actionRow(viewHref = "/files/", viewLabel = "📂 Open", dlHref = null))
         sb.append("</div>")
@@ -420,10 +483,23 @@ class FileServer(
               function filterCards(){
                 var q=(document.getElementById('q').value||'').toLowerCase();
                 document.querySelectorAll('#grid .tile').forEach(function(c){
-                  var t=c.getAttribute('data-title')||'';
+                  var t=c.getAttribute('data-title');
+                  if(t===null) return; // nav tiles (Search/Browse) stay visible
                   c.style.display=t.indexOf(q)>=0?'':'none';
                 });
               }
+              // Enter / Back / Down leave the search box and return to the grid.
+              (function(){
+                var q=document.getElementById('q');
+                if(!q) return;
+                q.addEventListener('keydown',function(e){
+                  var k=e.key,c=e.keyCode||e.which;
+                  if(k==='Enter'||c===13||k==='Escape'||c===27||c===10009||c===461||
+                     k==='ArrowDown'||c===40){
+                    e.preventDefault(); e.stopPropagation(); q.blur();
+                  }
+                });
+              })();
             </script>
             """.trimIndent(),
         )
@@ -531,7 +607,7 @@ class FileServer(
         }
 
         val sb = StringBuilder()
-        sb.append(htmlHead(escape(name)))
+        sb.append(htmlHead(escape(name), showBrand = false))
         sb.append("<div class='player-wrap ${if (isVideo) "video" else "audio"}'>")
         sb.append("<div class='stage'>")
         if (!isVideo) sb.append("<div class='audio-glyph'>🎵</div>")
@@ -1010,6 +1086,18 @@ class FileServer(
         }
     }
 
+    /** GET /icon.png — the app's launcher icon (brand header + favicon). */
+    private fun serveIcon(): Response {
+        val bytes = iconPngBytes
+            ?: return text(Response.Status.NOT_FOUND, "No icon")
+        val res = newFixedLengthResponse(
+            Response.Status.OK, "image/png",
+            java.io.ByteArrayInputStream(bytes), bytes.size.toLong(),
+        )
+        res.addHeader("Cache-Control", "max-age=86400")
+        return res
+    }
+
     /** Inline SVG placeholder (film strip, or a music note for audio). */
     private fun placeholderThumb(audio: Boolean = false): Response {
         val glyph = if (audio) "🎵" else "🎬"
@@ -1239,15 +1327,27 @@ class FileServer(
     private fun html(body: String): Response =
         newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body)
 
-    private fun htmlHead(title: String): String = """
+    private fun htmlHead(title: String, showBrand: Boolean = true): String {
+        val brand = if (showBrand) {
+            "<div class='brand'><img class='brand-icon' src='/icon.png' alt=''>" +
+                "<div>Arbiter <span>File Server</span></div></div>"
+        } else {
+            ""
+        }
+        return """
         <!doctype html><html lang='en'><head><meta charset='utf-8'>
         <meta name='viewport' content='width=device-width,initial-scale=1'>
-        <title>$title</title>
+        <link rel='icon' href='/icon.png'>
+        <title>$title · Arbiter File Server</title>
         <style>
           :root{--bg:#0f1216;--card:#181d24;--fg:#e7ecf2;--muted:#8a97a6;--accent:#4f9dff;--line:#232a33}
           *{box-sizing:border-box}
           body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
           .wrap{max-width:980px;margin:0 auto;padding:0 16px 48px}
+          .brand{max-width:980px;margin:0 auto;padding:18px 16px 0;font-size:20px;
+                 font-weight:800;letter-spacing:.3px;display:flex;align-items:center;gap:10px}
+          .brand span{color:var(--accent)}
+          .brand-icon{width:28px;height:28px;border-radius:7px}
           .crumbs{position:sticky;top:0;background:var(--bg);padding:16px 0;border-bottom:1px solid var(--line);z-index:5}
           .crumbs a{color:var(--accent);text-decoration:none}
           .crumbs .sep{color:var(--muted)}
@@ -1265,8 +1365,9 @@ class FileServer(
                border-radius:8px;padding:4px 9px;margin-left:4px;cursor:pointer;font-size:14px;text-decoration:none}
           .btn:hover{border-color:var(--accent)}
           @media(max-width:640px){.c-date{display:none}}
-        </style></head><body>
-    """.trimIndent()
+        </style></head><body>$brand
+        """.trimIndent()
+    }
 
     // ---- Shared TV / D-pad navigation (grids) -------------------------------
 
@@ -1335,8 +1436,14 @@ class FileServer(
             var target=a.filter(function(el){return el.classList.contains(which);})[0]||a[0];
             target.classList.add('active');
           }
+          // Search filtering hides tiles; skip them when moving focus.
+          function isVisible(t){ return t.style.display!=='none' && t.offsetParent!==null; }
           function focus(i,which){
-            idx=(i+tiles.length)%tiles.length;
+            var n=tiles.length;
+            var dir=(i>=idx)?1:-1;
+            var j=((i%n)+n)%n, tries=0;
+            while(!isVisible(tiles[j])&&tries<n){ j=(j+dir+n)%n; tries++; }
+            idx=j;
             tiles.forEach(function(t){t.classList.remove('focused');});
             var t=tiles[idx];
             t.classList.add('focused');
@@ -1346,8 +1453,26 @@ class FileServer(
           function activate(){
             var t=tiles[idx];
             var a=t.querySelector('a.act.active')||t.querySelector('a.act');
-            if(a&&a.getAttribute('href')) location.href=a.getAttribute('href');
+            if(!a) return;
+            // data-focus actions focus an element (e.g. the search box) instead of
+            // navigating — this pops the TV's on-screen keyboard.
+            var fid=a.getAttribute('data-focus');
+            if(fid){
+              var el=document.getElementById(fid);
+              if(el){ el.focus(); if(el.select) el.select(); }
+              return;
+            }
+            if(a.getAttribute('href')) location.href=a.getAttribute('href');
           }
+
+          Array.prototype.slice.call(document.querySelectorAll('a.act[data-focus]'))
+            .forEach(function(a){
+              a.addEventListener('click',function(e){
+                e.preventDefault();
+                var el=document.getElementById(a.getAttribute('data-focus'));
+                if(el) el.focus();
+              });
+            });
 
           tiles.forEach(function(t,i){
             t.setAttribute('tabindex','-1');
