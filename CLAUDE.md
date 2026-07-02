@@ -65,6 +65,8 @@ A second, fully separate server for sharing a user-picked folder over LAN. **Not
 - **Channels**: `MethodChannel('.../file_server')` — `startServer(port,rootUri)`, `stopServer()`, `getLocalIp()`, `pickFolder()` (native SAF `ACTION_OPEN_DOCUMENT_TREE` + `takePersistableUriPermission`), `getSavedFolder()`, `scanLibrary()`, `cancelScan()`, `isScanning()`. `EventChannel('.../file_server_events')` streams scan progress + live request count.
 - **Dart**: `lib/core/services/file_server_service.dart` (wrapper, no-ops off Android) + `lib/ui/screens/file_server_screen.dart` (self-contained state; start/stop, folder pick, port, copyable URL, QR via `qr_flutter`, request counter, scan progress). Entry is an Android-only card on `HomeScreen`.
 - SAF root is a persisted tree URI; library items store full SAF document URIs and are served by DB id via `/media?id=`.
+- **Phone-as-TV-remote**: `/remote/events` is an SSE stream; the app pushes logical keys/search text via `FileServer.pushRemote()` (MethodChannel `sendRemoteKey`/`sendRemoteText`), and pages consume them through the same handlers as D-pad keys (`window.__remoteKey`/`__remoteText`). UI: `lib/ui/screens/file_server_remote_screen.dart`.
+- **NanoHTTPD gzip gotcha**: `HTTPSession.execute()` re-applies the gzip decision AFTER `serve()` returns, so per-response `setGzipEncoding(false)` is silently overwritten — override `useGzipWhenAccepted()` instead. SSE (`text/event-stream`) must never be gzipped: the compressor buffers the tiny events forever and they never reach the client. curl won't reproduce this (it doesn't send `Accept-Encoding: gzip`; browsers do).
 
 ## Key Design Decisions
 
