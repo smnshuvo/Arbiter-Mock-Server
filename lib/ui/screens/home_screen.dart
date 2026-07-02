@@ -344,25 +344,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return port;
   }
 
-  /// Starts a profile inline (card "Run") using its stored settings, picking a
-  /// free port if its preferred one is already taken by another running server.
-  Future<void> _startProfileDirectly(Profile profile, ServerState state) async {
-    final hasPermission = await _checkAndRequestNotificationPermission();
-    if (!hasPermission || !mounted) return;
-    final usedPorts = _runningMap(state).values.map((e) => e.port).toSet();
-    final port = _nextFreePort(profile.port, usedPorts);
-    context.read<ServerBloc>().add(StartProfileEvent(
-          profileId: profile.id,
-          profileName: profile.name,
-          port: port,
-          useDeviceIp: profile.settings.useDeviceIp,
-          passThroughUrl: profile.settings.autoPassThrough
-              ? profile.settings.globalPassThroughUrl
-              : null,
-          autoPassThrough: profile.settings.autoPassThrough,
-        ));
-  }
-
   /// Opens a profile's endpoints. Switches the active profile first so the
   /// endpoints screen (which follows the active profile) shows the right set.
   Future<void> _openProfile(Profile profile) async {
@@ -779,57 +760,71 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       borderRadius: BorderRadius.circular(16),
       onTap: () => _openProfile(profile),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         decoration: BoxDecoration(
           color: cs.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Theme.of(context).dividerColor),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Row(
-              children: [
-                _statusDot(isRunning),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    profile.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.1,
-                    ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _statusDot(isRunning),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          profile.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _typeChip(isFtp),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 8),
-                _typeChip(isFtp),
-                const Spacer(),
-                _runButton(
-                  isRunning,
-                  () => isRunning
-                      ? context.read<ServerBloc>().add(StopProfileEvent(profile.id))
-                      : _startProfileDirectly(profile, state),
-                ),
-              ],
+                  const SizedBox(height: 11),
+                  Text(
+                    urlText,
+                    style: monoTextStyle(fontSize: 12.5, color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _statusChip(isRunning),
+                      if (epCount != null)
+                        _infoChip('$epCount endpoint${epCount == 1 ? '' : 's'}'),
+                      if (isRunning && interceptionOn) _interceptionChip(),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 11),
-            Text(
-              urlText,
-              style: monoTextStyle(fontSize: 12.5, color: cs.onSurfaceVariant),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                _statusChip(isRunning),
-                if (epCount != null)
-                  _infoChip('$epCount endpoint${epCount == 1 ? '' : 's'}'),
-                if (isRunning && interceptionOn) _interceptionChip(),
-              ],
+            const SizedBox(width: 12),
+            _runButton(
+              isRunning,
+              () => isRunning
+                  ? context.read<ServerBloc>().add(StopProfileEvent(profile.id))
+                  : _showStartProfileSheet(
+                      defaultPort: _nextFreePort(
+                        profile.port,
+                        _runningMap(state).values.map((e) => e.port).toSet(),
+                      ),
+                      defaultUseDeviceIp: profile.settings.useDeviceIp,
+                      initialProfileId: profile.id,
+                    ),
             ),
           ],
         ),
@@ -965,7 +960,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _showStartProfileSheet({int defaultPort = 8080, bool defaultUseDeviceIp = false}) async {
+  Future<void> _showStartProfileSheet({
+    int defaultPort = 8080,
+    bool defaultUseDeviceIp = false,
+    String? initialProfileId,
+  }) async {
     var profileState = context.read<ProfileBloc>().state;
     if (profileState is! ProfileLoaded) {
       // Right after launch the profiles are still being read from the DB. Without
@@ -996,7 +995,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         runningProfileIds: runningProfileIds,
         defaultPort: defaultPort,
         defaultUseDeviceIp: defaultUseDeviceIp,
-        onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough) {
+        initialProfileId: initialProfileId,
+        onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough) async {
+          final hasPermission = await _checkAndRequestNotificationPermission();
+          if (!hasPermission || !mounted) return;
           Navigator.pop(ctx);
           // Save pass-through settings back to the profile so the URL persists
           final profile = loaded.profiles.firstWhere((p) => p.id == profileId);
@@ -1060,6 +1062,7 @@ class _StartProfileSheet extends StatefulWidget {
   final Set<String> runningProfileIds;
   final int defaultPort;
   final bool defaultUseDeviceIp;
+  final String? initialProfileId;
   final void Function(String profileId, String profileName, int port, bool useDeviceIp, String? passThroughUrl, bool autoPassThrough) onStart;
   final VoidCallback? onCreateProfile;
 
@@ -1069,6 +1072,7 @@ class _StartProfileSheet extends StatefulWidget {
     this.runningProfileIds = const {},
     this.defaultPort = 8080,
     this.defaultUseDeviceIp = false,
+    this.initialProfileId,
     this.onCreateProfile,
   });
 
@@ -1093,10 +1097,16 @@ class _StartProfileSheetState extends State<_StartProfileSheet> {
     _useDeviceIp = widget.defaultUseDeviceIp;
     final available = _availableProfiles;
     if (available.isNotEmpty) {
-      _selectedProfileId = available.first.id;
-      _autoPassThrough = available.first.settings.autoPassThrough;
+      final initial = widget.initialProfileId != null
+          ? available.firstWhere(
+              (p) => p.id == widget.initialProfileId,
+              orElse: () => available.first,
+            )
+          : available.first;
+      _selectedProfileId = initial.id;
+      _autoPassThrough = initial.settings.autoPassThrough;
       _passThroughUrlController = TextEditingController(
-        text: available.first.settings.globalPassThroughUrl ?? '',
+        text: initial.settings.globalPassThroughUrl ?? '',
       );
     } else {
       _passThroughUrlController = TextEditingController();
