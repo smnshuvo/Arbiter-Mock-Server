@@ -1,5 +1,29 @@
 # Changelog
 
+## Version 3.0.0 (Build 8)
+
+### 🎉 Major Feature: Wi-Fi File Server (Android)
+
+Share a folder from your device over the local network — browse, stream, and manage it from any browser, with a UI built for TV remotes.
+
+**Serving & browsing**
+• Pick any folder (SAF) and serve it over HTTP on a chosen port, kept alive by its own foreground service with QR code and copyable URL in the app
+• Arbiter File Server web UI: branded pages (app icon + favicon), media library grid with thumbnails, resolution/duration badges and search, plus a full file browser for every file type with View/Download actions
+• Fully D-pad navigable from a TV remote — tile navigation, reachable search (opens the TV keyboard), works with both modern and legacy remote key codes
+
+**Video player**
+• Custom remote-friendly player (native controls are unreachable on TVs): play/pause, focusable seek bar with knob, fullscreen, download
+• Netflix-style seeking — arrow presses scrub a preview bubble with real storyboard thumbnails; the video seeks once when you stop, instead of re-buffering per press
+• Sidecar subtitle support (.srt/.vtt next to the video), selectable from a gear menu with on-the-fly SRT→WebVTT conversion
+
+**Access & transfer**
+• Optional login: anonymous by default, or require a username/password (HTTP Basic) — switchable live from the app
+• Opt-in uploads: allow browsers on the network to add files to the shared folder (off by default)
+• Live traffic stats in the app: current speed and total bytes transferred
+• Fast on big folders: single-query directory listings, cached path resolution, and O(1) byte-range seeking for instant streaming
+
+---
+
 ## Version 2.1.1 (Build 7)
 
 • Fixed: Auto Pass-Through now binds to each profile individually — the URL and toggle are configured in the Start Server sheet, pre-filled from the profile's saved settings, and persisted to the database so the URL is remembered across restarts

@@ -180,11 +180,20 @@ class MainActivity : FlutterActivity() {
                     }
                     FileServer.uploadsEnabled =
                         call.argument<Boolean>("uploadsEnabled") ?: false
+                    FileServer.authUser =
+                        call.argument<String>("authUser")?.takeIf { it.isNotBlank() }
+                    FileServer.authPass = call.argument<String>("authPass")
                     FileServerService.startService(this, port, rootUri)
                     result.success(true)
                 }
                 "setUploadsEnabled" -> {
                     FileServer.uploadsEnabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(true)
+                }
+                "setAuth" -> {
+                    FileServer.authUser =
+                        call.argument<String>("user")?.takeIf { it.isNotBlank() }
+                    FileServer.authPass = call.argument<String>("pass")
                     result.success(true)
                 }
                 "getTrafficStats" ->

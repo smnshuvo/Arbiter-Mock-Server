@@ -99,10 +99,15 @@ class FileServerService {
   }
 
   /// Starts the native server on [port] serving [rootUri]. Returns success.
+  ///
+  /// When [authUser] is non-empty the server requires HTTP Basic login with
+  /// [authUser]/[authPass]; otherwise access is anonymous.
   Future<bool> startServer({
     required int port,
     required String rootUri,
     bool uploadsEnabled = false,
+    String? authUser,
+    String? authPass,
   }) async {
     if (!_supported) return false;
     try {
@@ -110,11 +115,24 @@ class FileServerService {
         'port': port,
         'rootUri': rootUri,
         'uploadsEnabled': uploadsEnabled,
+        'authUser': authUser,
+        'authPass': authPass,
       });
       return ok ?? false;
     } on PlatformException catch (e) {
       print('FileServerService.startServer failed: ${e.message}');
       return false;
+    }
+  }
+
+  /// Applies Basic-auth credentials to the (possibly running) server.
+  /// A null/empty [user] switches back to anonymous access.
+  Future<void> setAuth(String? user, String? pass) async {
+    if (!_supported) return;
+    try {
+      await _channel.invokeMethod<void>('setAuth', {'user': user, 'pass': pass});
+    } on PlatformException catch (e) {
+      print('FileServerService.setAuth failed: ${e.message}');
     }
   }
 
