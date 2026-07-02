@@ -205,6 +205,10 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "getRemoteClients" -> result.success(FileServer.remoteClientCount())
+                "hapticTick" -> {
+                    performHapticTick()
+                    result.success(true)
+                }
                 "getTrafficStats" ->
                     result.success(mapOf("totalBytes" to FileServer.totalBytes.get()))
                 "stopServer" -> {
@@ -233,6 +237,38 @@ class MainActivity : FlutterActivity() {
             }
         } catch (e: Exception) {
             result.error("FILE_SERVER_ERROR", e.message, null)
+        }
+    }
+
+    /**
+     * A crisp click vibration for the TV-remote buttons. Uses the Vibrator service
+     * directly — Flutter's HapticFeedback maps to performHapticFeedback(), which many
+     * devices gate behind the system "touch feedback" setting and is barely felt.
+     */
+    private fun performHapticTick() {
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager =
+                    getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager
+                manager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> vibrator.vibrate(
+                    android.os.VibrationEffect.createPredefined(
+                        android.os.VibrationEffect.EFFECT_CLICK,
+                    ),
+                )
+                else -> vibrator.vibrate(
+                    android.os.VibrationEffect.createOneShot(
+                        20, android.os.VibrationEffect.DEFAULT_AMPLITUDE,
+                    ),
+                )
+            }
+        } catch (_: Exception) {
+            // Missing/blocked vibrator: silently skip, feedback is non-essential.
         }
     }
 

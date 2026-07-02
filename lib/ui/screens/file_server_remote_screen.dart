@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/services/file_server_service.dart';
 import '../../core/theme/app_theme_data.dart';
@@ -44,7 +43,7 @@ class _FileServerRemoteScreenState extends State<FileServerRemoteScreen> {
   }
 
   void _sendKey(String key) {
-    HapticFeedback.lightImpact();
+    widget.service.hapticTick();
     widget.service.sendRemoteKey(key);
   }
 
