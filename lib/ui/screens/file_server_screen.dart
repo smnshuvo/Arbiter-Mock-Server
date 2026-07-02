@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/file_server_service.dart';
 import '../../core/theme/app_theme_data.dart';
+import 'file_server_remote_screen.dart';
 
 /// Android-only Wi-Fi file server control screen.
 ///
@@ -41,6 +42,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
   bool _busy = false;
   String? _url;
   int _requestCount = 0;
+  int _remoteClients = 0;
   bool _uploadsEnabled = false;
   bool _authEnabled = false;
 
@@ -161,6 +163,9 @@ class _FileServerScreenState extends State<FileServerScreen> {
         case FileServerEventType.requests:
           _requestCount = event.requestCount;
           break;
+        case FileServerEventType.remote:
+          _remoteClients = event.remoteClients;
+          break;
         case FileServerEventType.scan:
           _scanning = !event.complete;
           _scanDone = event.done;
@@ -194,6 +199,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
       setState(() {
         _running = false;
         _url = null;
+        _remoteClients = 0;
         _busy = false;
       });
       return;
@@ -292,6 +298,8 @@ class _FileServerScreenState extends State<FileServerScreen> {
           if (_running && _url != null) ...[
             const SizedBox(height: 20),
             _urlAndQr(_url!),
+            const SizedBox(height: 16),
+            _remoteCard(),
             const SizedBox(height: 16),
             _requestCounter(),
             const SizedBox(height: 16),
@@ -579,6 +587,46 @@ class _FileServerScreenState extends State<FileServerScreen> {
                 style: monoTextStyle(fontSize: 16, fontWeight: FontWeight.w800),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _remoteCard() {
+    final cs = Theme.of(context).colorScheme;
+    return _card(
+      child: Row(
+        children: [
+          const Icon(Icons.settings_remote_outlined,
+              size: 24, color: AppColors.accent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('TV Remote',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(
+                  _remoteClients > 0
+                      ? '$_remoteClients device${_remoteClients == 1 ? '' : 's'} listening'
+                      : 'Control the web UI open on your TV.',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.tonal(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      FileServerRemoteScreen(service: _service, url: _url),
+                ),
+              );
+            },
+            child: const Text('Open'),
           ),
         ],
       ),
