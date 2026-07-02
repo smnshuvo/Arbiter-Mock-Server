@@ -58,3 +58,12 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Embedded HTTP server for the on-device Wi-Fi file server (native, Android-only)
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    // Storage Access Framework navigation for the user-picked shared folder
+    implementation("androidx.documentfile:documentfile:1.0.1")
+    // Background media scanning (off the main thread, cancellable)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+}

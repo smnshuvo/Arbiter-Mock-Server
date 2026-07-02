@@ -1,4 +1,4 @@
-# CLAUDE.md
+    # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -58,6 +58,13 @@ Pure Dart with no Flutter dependencies.
 
 ### Android foreground service (`lib/core/services/foreground_service.dart`)
 Communicates with native Android code over `MethodChannel('auravation.arbiter.mock_server/foreground_service')`. Keeps the server alive when the app is backgrounded. The `onStopServerRequested` static callback must be set by `HomeScreen` before the server is started. No-ops silently on non-Android platforms.
+
+### Wi-Fi File Server (Android-only, native NanoHTTPD)
+A second, fully separate server for sharing a user-picked folder over LAN. **Not** modelled as a mock `Profile` — it has no endpoints, its own SQLite DB, and its own foreground service. Lives entirely in native Kotlin, bridged to Dart.
+- **Native Kotlin** (`android/app/src/main/kotlin/.../`): `FileServer.kt` (NanoHTTPD; routes `/`, `/library`, `/files/`, `/raw/`, `/media`, `/player`, `/thumb`, with HTTP Range support via `LimitedInputStream`), `FileServerService.kt` (foreground service, own channel `file_server_channel`/id `2001`), `FileTypes.kt` (MIME/icons/formatting), `LibraryDatabase.kt` (SQLite `media_items`, separate `file_server_library.db`), `LibraryScanner.kt` + `Thumbnailer.kt` + `ScanController.kt` (incremental coroutine scan via `MediaMetadataRetriever`, never crashes on bad files), `FileServerEvents.kt` (EventChannel emitter).
+- **Channels**: `MethodChannel('.../file_server')` — `startServer(port,rootUri)`, `stopServer()`, `getLocalIp()`, `pickFolder()` (native SAF `ACTION_OPEN_DOCUMENT_TREE` + `takePersistableUriPermission`), `getSavedFolder()`, `scanLibrary()`, `cancelScan()`, `isScanning()`. `EventChannel('.../file_server_events')` streams scan progress + live request count.
+- **Dart**: `lib/core/services/file_server_service.dart` (wrapper, no-ops off Android) + `lib/ui/screens/file_server_screen.dart` (self-contained state; start/stop, folder pick, port, copyable URL, QR via `qr_flutter`, request counter, scan progress). Entry is an Android-only card on `HomeScreen`.
+- SAF root is a persisted tree URI; library items store full SAF document URIs and are served by DB id via `/media?id=`.
 
 ## Key Design Decisions
 

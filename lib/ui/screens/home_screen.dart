@@ -1,4 +1,5 @@
 import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
+import 'package:arbiter_mock_server/core/services/file_server_service.dart';
 import 'package:arbiter_mock_server/core/services/foreground_service.dart';
 import 'package:arbiter_mock_server/core/services/overlay_service.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +21,7 @@ import '../dialog/interception_dialog.dart';
 import '../widgets/glowing_icon_widget.dart';
 import '../widgets/grey_out_icon_widget.dart';
 import 'endpoint_screen.dart';
+import 'file_server_screen.dart';
 import 'logs_screen.dart';
 import 'settings_screen.dart';
 
@@ -473,11 +475,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     )),
                 _buildNewServerButton(state),
+                if (FileServerService.isSupported) ...[
+                  const SizedBox(height: 12),
+                  _buildFileServerEntry(),
+                ],
               ],
             ],
           ),
         );
       },
+    );
+  }
+
+  /// Android-only entry to the Wi-Fi file server — a distinct server type that is
+  /// deliberately not modelled as a mock [Profile].
+  Widget _buildFileServerEntry() {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const FileServerScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: cs.surface,
+          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.wifi_tethering, color: AppColors.info, size: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Wi-Fi File Server',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Share a folder over your local network',
+                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+          ],
+        ),
+      ),
     );
   }
 

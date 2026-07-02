@@ -1,5 +1,6 @@
 package auravation.arbiter.mock_server
 
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,18 +9,31 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "auravation.arbiter.mock_server/foreground_service"
     private val OVERLAY_CHANNEL = "auravation.arbiter.mock_server/overlay"
+    private val FILE_SERVER_CHANNEL = "auravation.arbiter.mock_server/file_server"
+    private val FILE_SERVER_EVENTS = "auravation.arbiter.mock_server/file_server_events"
     private var methodChannel: MethodChannel? = null
     private var overlayChannel: MethodChannel? = null
+    private var fileServerChannel: MethodChannel? = null
+    private var fileServerEvents: EventChannel? = null
     private var stopServerReceiver: BroadcastReceiver? = null
     private var isReceiverRegistered = false
+    private var pendingFolderResult: MethodChannel.Result? = null
+
+    companion object {
+        private const val REQUEST_PICK_FOLDER = 4201
+        private const val FILE_SERVER_PREFS = "file_server_prefs"
+        private const val KEY_ROOT_URI = "root_uri"
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -27,6 +41,25 @@ class MainActivity : FlutterActivity() {
         overlayChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL)
         overlayChannel?.setMethodCallHandler { call, result -> handleOverlay(call, result) }
         OverlayController.attachChannel(overlayChannel)
+
+        fileServerChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FILE_SERVER_CHANNEL)
+        fileServerChannel?.setMethodCallHandler { call, result -> handleFileServer(call, result) }
+
+        // Native → Dart stream for scan progress + live request counter.
+        fileServerEvents = EventChannel(flutterEngine.dartExecutor.binaryMessenger, FILE_SERVER_EVENTS)
+        fileServerEvents?.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                FileServerEvents.attach(events)
+                ScanController.progressListener = { done, total, complete ->
+                    FileServerEvents.scanProgress(done, total, complete)
+                }
+            }
+
+            override fun onCancel(arguments: Any?) {
+                ScanController.progressListener = null
+                FileServerEvents.detach()
+            }
+        })
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
@@ -131,6 +164,115 @@ class MainActivity : FlutterActivity() {
             }
         } catch (e: Exception) {
             result.error("OVERLAY_ERROR", e.message, null)
+        }
+    }
+
+    /** File-server channel: Dart drives the native NanoHTTPD Wi-Fi file server. */
+    private fun handleFileServer(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            when (call.method) {
+                "startServer" -> {
+                    val port = call.argument<Int>("port") ?: 8080
+                    val rootUri = call.argument<String>("rootUri")
+                    if (rootUri.isNullOrEmpty()) {
+                        result.error("NO_ROOT_URI", "A shared folder must be picked first", null)
+                        return
+                    }
+                    FileServerService.startService(this, port, rootUri)
+                    result.success(true)
+                }
+                "stopServer" -> {
+                    FileServerService.stopService(this)
+                    result.success(true)
+                }
+                "getLocalIp" -> result.success(FileServerService.getLocalIpAddress())
+                "pickFolder" -> pickSharedFolder(result)
+                "getSavedFolder" -> result.success(savedFolder())
+                "scanLibrary" -> {
+                    val uriString = call.argument<String>("rootUri")
+                        ?: savedFolder()?.get("uri")
+                    if (uriString.isNullOrEmpty()) {
+                        result.error("NO_ROOT_URI", "No shared folder to scan", null)
+                    } else {
+                        ScanController.start(applicationContext, Uri.parse(uriString))
+                        result.success(true)
+                    }
+                }
+                "cancelScan" -> {
+                    ScanController.cancel()
+                    result.success(true)
+                }
+                "isScanning" -> result.success(ScanController.isScanning())
+                else -> result.notImplemented()
+            }
+        } catch (e: Exception) {
+            result.error("FILE_SERVER_ERROR", e.message, null)
+        }
+    }
+
+    /**
+     * Launches the SAF folder picker. The result is delivered asynchronously in
+     * [onActivityResult], which is why [pendingFolderResult] is held until then.
+     */
+    private fun pickSharedFolder(result: MethodChannel.Result) {
+        if (pendingFolderResult != null) {
+            result.error("PICKER_BUSY", "A folder picker is already open", null)
+            return
+        }
+        pendingFolderResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+            )
+        }
+        try {
+            startActivityForResult(intent, REQUEST_PICK_FOLDER)
+        } catch (e: Exception) {
+            pendingFolderResult = null
+            result.error("PICKER_ERROR", e.message, null)
+        }
+    }
+
+    /** Returns the persisted shared folder as {uri, name}, or null if none/lost. */
+    private fun savedFolder(): Map<String, String>? {
+        val prefs = getSharedPreferences(FILE_SERVER_PREFS, Context.MODE_PRIVATE)
+        val uriString = prefs.getString(KEY_ROOT_URI, null) ?: return null
+        val uri = Uri.parse(uriString)
+        // Confirm the persisted permission still holds (it can be revoked/lost on reboot).
+        val stillGranted = contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission
+        }
+        if (!stillGranted) return null
+        val name = DocumentFile.fromTreeUri(this, uri)?.name ?: "Shared folder"
+        return mapOf("uri" to uriString, "name" to name)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_PICK_FOLDER) return
+        val result = pendingFolderResult
+        pendingFolderResult = null
+        if (result == null) return
+
+        val treeUri = data?.data
+        if (resultCode != Activity.RESULT_OK || treeUri == null) {
+            result.success(null) // user cancelled
+            return
+        }
+        try {
+            // MANDATORY: persist the grant or access breaks after a reboot.
+            contentResolver.takePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+            getSharedPreferences(FILE_SERVER_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_ROOT_URI, treeUri.toString())
+                .apply()
+            val name = DocumentFile.fromTreeUri(this, treeUri)?.name ?: "Shared folder"
+            result.success(mapOf("uri" to treeUri.toString(), "name" to name))
+        } catch (e: Exception) {
+            result.error("PERSIST_ERROR", e.message, null)
         }
     }
 
