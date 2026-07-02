@@ -178,9 +178,17 @@ class MainActivity : FlutterActivity() {
                         result.error("NO_ROOT_URI", "A shared folder must be picked first", null)
                         return
                     }
+                    FileServer.uploadsEnabled =
+                        call.argument<Boolean>("uploadsEnabled") ?: false
                     FileServerService.startService(this, port, rootUri)
                     result.success(true)
                 }
+                "setUploadsEnabled" -> {
+                    FileServer.uploadsEnabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(true)
+                }
+                "getTrafficStats" ->
+                    result.success(mapOf("totalBytes" to FileServer.totalBytes.get()))
                 "stopServer" -> {
                     FileServerService.stopService(this)
                     result.success(true)
@@ -223,6 +231,8 @@ class MainActivity : FlutterActivity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    // Write is needed for browser uploads into the shared folder.
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                     Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
             )
         }
@@ -261,10 +271,13 @@ class MainActivity : FlutterActivity() {
             return
         }
         try {
-            // MANDATORY: persist the grant or access breaks after a reboot.
+            // MANDATORY: persist the grant or access breaks after a reboot. Write is
+            // included so browser uploads can create files; folders picked before this
+            // change hold a read-only grant until re-picked.
             contentResolver.takePersistableUriPermission(
                 treeUri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
             getSharedPreferences(FILE_SERVER_PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_ROOT_URI, treeUri.toString())

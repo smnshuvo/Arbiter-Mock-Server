@@ -22,18 +22,24 @@ class FileServerScreen extends StatefulWidget {
 
 class _FileServerScreenState extends State<FileServerScreen> {
   static const _portPrefKey = 'file_server_port';
+  static const _uploadsPrefKey = 'file_server_uploads';
 
   final FileServerService _service = FileServerService();
   final TextEditingController _portController =
       TextEditingController(text: '8080');
 
   StreamSubscription<FileServerEvent>? _eventsSub;
+  Timer? _statsTimer;
 
   SharedFolder? _folder;
   bool _running = false;
   bool _busy = false;
   String? _url;
   int _requestCount = 0;
+  bool _uploadsEnabled = false;
+
+  int _totalBytes = 0;
+  int _speedBps = 0;
 
   bool _scanning = false;
   int _scanDone = 0;
@@ -49,6 +55,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
   @override
   void dispose() {
     _eventsSub?.cancel();
+    _statsTimer?.cancel();
     _portController.dispose();
     super.dispose();
   }
@@ -56,14 +63,57 @@ class _FileServerScreenState extends State<FileServerScreen> {
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
     final savedPort = prefs.getInt(_portPrefKey);
+    final uploads = prefs.getBool(_uploadsPrefKey) ?? false;
     final folder = await _service.getSavedFolder();
     final scanning = await _service.isScanning();
     if (!mounted) return;
     setState(() {
       if (savedPort != null) _portController.text = savedPort.toString();
+      _uploadsEnabled = uploads;
       _folder = folder;
       _scanning = scanning;
     });
+  }
+
+  Future<void> _setUploadsEnabled(bool enabled) async {
+    setState(() => _uploadsEnabled = enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_uploadsPrefKey, enabled);
+    // Takes effect immediately on an already-running server.
+    if (_running) await _service.setUploadsEnabled(enabled);
+  }
+
+  void _startStatsPolling() {
+    _statsTimer?.cancel();
+    _statsTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _pollStats());
+  }
+
+  void _stopStatsPolling() {
+    _statsTimer?.cancel();
+    _statsTimer = null;
+  }
+
+  Future<void> _pollStats() async {
+    final total = await _service.getTotalBytes();
+    if (!mounted) return;
+    setState(() {
+      // 1s poll interval, so the delta is bytes/second.
+      _speedBps = (total - _totalBytes).clamp(0, 1 << 62);
+      _totalBytes = total;
+    });
+  }
+
+  static String _fmtBytes(num bytes) {
+    if (bytes < 1024) return '${bytes.toStringAsFixed(0)} B';
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    var value = bytes / 1024;
+    var i = 0;
+    while (value >= 1024 && i < units.length - 1) {
+      value /= 1024;
+      i++;
+    }
+    return '${value.toStringAsFixed(1)} ${units[i]}';
   }
 
   void _onEvent(FileServerEvent event) {
@@ -101,6 +151,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
     if (_running) {
       setState(() => _busy = true);
       await _service.stopServer();
+      _stopStatsPolling();
       if (!mounted) return;
       setState(() {
         _running = false;
@@ -117,15 +168,22 @@ class _FileServerScreenState extends State<FileServerScreen> {
     }
     setState(() => _busy = true);
     await _persistPort();
-    final ok = await _service.startServer(port: _port, rootUri: folder.uri);
+    final ok = await _service.startServer(
+      port: _port,
+      rootUri: folder.uri,
+      uploadsEnabled: _uploadsEnabled,
+    );
     final ip = ok ? await _service.getLocalIp() : null;
     if (!mounted) return;
     setState(() {
       _running = ok;
       _url = (ok && ip != null) ? 'http://$ip:$_port' : null;
       _requestCount = 0;
+      _totalBytes = 0;
+      _speedBps = 0;
       _busy = false;
     });
+    if (ok) _startStatsPolling();
     if (!ok) _snack('Failed to start the server');
     if (ok && ip == null) _snack('Server started, but no Wi-Fi address found');
   }
@@ -180,12 +238,16 @@ class _FileServerScreenState extends State<FileServerScreen> {
           const SizedBox(height: 16),
           _portField(),
           const SizedBox(height: 16),
+          _uploadsToggle(),
+          const SizedBox(height: 16),
           _startStopButton(),
           if (_running && _url != null) ...[
             const SizedBox(height: 20),
             _urlAndQr(_url!),
             const SizedBox(height: 16),
             _requestCounter(),
+            const SizedBox(height: 16),
+            _trafficCard(),
           ],
           const SizedBox(height: 24),
           _scanSection(),
@@ -347,6 +409,69 @@ class _FileServerScreenState extends State<FileServerScreen> {
               fontSize: 12,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _uploadsToggle() {
+    final cs = Theme.of(context).colorScheme;
+    return _card(
+      child: Row(
+        children: [
+          const Icon(Icons.upload_file_outlined, size: 24, color: AppColors.accent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Allow uploads',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(
+                  'Browsers on the network can add files to the shared folder.',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: _uploadsEnabled, onChanged: _setUploadsEnabled),
+        ],
+      ),
+    );
+  }
+
+  Widget _trafficCard() {
+    return _card(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.speed, size: 22, color: AppColors.accent),
+              const SizedBox(width: 12),
+              const Text('Current speed',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const Spacer(),
+              Text(
+                '${_fmtBytes(_speedBps)}/s',
+                style: monoTextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.data_usage, size: 22, color: AppColors.accent),
+              const SizedBox(width: 12),
+              const Text('Total transferred',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const Spacer(),
+              Text(
+                _fmtBytes(_totalBytes),
+                style: monoTextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              ),
+            ],
           ),
         ],
       ),

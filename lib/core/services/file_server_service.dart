@@ -99,17 +99,45 @@ class FileServerService {
   }
 
   /// Starts the native server on [port] serving [rootUri]. Returns success.
-  Future<bool> startServer({required int port, required String rootUri}) async {
+  Future<bool> startServer({
+    required int port,
+    required String rootUri,
+    bool uploadsEnabled = false,
+  }) async {
     if (!_supported) return false;
     try {
       final ok = await _channel.invokeMethod<bool>('startServer', {
         'port': port,
         'rootUri': rootUri,
+        'uploadsEnabled': uploadsEnabled,
       });
       return ok ?? false;
     } on PlatformException catch (e) {
       print('FileServerService.startServer failed: ${e.message}');
       return false;
+    }
+  }
+
+  /// Enables/disables browser uploads on the (possibly running) server.
+  Future<void> setUploadsEnabled(bool enabled) async {
+    if (!_supported) return;
+    try {
+      await _channel.invokeMethod<void>('setUploadsEnabled', {'enabled': enabled});
+    } on PlatformException catch (e) {
+      print('FileServerService.setUploadsEnabled failed: ${e.message}');
+    }
+  }
+
+  /// Total bytes moved (served + uploaded) since the server last started.
+  Future<int> getTotalBytes() async {
+    if (!_supported) return 0;
+    try {
+      final result =
+          await _channel.invokeMethod<Map<dynamic, dynamic>>('getTrafficStats');
+      return (result?['totalBytes'] as int?) ?? 0;
+    } on PlatformException catch (e) {
+      print('FileServerService.getTotalBytes failed: ${e.message}');
+      return 0;
     }
   }
 
