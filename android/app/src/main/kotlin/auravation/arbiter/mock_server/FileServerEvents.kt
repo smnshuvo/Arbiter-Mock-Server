@@ -41,6 +41,11 @@ object FileServerEvents {
         send(mapOf("type" to "requests", "count" to count))
     }
 
+    /** Number of browsers currently subscribed to the remote-control stream. */
+    fun remoteClients(count: Int) {
+        send(mapOf("type" to "remote", "count" to count))
+    }
+
     private fun send(payload: Map<String, Any?>) {
         val current = sink ?: return
         main.post {

@@ -141,6 +141,88 @@ class FileServer(
 
         @Volatile
         var authPass: String? = null
+
+        /** Browsers currently subscribed to /remote/events (usually the one TV). */
+        private val remoteClients = java.util.concurrent.CopyOnWriteArrayList<RemoteStream>()
+
+        /** Broadcasts a remote-control message (a logical key, or "text:…") to all clients. */
+        fun pushRemote(message: String) {
+            if (message.isBlank()) return
+            val payload = "data: $message\n\n".toByteArray(Charsets.UTF_8)
+            for (client in remoteClients) client.offer(payload)
+        }
+
+        fun remoteClientCount(): Int = remoteClients.size
+    }
+
+    /**
+     * One Server-Sent-Events subscriber. NanoHTTPD streams a response by reading from an
+     * InputStream, so this blocks its worker thread on a queue until a message (or a 15s
+     * keep-alive, which also flushes out dead sockets) is available. Closing — client
+     * disconnect or server stop — unregisters it.
+     */
+    private class RemoteStream : InputStream() {
+        private val queue = java.util.concurrent.LinkedBlockingQueue<ByteArray>()
+
+        @Volatile
+        private var closed = false
+        private var current: ByteArray? = null
+        private var pos = 0
+
+        fun offer(bytes: ByteArray) {
+            if (!closed) queue.offer(bytes)
+        }
+
+        override fun read(): Int {
+            val one = ByteArray(1)
+            val n = read(one, 0, 1)
+            return if (n <= 0) -1 else one[0].toInt() and 0xff
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (closed) return -1
+            var chunk = current
+            if (chunk == null || pos >= chunk.size) {
+                chunk = try {
+                    queue.poll(15, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (e: InterruptedException) {
+                    null
+                } ?: ": keepalive\n\n".toByteArray(Charsets.UTF_8)
+                if (closed) return -1
+                current = chunk
+                pos = 0
+            }
+            val n = minOf(len, chunk.size - pos)
+            System.arraycopy(chunk, pos, b, off, n)
+            pos += n
+            return n
+        }
+
+        override fun close() {
+            closed = true
+            remoteClients.remove(this)
+            FileServerEvents.remoteClients(remoteClients.size)
+        }
+    }
+
+    /**
+     * NanoHTTPD gzips text-based responses, and HTTPSession.execute() re-applies that
+     * decision AFTER serve() returns — overwriting any per-response setGzipEncoding().
+     * Overriding this hook is the only reliable way to keep the SSE remote-control
+     * stream uncompressed; a gzip compressor buffers the tiny events forever.
+     */
+    override fun useGzipWhenAccepted(r: Response?): Boolean =
+        r?.mimeType?.startsWith("text/event-stream") != true && super.useGzipWhenAccepted(r)
+
+    override fun stop() {
+        // Wake and drop any held-open remote subscribers before tearing sockets down.
+        for (client in remoteClients.toList()) {
+            try {
+                client.close()
+            } catch (_: Exception) {
+            }
+        }
+        super.stop()
     }
 
     /** Wraps served streams so every byte read lands in [totalBytes]. */
@@ -288,6 +370,7 @@ class FileServer(
             uri == "/thumb" -> serveThumb(session)
             uri == "/storyboard" -> serveStoryboard(session)
             uri == "/icon.png" -> serveIcon()
+            uri == "/remote/events" -> remoteEvents()
             uri == "/subs" -> serveSubtitle(session)
             else -> text(Response.Status.NOT_FOUND, "Not found")
         }
@@ -375,6 +458,7 @@ class FileServer(
         sb.append("</div>") // .wrap
         sb.append(tvStyles())
         sb.append(tvNavScript())
+        sb.append(remoteScript())
         sb.append("</body></html>")
         return html(sb.toString())
     }
@@ -499,11 +583,14 @@ class FileServer(
                     e.preventDefault(); e.stopPropagation(); q.blur();
                   }
                 });
+                // Text typed on the phone remote lands in the search box.
+                window.__remoteText=function(t){ q.value=t; filterCards(); };
               })();
             </script>
             """.trimIndent(),
         )
         sb.append(tvNavScript())
+        sb.append(remoteScript())
         sb.append("</body></html>")
         return html(sb.toString())
     }
@@ -634,6 +721,7 @@ class FileServer(
         sb.append(playerStyles())
         sb.append("<script>var SB=$sbConfig;</script>")
         sb.append(playerScript())
+        sb.append(remoteScript())
         sb.append("</body></html>")
         return html(sb.toString())
     }
@@ -913,31 +1001,40 @@ class FileServer(
             return '';
           }
 
-          document.addEventListener('keydown',function(e){
+          // One logical-key handler shared by the DOM listener and the phone remote.
+          // seekback/seekfwd come only from the remote's media buttons and seek
+          // regardless of which control is focused.
+          function handleKey(k){
             if(menuOpen){
-              var mh=true;
-              switch(keyOf(e)){
+              switch(k){
                 case 'up': focusMenu(mi-1); break;
                 case 'down': focusMenu(mi+1); break;
                 case 'ok': pickMenu(); break;
                 case 'back': case 'left': case 'right': closeMenu(); break;
-                default: mh=false;
+                default: return false;
               }
-              if(mh){ showControls(); e.preventDefault(); }
-              return;
+              showControls();
+              return true;
             }
-            var handled=true;
-            switch(keyOf(e)){
+            switch(k){
               case 'left': if(onSeek()) seekBy(-10); else focus(ci-1); break;
               case 'right': if(onSeek()) seekBy(10); else focus(ci+1); break;
               case 'up': focus(ci-1); break;
               case 'down': focus(ci+1); break;
               case 'ok': activate(); break;
               case 'playpause': toggle(); break;
+              case 'seekback': seekBy(-10); break;
+              case 'seekfwd': seekBy(10); break;
               case 'back': history.back(); break;
-              default: handled=false;
+              default: return false;
             }
-            if(handled){ showControls(); e.preventDefault(); }
+            showControls();
+            return true;
+          }
+          window.__remoteKey=handleKey;
+
+          document.addEventListener('keydown',function(e){
+            if(handleKey(keyOf(e))) e.preventDefault();
           });
 
           focus(1); showControls();
@@ -1084,6 +1181,23 @@ class FileServer(
         } catch (e: Exception) {
             text(Response.Status.NOT_FOUND, "No subtitles")
         }
+    }
+
+    /**
+     * GET /remote/events — Server-Sent Events stream carrying remote-control input from
+     * the app (the phone acts as a D-pad for the browser showing this page).
+     */
+    private fun remoteEvents(): Response {
+        val stream = RemoteStream()
+        stream.offer(": connected\nretry: 3000\n\n".toByteArray(Charsets.UTF_8))
+        remoteClients.add(stream)
+        FileServerEvents.remoteClients(remoteClients.size)
+        val res = newChunkedResponse(Response.Status.OK, "text/event-stream", stream)
+        res.addHeader("Cache-Control", "no-cache")
+        // NanoHTTPD auto-gzips text/* responses when the browser accepts gzip; the
+        // compressor buffers small SSE events indefinitely, so they'd never arrive.
+        res.setGzipEncoding(false)
+        return res
     }
 
     /** GET /icon.png — the app's launcher icon (brand header + favicon). */
@@ -1492,23 +1606,56 @@ class FileServer(
             return '';
           }
 
+          // One logical-key handler shared by the DOM listener and the phone remote.
+          function handleKey(k){
+            switch(k){
+              case 'right': focus(idx+1); return true;
+              case 'left': focus(idx-1); return true;
+              case 'up': setActive(tiles[idx],'view'); return true;
+              case 'down': setActive(tiles[idx],'dl'); return true;
+              case 'ok': activate(); return true;
+              case 'back':
+                var up=grid.getAttribute('data-up-href');
+                if(up){location.href=up; return true;}
+                return false;
+            }
+            return false;
+          }
+          window.__remoteKey=handleKey;
+
           document.addEventListener('keydown',function(e){
             var tag=(e.target||{}).tagName;
             if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
-            switch(keyOf(e)){
-              case 'right': focus(idx+1); e.preventDefault(); break;
-              case 'left': focus(idx-1); e.preventDefault(); break;
-              case 'up': setActive(tiles[idx],'view'); e.preventDefault(); break;
-              case 'down': setActive(tiles[idx],'dl'); e.preventDefault(); break;
-              case 'ok': activate(); e.preventDefault(); break;
-              case 'back':
-                var up=grid.getAttribute('data-up-href');
-                if(up){location.href=up; e.preventDefault();}
-                break;
-            }
+            if(handleKey(keyOf(e))) e.preventDefault();
           });
 
           focus(initialIndex());
+        })();
+        </script>
+    """.trimIndent()
+
+    /**
+     * Subscribes the page to /remote/events so the app's remote panel can drive it.
+     * Messages are logical keys fed to the page's own handler (window.__remoteKey) or
+     * "text:…" search input (window.__remoteText). Reconnects after drops.
+     */
+    private fun remoteScript(): String = """
+        <script>
+        (function(){
+          if(!window.EventSource) return;
+          function connect(){
+            var es=new EventSource('/remote/events');
+            es.onmessage=function(ev){
+              var d=ev.data||'';
+              if(d.indexOf('text:')===0){
+                if(window.__remoteText) window.__remoteText(d.substring(5));
+                return;
+              }
+              if(window.__remoteKey) window.__remoteKey(d);
+            };
+            es.onerror=function(){ es.close(); setTimeout(connect,3000); };
+          }
+          connect();
         })();
         </script>
     """.trimIndent()

@@ -9,29 +9,40 @@ class SharedFolder {
   final String name;
 }
 
-/// An event pushed from the native file server (scan progress or request count).
+/// An event pushed from the native file server (scan progress, request count,
+/// or connected remote-control clients).
 class FileServerEvent {
   const FileServerEvent.scan({
     required this.done,
     required this.total,
     required this.complete,
   })  : type = FileServerEventType.scan,
-        requestCount = 0;
+        requestCount = 0,
+        remoteClients = 0;
 
   const FileServerEvent.requests(this.requestCount)
       : type = FileServerEventType.requests,
         done = 0,
         total = 0,
-        complete = false;
+        complete = false,
+        remoteClients = 0;
+
+  const FileServerEvent.remote(this.remoteClients)
+      : type = FileServerEventType.remote,
+        done = 0,
+        total = 0,
+        complete = false,
+        requestCount = 0;
 
   final FileServerEventType type;
   final int done;
   final int total;
   final bool complete;
   final int requestCount;
+  final int remoteClients;
 }
 
-enum FileServerEventType { scan, requests }
+enum FileServerEventType { scan, requests, remote }
 
 /// Dart bridge to the native NanoHTTPD Wi-Fi file server (Android only).
 ///
@@ -60,6 +71,9 @@ class FileServerService {
           total: (map['total'] as int?) ?? 0,
           complete: (map['complete'] as bool?) ?? false,
         );
+      }
+      if (map['type'] == 'remote') {
+        return FileServerEvent.remote((map['count'] as int?) ?? 0);
       }
       return FileServerEvent.requests((map['count'] as int?) ?? 0);
     });
@@ -133,6 +147,38 @@ class FileServerService {
       await _channel.invokeMethod<void>('setAuth', {'user': user, 'pass': pass});
     } on PlatformException catch (e) {
       print('FileServerService.setAuth failed: ${e.message}');
+    }
+  }
+
+  /// Sends a logical remote-control key ('up', 'down', 'left', 'right', 'ok',
+  /// 'back', 'playpause', 'seekback', 'seekfwd') to connected browsers.
+  Future<void> sendRemoteKey(String key) async {
+    if (!_supported) return;
+    try {
+      await _channel.invokeMethod<void>('sendRemoteKey', {'key': key});
+    } on PlatformException catch (e) {
+      print('FileServerService.sendRemoteKey failed: ${e.message}');
+    }
+  }
+
+  /// Sends search text to connected browsers (lands in the library search box).
+  Future<void> sendRemoteText(String text) async {
+    if (!_supported) return;
+    try {
+      await _channel.invokeMethod<void>('sendRemoteText', {'text': text});
+    } on PlatformException catch (e) {
+      print('FileServerService.sendRemoteText failed: ${e.message}');
+    }
+  }
+
+  /// Number of browsers currently listening for remote-control input.
+  Future<int> getRemoteClients() async {
+    if (!_supported) return 0;
+    try {
+      return await _channel.invokeMethod<int>('getRemoteClients') ?? 0;
+    } on PlatformException catch (e) {
+      print('FileServerService.getRemoteClients failed: ${e.message}');
+      return 0;
     }
   }
 

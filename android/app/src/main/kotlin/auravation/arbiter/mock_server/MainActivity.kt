@@ -196,6 +196,15 @@ class MainActivity : FlutterActivity() {
                     FileServer.authPass = call.argument<String>("pass")
                     result.success(true)
                 }
+                "sendRemoteKey" -> {
+                    FileServer.pushRemote(call.argument<String>("key") ?: "")
+                    result.success(true)
+                }
+                "sendRemoteText" -> {
+                    FileServer.pushRemote("text:" + (call.argument<String>("text") ?: ""))
+                    result.success(true)
+                }
+                "getRemoteClients" -> result.success(FileServer.remoteClientCount())
                 "getTrafficStats" ->
                     result.success(mapOf("totalBytes" to FileServer.totalBytes.get()))
                 "stopServer" -> {
