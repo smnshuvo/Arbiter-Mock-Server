@@ -131,6 +131,11 @@ class FileServer(
          */
         val totalBytes = java.util.concurrent.atomic.AtomicLong(0)
 
+        /** In-flight file/media streams; the remux worker yields while this is > 0. */
+        private val activeStreams = java.util.concurrent.atomic.AtomicInteger(0)
+
+        fun activeStreamCount(): Int = activeStreams.get()
+
         /**
          * Optional HTTP Basic credentials from the app's "Require login" switch.
          * Null/blank user = anonymous access (the default). Volatile so flips apply to
@@ -225,8 +230,22 @@ class FileServer(
         super.stop()
     }
 
-    /** Wraps served streams so every byte read lands in [totalBytes]. */
-    private class CountingInputStream(delegate: InputStream) : FilterInputStream(delegate) {
+    /**
+     * Wraps served streams so every byte read lands in [totalBytes]. [tracked] streams
+     * (the big file/media responses) additionally count into [activeStreams] between
+     * creation and close, so the remux worker knows when serving is busy.
+     */
+    private class CountingInputStream(
+        delegate: InputStream,
+        private val tracked: Boolean = false,
+    ) : FilterInputStream(delegate) {
+
+        private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        init {
+            if (tracked) activeStreams.incrementAndGet()
+        }
+
         override fun read(): Int {
             val b = super.read()
             if (b >= 0) totalBytes.incrementAndGet()
@@ -237,6 +256,13 @@ class FileServer(
             val n = super.read(b, off, len)
             if (n > 0) totalBytes.addAndGet(n.toLong())
             return n
+        }
+
+        override fun close() {
+            if (tracked && closed.compareAndSet(false, true)) {
+                activeStreams.decrementAndGet()
+            }
+            super.close()
         }
     }
 
@@ -1488,7 +1514,7 @@ class FileServer(
             val contentLength = end - start + 1
             val input = openStreamAt(fileUri, start)
                 ?: return text(Response.Status.INTERNAL_ERROR, "Cannot open file")
-            val limited = CountingInputStream(LimitedInputStream(input, contentLength))
+            val limited = CountingInputStream(LimitedInputStream(input, contentLength), tracked = true)
             val res = newFixedLengthResponse(
                 Response.Status.PARTIAL_CONTENT, mime, limited, contentLength,
             )
@@ -1500,7 +1526,7 @@ class FileServer(
 
         // Full response.
         val input = context.contentResolver.openInputStream(fileUri)
-            ?.let { CountingInputStream(it) }
+            ?.let { CountingInputStream(it, tracked = true) }
             ?: return text(Response.Status.INTERNAL_ERROR, "Cannot open file")
         val res = if (totalLength >= 0) {
             newFixedLengthResponse(Response.Status.OK, mime, input, totalLength)

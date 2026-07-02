@@ -34,10 +34,14 @@ object RemuxController {
     private fun cacheDir(context: Context): File =
         File(context.cacheDir, "remux").apply { if (!exists()) mkdirs() }
 
-    /** Deterministic output path; mtime in the name invalidates stale conversions. */
+    /**
+     * Deterministic output path; mtime in the name invalidates stale conversions and
+     * the _v2 suffix invalidates everything converted before the audio-sync fix
+     * (pre-v2 files have progressively drifting audio baked in).
+     */
     fun outputFor(context: Context, item: MediaItem): File = File(
         cacheDir(context),
-        "${item.filePath.hashCode().toUInt()}_${item.lastModified}.mp4",
+        "${item.filePath.hashCode().toUInt()}_${item.lastModified}_v2.mp4",
     )
 
     fun status(context: Context, item: MediaItem): Status {
@@ -46,8 +50,16 @@ object RemuxController {
         return if (out.exists() && out.length() > 0) Status("ready", 100) else Status("none", 0)
     }
 
+    /** Deletes conversions from before the current cache scheme. */
+    private fun purgeLegacy(context: Context) {
+        cacheDir(context).listFiles()?.forEach { f ->
+            if (f.name.endsWith(".mp4") && !f.name.endsWith("_v2.mp4")) f.delete()
+        }
+    }
+
     /** Kicks a remux for [item]; a no-op when already converted or in progress. */
     fun start(context: Context, item: MediaItem) {
+        purgeLegacy(context)
         val out = outputFor(context, item)
         if (out.exists() && out.length() > 0) return
         if (statuses[item.id]?.state == "working") return
