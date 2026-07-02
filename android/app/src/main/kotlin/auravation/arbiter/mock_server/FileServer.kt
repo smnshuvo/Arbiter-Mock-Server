@@ -371,6 +371,9 @@ class FileServer(
             uri == "/storyboard" -> serveStoryboard(session)
             uri == "/icon.png" -> serveIcon()
             uri == "/remote/events" -> remoteEvents()
+            uri == "/remux/start" -> remuxStart(session)
+            uri == "/remux/status" -> remuxStatus(session)
+            uri == "/remux" -> serveRemux(session)
             uri == "/subs" -> serveSubtitle(session)
             else -> text(Response.Status.NOT_FOUND, "Not found")
         }
@@ -683,10 +686,18 @@ class FileServer(
             "<track kind='subtitles' label='${escape(label)}' srclang='$lang' src='$subSrc'>"
         }.joinToString("")
 
+        // Convertible containers (MKV/TS/MOV/3GP): browsers reject the declared type via
+        // canPlayType() without reading a single byte, yet many can demux these with
+        // compatible codecs when allowed to sniff — omit the type and let them try; if
+        // playback still errors, the remux fallback below converts to MP4.
+        val convertible = mime.contains("matroska") || mime == "video/mp2t" ||
+            mime == "video/quicktime" || mime.contains("3gpp")
+        val typeAttr = if (convertible) "" else " type='${escape(mime)}'"
+
         // Native controls are omitted on purpose — TV browsers don't expose them to a
         // D-pad remote. Custom, focusable controls are driven by the script below.
         val mediaEl = if (isVideo) {
-            "<video id='media' autoplay playsinline><source src='$srcAttr' type='${escape(mime)}'>" +
+            "<video id='media' autoplay playsinline><source src='$srcAttr'$typeAttr>" +
                 "${trackTags}Your browser cannot play this video.</video>"
         } else {
             "<audio id='media' autoplay><source src='$srcAttr' type='${escape(mime)}'>" +
@@ -716,10 +727,14 @@ class FileServer(
         sb.append("</div>")
         sb.append("<div class='pmenu hidden' id='pmenu'></div>")
         sb.append("<div class='ptoast hidden' id='ptoast'></div>")
+        sb.append("<div class='perr hidden' id='perr'></div>")
         sb.append("<div class='ptitle' id='ptitle'>${escape(name)}</div>")
         sb.append("</div>")
+        // Remux fallback config for convertible-container library items.
+        val remuxConfig = item?.let { "{id:${it.id},conv:$convertible}" } ?: "null"
+
         sb.append(playerStyles())
-        sb.append("<script>var SB=$sbConfig;</script>")
+        sb.append("<script>var SB=$sbConfig;var REMUX=$remuxConfig;</script>")
         sb.append(playerScript())
         sb.append(remoteScript())
         sb.append("</body></html>")
@@ -778,6 +793,11 @@ class FileServer(
                 background:rgba(0,0,0,.75);color:#fff;padding:6px 16px;border-radius:10px;
                 font-size:15px;transition:opacity .2s ease;pointer-events:none}
           .ptoast.hidden{opacity:0}
+          .perr{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%);
+                background:rgba(0,0,0,.85);color:#fff;padding:16px 24px;border-radius:12px;
+                font-size:16px;max-width:80%;text-align:center;z-index:5;
+                border:1px solid rgba(255,255,255,.15)}
+          .perr.hidden{display:none}
           video::cue{background:rgba(0,0,0,.65);color:#fff;font-size:1.1em}
         </style>
     """.trimIndent()
@@ -862,7 +882,7 @@ class FileServer(
           }
           function commitSeek(){
             if(commitTimer){ clearTimeout(commitTimer); commitTimer=null; }
-            if(pending>=0){ media.currentTime=pending; pending=-1; }
+            if(pending>=0){ var t=pending; pending=-1; applySeek(t); }
             seekprev.classList.add('hidden');
             seektarget.classList.add('hidden');
           }
@@ -896,6 +916,116 @@ class FileServer(
             if(toastTimer) clearTimeout(toastTimer);
             toastTimer=setTimeout(function(){ptoast.classList.add('hidden');},1500);
           }
+
+          // Remux integration. Two paths share the same server routes:
+          //  - failure path: direct playback errored → overlay + convert + play.
+          //  - optimization path: MKV/TS seeks terribly (no byte index), so even when
+          //    direct playback works we convert in the background and switch to the
+          //    MP4 at the user's next seek (position preserved) — that seek and every
+          //    one after it is then instant.
+          var perr=document.getElementById('perr');
+          var remuxTried=false;
+          var usingRemux=false, remuxReady=false, swapping=false;
+          var bgTimer=null, optToastShown=false;
+          var lastKnownT=0;
+          media.addEventListener('timeupdate',function(){
+            if(!swapping&&media.currentTime>0) lastKnownT=media.currentTime;
+          });
+          function showErr(t){ perr.textContent=t; perr.classList.remove('hidden'); showControls(); }
+          function finalErr(reason){
+            showErr((reason?('Cannot prepare this video: '+reason):
+              "This file's format isn't supported by this browser")+' — use ⬇ Download instead.');
+            focus(ctrls.length-1); // Download control
+          }
+          function swapToRemux(resumeT,autoplay){
+            usingRemux=true;
+            swapping=true;
+            perr.classList.add('hidden');
+            var s=media.querySelector('source');
+            s.setAttribute('src','/remux?id='+REMUX.id);
+            s.removeAttribute('type');
+            // load() aborts the old stream, which can surface as a spurious error
+            // event; onMediaError ignores errors while swapping, and this guard turns
+            // a genuinely broken swap into the normal failure overlay.
+            var guard=setTimeout(function(){
+              if(swapping){ swapping=false; finalErr(); }
+            },8000);
+            var once=function(){
+              media.removeEventListener('loadedmetadata',once);
+              clearTimeout(guard);
+              swapping=false;
+              if(resumeT>0) media.currentTime=resumeT;
+              if(autoplay) media.play();
+            };
+            media.addEventListener('loadedmetadata',once);
+            media.load();
+          }
+          function applySeek(t){
+            if(remuxReady&&!usingRemux&&REMUX&&REMUX.id){
+              swapToRemux(t,!media.paused);
+            } else {
+              media.currentTime=t;
+              if(REMUX&&REMUX.conv&&!usingRemux&&!remuxReady&&!optToastShown&&!remuxTried){
+                optToastShown=true;
+                toast('Optimizing for fast seeking…');
+              }
+            }
+          }
+          function pollRemux(){
+            setTimeout(function(){
+              fetch('/remux/status?id='+REMUX.id)
+                .then(function(r){return r.json();})
+                .then(function(s){
+                  // Resume where playback died, not from the beginning.
+                  if(s.state==='ready'){ swapToRemux(lastKnownT,true); }
+                  else if(s.state==='failed'){ finalErr(s.reason); }
+                  else { showErr('Preparing video… '+(s.pct||0)+'%'); pollRemux(); }
+                })
+                .catch(function(){ finalErr(); });
+            },2000);
+          }
+          function onMediaError(){
+            if(swapping) return; // aborting the old stream mid-swap is not a failure
+            if(bgTimer){ clearTimeout(bgTimer); bgTimer=null; }
+            if(remuxTried||usingRemux){ finalErr(); return; }
+            if(window.fetch&&REMUX&&REMUX.id&&REMUX.conv){
+              remuxTried=true;
+              showErr('Preparing video…');
+              fetch('/remux/start?id='+REMUX.id)
+                .then(function(){ pollRemux(); })
+                .catch(function(){ finalErr(); });
+            } else {
+              finalErr();
+            }
+          }
+          media.addEventListener('error',onMediaError);
+          var srcEl=media.querySelector('source');
+          // A failing <source> fires error on the source element, not the media element.
+          if(srcEl) srcEl.addEventListener('error',onMediaError);
+
+          // Background optimization: kicked once direct playback of a convertible
+          // container actually starts. Silent — no overlay unless the user seeks.
+          function bgPoll(){
+            bgTimer=setTimeout(function(){
+              fetch('/remux/status?id='+REMUX.id)
+                .then(function(r){return r.json();})
+                .then(function(s){
+                  if(s.state==='ready'){ remuxReady=true; toast('Fast seeking ready'); }
+                  else if(s.state==='failed'){ /* direct play works; seeking stays slow */ }
+                  else bgPoll();
+                })
+                .catch(function(){});
+            },3000);
+          }
+          var bgStarted=false;
+          media.addEventListener('playing',function(){
+            if(bgStarted||remuxTried||usingRemux) return;
+            if(!(window.fetch&&REMUX&&REMUX.id&&REMUX.conv)) return;
+            bgStarted=true;
+            fetch('/remux/start?id='+REMUX.id)
+              .then(function(){ bgPoll(); })
+              .catch(function(){});
+          });
 
           // Settings menu (gear): Fullscreen + subtitle selection, D-pad navigable.
           function activeSub(){
@@ -980,7 +1110,7 @@ class FileServer(
                 cancelScrub();
                 var r=c.getBoundingClientRect();
                 var p=(e.clientX-r.left)/r.width;
-                media.currentTime=(media.duration||0)*Math.min(1,Math.max(0,p));
+                applySeek((media.duration||0)*Math.min(1,Math.max(0,p)));
               } else {
                 activate();
               }
@@ -1181,6 +1311,45 @@ class FileServer(
         } catch (e: Exception) {
             text(Response.Status.NOT_FOUND, "No subtitles")
         }
+    }
+
+    // ---- MKV remux fallback ---------------------------------------------------
+
+    private fun libraryItem(session: IHTTPSession): MediaItem? =
+        session.parameters["id"]?.firstOrNull()?.toLongOrNull()?.let { library.getById(it) }
+
+    /** GET /remux/start?id= — queue a lossless MKV→MP4 conversion (no-op if done/busy). */
+    private fun remuxStart(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        RemuxController.start(context, item)
+        return text(Response.Status.OK, "started")
+    }
+
+    /** GET /remux/status?id= — {"state":"none|working|ready|failed","pct":N}. */
+    private fun remuxStatus(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val s = RemuxController.status(context, item)
+        val reasonJson = s.reason
+            ?.let { ",\"reason\":\"${it.replace("\\", "").replace("\"", "'")}\"" } ?: ""
+        val res = newFixedLengthResponse(
+            Response.Status.OK, "application/json",
+            "{\"state\":\"${s.state}\",\"pct\":${s.pct}$reasonJson}",
+        )
+        res.addHeader("Cache-Control", "no-cache")
+        return res
+    }
+
+    /** GET /remux?id= — the converted MP4, with the same Range support as /media. */
+    private fun serveRemux(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val file = RemuxController.outputFor(context, item)
+        if (!file.exists() || file.length() == 0L) {
+            return text(Response.Status.NOT_FOUND, "Not remuxed")
+        }
+        return serveDocument(session, Uri.fromFile(file), item.title + ".mp4", file.length())
     }
 
     /**
