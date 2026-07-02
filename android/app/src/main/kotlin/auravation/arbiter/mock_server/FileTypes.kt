@@ -19,6 +19,7 @@ object FileTypes {
         "mp4" to "video/mp4", "m4v" to "video/mp4", "webm" to "video/webm",
         "ogv" to "video/ogg", "mov" to "video/quicktime", "mkv" to "video/x-matroska",
         "avi" to "video/x-msvideo", "3gp" to "video/3gpp", "flv" to "video/x-flv",
+        "ts" to "video/mp2t", "m2ts" to "video/mp2t", "mts" to "video/mp2t",
         // audio
         "mp3" to "audio/mpeg", "m4a" to "audio/mp4", "aac" to "audio/aac",
         "ogg" to "audio/ogg", "oga" to "audio/ogg", "wav" to "audio/wav",
@@ -67,7 +68,8 @@ object FileTypes {
     fun iconFor(name: String, isDirectory: Boolean): String {
         if (isDirectory) return "📁" // 📁
         return when (extensionOf(name)) {
-            "mp4", "m4v", "webm", "ogv", "mov", "mkv", "avi", "3gp", "flv" -> "🎬" // 🎬
+            "mp4", "m4v", "webm", "ogv", "mov", "mkv", "avi", "3gp", "flv",
+            "ts", "m2ts", "mts" -> "🎬" // 🎬
             "mp3", "m4a", "aac", "ogg", "oga", "wav", "flac", "opus" -> "🎵" // 🎵
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic" -> "🖼️" // 🖼️
             "pdf" -> "📕" // 📕
