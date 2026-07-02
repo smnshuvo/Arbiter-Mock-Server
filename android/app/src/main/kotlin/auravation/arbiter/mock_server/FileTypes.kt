@@ -31,6 +31,7 @@ object FileTypes {
         "pdf" to "application/pdf", "txt" to "text/plain", "md" to "text/markdown",
         "json" to "application/json", "xml" to "application/xml",
         "html" to "text/html", "htm" to "text/html", "csv" to "text/csv",
+        "srt" to "application/x-subrip", "vtt" to "text/vtt",
         "zip" to "application/zip", "apk" to "application/vnd.android.package-archive",
     )
 

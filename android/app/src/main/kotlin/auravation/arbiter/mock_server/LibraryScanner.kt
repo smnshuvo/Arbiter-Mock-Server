@@ -98,17 +98,23 @@ class LibraryScanner(
         val path = file.uri.toString()
         val lastModified = file.lastModified()
 
-        // Incremental: unchanged files are left as-is.
-        if (db.lastModifiedFor(path) == lastModified) return
-
         val name = file.name ?: "Unknown"
         val isVideo = FileTypes.isVideo(name)
+
+        // Incremental: unchanged files are left as-is, except videos indexed before
+        // storyboards existed — those get their seek-preview sprite backfilled.
+        if (db.lastModifiedFor(path) == lastModified) {
+            if (isVideo) backfillStoryboard(path, file)
+            return
+        }
+
         var title = name.substringBeforeLast('.', name)
         var duration = 0L
         var width = 0
         var height = 0
         var mime = FileTypes.mimeFor(name)
         var thumbPath: String? = null
+        var storyboard: Thumbnailer.Storyboard? = null
 
         val retriever = MediaMetadataRetriever()
         try {
@@ -126,6 +132,9 @@ class LibraryScanner(
 
             if (isVideo) {
                 thumbPath = Thumbnailer.generate(context, path, retriever)
+                storyboard = Thumbnailer.generateStoryboard(
+                    context, path, retriever, duration,
+                ) { cancelled }
             }
         } catch (e: Exception) {
             // Corrupt/DRM/unsupported: keep the row with filename-only metadata.
@@ -149,7 +158,35 @@ class LibraryScanner(
                 thumbnailPath = thumbPath,
                 lastModified = lastModified,
                 addedAt = System.currentTimeMillis(),
+                storyboardPath = storyboard?.path,
+                storyboardFrames = storyboard?.frames ?: 0,
+                storyboardIntervalMs = storyboard?.intervalMs ?: 0,
+                storyboardCols = storyboard?.cols ?: 0,
             ),
         )
+    }
+
+    /** Generates the seek-preview sprite for a row scanned before storyboards existed. */
+    private fun backfillStoryboard(path: String, file: DocumentFile) {
+        val row = db.getByPath(path) ?: return
+        val existing = row.storyboardPath
+        if (!existing.isNullOrEmpty() && java.io.File(existing).exists()) return
+        if (row.durationMs <= 0) return // metadata never extracted; nothing to preview
+
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, file.uri)
+            val sb = Thumbnailer.generateStoryboard(
+                context, path, retriever, row.durationMs,
+            ) { cancelled }
+            if (sb != null) db.updateStoryboard(row.id, sb.path, sb.frames, sb.intervalMs, sb.cols)
+        } catch (e: Exception) {
+            Log.w(TAG, "Storyboard backfill failed for ${row.title}: ${e.message}")
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
+        }
     }
 }

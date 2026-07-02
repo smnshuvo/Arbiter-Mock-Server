@@ -2,6 +2,9 @@ package auravation.arbiter.mock_server
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.media.MediaMetadataRetriever
 import android.util.Log
 import java.io.File
@@ -59,6 +62,86 @@ object Thumbnailer {
         }
     }
 
+    /** A generated seek-preview sprite sheet: [frames] tiles of [SB_W]x[SB_H] in [cols] columns. */
+    data class Storyboard(val path: String, val frames: Int, val intervalMs: Long, val cols: Int)
+
+    private const val SB_W = 160
+    private const val SB_H = 90
+    private const val SB_COLS = 6
+    private const val SB_MAX_FRAMES = 60
+    private const val SB_MIN_INTERVAL_MS = 10_000L
+    private const val SB_JPEG_QUALITY = 70
+
+    /** Deterministic sprite-sheet cache path for a source URI (does not create the file). */
+    fun storyboardPathFor(context: Context, sourceUri: String): File =
+        File(cacheDir(context), "${sourceUri.hashCode().toUInt()}_sb.jpg")
+
+    /**
+     * Builds a Netflix-style seek-preview sprite: one tiny frame every ~[SB_MIN_INTERVAL_MS]
+     * (stretched so long videos cap at [SB_MAX_FRAMES] frames), tiled left-to-right,
+     * top-to-bottom into a single JPEG. The player fetches it once and scrubs by shifting
+     * the background position — no video data is touched while seeking.
+     *
+     * Returns null on any failure or when [isCancelled] flips mid-extraction; never throws.
+     */
+    fun generateStoryboard(
+        context: Context,
+        sourceUri: String,
+        retriever: MediaMetadataRetriever,
+        durationMs: Long,
+        isCancelled: () -> Boolean = { false },
+    ): Storyboard? {
+        if (durationMs <= 0) return null
+        var sheet: Bitmap? = null
+        return try {
+            val intervalMs = maxOf(SB_MIN_INTERVAL_MS, durationMs / SB_MAX_FRAMES)
+            val frames = (durationMs / intervalMs).toInt().coerceIn(1, SB_MAX_FRAMES)
+            val cols = minOf(SB_COLS, frames)
+            val rows = (frames + cols - 1) / cols
+            val grid = Bitmap.createBitmap(cols * SB_W, rows * SB_H, Bitmap.Config.RGB_565)
+            sheet = grid
+            val canvas = Canvas(grid)
+            val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+            var drawn = 0
+            for (i in 0 until frames) {
+                if (isCancelled()) return null
+                val frame = try {
+                    retriever.getFrameAtTime(
+                        i * intervalMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    )
+                } catch (e: Exception) {
+                    null
+                } ?: continue
+                canvas.drawBitmap(frame, null, fitCell(frame, i, cols), paint)
+                frame.recycle()
+                drawn++
+            }
+            if (drawn == 0) return null
+            val out = storyboardPathFor(context, sourceUri)
+            FileOutputStream(out).use { fos ->
+                grid.compress(Bitmap.CompressFormat.JPEG, SB_JPEG_QUALITY, fos)
+            }
+            Storyboard(out.absolutePath, frames, intervalMs, cols)
+        } catch (e: Exception) {
+            Log.w(TAG, "Storyboard generation failed for $sourceUri: ${e.message}")
+            null
+        } finally {
+            sheet?.recycle()
+        }
+    }
+
+    /** Aspect-fit destination rect for [frame] centered in sprite cell [index]. */
+    private fun fitCell(frame: Bitmap, index: Int, cols: Int): Rect {
+        val cellLeft = (index % cols) * SB_W
+        val cellTop = (index / cols) * SB_H
+        val ratio = minOf(SB_W.toFloat() / frame.width, SB_H.toFloat() / frame.height)
+        val w = (frame.width * ratio).toInt().coerceAtLeast(1)
+        val h = (frame.height * ratio).toInt().coerceAtLeast(1)
+        val dx = cellLeft + (SB_W - w) / 2
+        val dy = cellTop + (SB_H - h) / 2
+        return Rect(dx, dy, dx + w, dy + h)
+    }
+
     private fun scaleDown(src: Bitmap): Bitmap {
         val w = src.width
         val h = src.height
@@ -69,9 +152,11 @@ object Thumbnailer {
         return Bitmap.createScaledBitmap(src, nw, nh, true)
     }
 
-    /** Deletes cached thumbnails whose source path is no longer in [keepPaths]. */
+    /** Deletes cached thumbnails/storyboards whose source path is no longer in [keepPaths]. */
     fun evictExcept(context: Context, keepPaths: Set<String>) {
-        val keepFiles = keepPaths.map { cachePathFor(context, it).name }.toHashSet()
+        val keepFiles = keepPaths.flatMap {
+            listOf(cachePathFor(context, it).name, storyboardPathFor(context, it).name)
+        }.toHashSet()
         cacheDir(context).listFiles()?.forEach { f ->
             if (f.name !in keepFiles) f.delete()
         }
