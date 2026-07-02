@@ -122,6 +122,8 @@ class FileServer(
             uri == "/media" -> serveMedia(session)
             uri == "/player" -> playerPage(session)
             uri == "/thumb" -> serveThumb(session)
+            uri == "/storyboard" -> serveStoryboard(session)
+            uri == "/subs" -> serveSubtitle(session)
             else -> text(Response.Status.NOT_FOUND, "Not found")
         }
     }
@@ -350,8 +352,9 @@ class FileServer(
         val src: String
         val name: String
         val mime: String
+        var item: MediaItem? = null
         if (id != null) {
-            val item = library.getById(id)
+            item = library.getById(id)
                 ?: return text(Response.Status.NOT_FOUND, "Unknown media")
             src = "/media?id=$id"
             name = item.title
@@ -369,16 +372,46 @@ class FileServer(
             src = v
             name = v.substringAfterLast('/').let { decode(it) }
             mime = FileTypes.mimeFor(name)
+            // Browser-launched videos live in the library too (the scan covers the whole
+            // root), so look the row up by SAF URI to reuse its seek-preview storyboard.
+            item = try {
+                resolveChildDoc(splitPath(v.removePrefix("/raw/")))
+                    ?.let { library.getByPath(docUriFor(it.documentId).toString()) }
+            } catch (e: Exception) {
+                null
+            }
         }
         val isVideo = mime.startsWith("video/")
+        // Seek-preview storyboard config for the player script (null = time-only bubble).
+        val sbConfig = item?.takeIf {
+            !it.storyboardPath.isNullOrEmpty() && it.storyboardFrames > 0 &&
+                it.storyboardIntervalMs > 0 && it.storyboardCols > 0
+        }?.let {
+            "{url:'/storyboard?id=${it.id}',frames:${it.storyboardFrames}," +
+                "interval:${it.storyboardIntervalMs},cols:${it.storyboardCols}}"
+        } ?: "null"
         val srcAttr = escape(src)
         val dlHref = escape(appendParam(src, "dl", "1"))
+
+        // Sidecar .srt/.vtt files next to the video, exposed as <track> elements served
+        // (converted to WebVTT) by /subs. Off by default; the CC button cycles them.
+        val subs = if (isVideo) {
+            subtitlesFor(id, session.parameters["v"]?.firstOrNull())
+        } else {
+            emptyList()
+        }
+        val trackTags = subs.mapIndexed { i, (_, label) ->
+            val subSrc = if (id != null) "/subs?id=$id&n=$i" else "/subs?v=${encode(src)}&n=$i"
+            val lang = label.takeIf { it.length in 2..3 && it.all(Char::isLetter) }
+                ?.lowercase() ?: "und"
+            "<track kind='subtitles' label='${escape(label)}' srclang='$lang' src='$subSrc'>"
+        }.joinToString("")
 
         // Native controls are omitted on purpose — TV browsers don't expose them to a
         // D-pad remote. Custom, focusable controls are driven by the script below.
         val mediaEl = if (isVideo) {
             "<video id='media' autoplay playsinline><source src='$srcAttr' type='${escape(mime)}'>" +
-                "Your browser cannot play this video.</video>"
+                "${trackTags}Your browser cannot play this video.</video>"
         } else {
             "<audio id='media' autoplay><source src='$srcAttr' type='${escape(mime)}'>" +
                 "Your browser cannot play this audio.</audio>"
@@ -391,17 +424,26 @@ class FileServer(
         if (!isVideo) sb.append("<div class='audio-glyph'>🎵</div>")
         sb.append(mediaEl)
         sb.append("</div>")
+        sb.append("<div class='seekprev hidden' id='seekprev'>")
+        sb.append("<div class='sbframe' id='sbframe'></div>")
+        sb.append("<span class='sbtime' id='sbtime'>0:00</span>")
+        sb.append("</div>")
         sb.append("<div class='pbar' id='pbar'>")
         sb.append("<button class='pctl' data-act='back' title='Back'>←</button>")
         sb.append("<button class='pctl play' data-act='play' title='Play/Pause'>⏸</button>")
-        sb.append("<div class='pctl seek' data-act='seek'><div class='seek-fill' id='seekfill'></div></div>")
+        sb.append("<div class='pctl seek' data-act='seek'><div class='seek-fill' id='seekfill'></div>")
+        sb.append("<div class='seek-knob' id='seekknob'></div>")
+        sb.append("<div class='seek-target hidden' id='seektarget'></div></div>")
         sb.append("<span class='ptime' id='ptime'>0:00 / 0:00</span>")
-        sb.append("<button class='pctl' data-act='fs' title='Fullscreen'>⛶</button>")
+        sb.append("<button class='pctl' data-act='settings' title='Settings'>⚙</button>")
         sb.append("<a class='pctl' data-act='download' href='$dlHref' title='Download'>⬇</a>")
         sb.append("</div>")
+        sb.append("<div class='pmenu hidden' id='pmenu'></div>")
+        sb.append("<div class='ptoast hidden' id='ptoast'></div>")
         sb.append("<div class='ptitle' id='ptitle'>${escape(name)}</div>")
         sb.append("</div>")
         sb.append(playerStyles())
+        sb.append("<script>var SB=$sbConfig;</script>")
         sb.append(playerScript())
         sb.append("</body></html>")
         return html(sb.toString())
@@ -423,19 +465,52 @@ class FileServer(
                 min-width:44px;height:44px;padding:0 12px;font-size:18px;cursor:pointer;
                 text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
           .pctl.focused{border-color:var(--accent);background:var(--accent)}
-          .pctl.seek{flex:1;min-width:60px;height:12px;padding:0;overflow:hidden;
-                background:rgba(255,255,255,.25)}
+          .pctl.seek{flex:1;min-width:60px;height:12px;padding:0;overflow:visible;
+                justify-content:flex-start;border-radius:6px;
+                background:rgba(255,255,255,.25);position:relative}
           .pctl.seek.focused{height:18px;border-color:var(--accent);background:rgba(255,255,255,.25)}
-          .seek-fill{height:100%;width:0;background:var(--accent)}
+          .seek-fill{height:100%;width:0;background:var(--accent);border-radius:6px}
+          .seek-knob{position:absolute;top:50%;left:0;width:14px;height:14px;margin-left:-7px;
+                border-radius:50%;background:#fff;transform:translateY(-50%);
+                box-shadow:0 0 4px rgba(0,0,0,.6)}
+          .seek-target{position:absolute;top:0;bottom:0;width:4px;margin-left:-2px;
+                background:#fff;border-radius:2px;box-shadow:0 0 4px rgba(0,0,0,.8)}
+          .seek-target.hidden{display:none}
           .ptime{color:#fff;font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums}
+          .seekprev{position:absolute;bottom:78px;display:flex;flex-direction:column;align-items:center;
+                gap:4px;transform:translateX(-50%);transition:opacity .15s ease;pointer-events:none}
+          .seekprev.hidden{opacity:0}
+          .sbframe{width:160px;height:90px;border:2px solid var(--accent);border-radius:8px;
+                background-color:#000;background-repeat:no-repeat;box-shadow:0 4px 16px rgba(0,0,0,.6)}
+          .sbframe.off{display:none}
+          .sbtime{color:#fff;font-size:14px;font-weight:600;background:rgba(0,0,0,.75);
+                padding:2px 10px;border-radius:8px;font-variant-numeric:tabular-nums}
           .ptitle{position:absolute;top:0;left:0;right:0;padding:14px 18px;color:#fff;font-size:15px;
                   font-weight:600;background:linear-gradient(rgba(0,0,0,.85),transparent);
                   transition:opacity .25s ease;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
           .ptitle.hidden{opacity:0}
+          .pmenu{position:absolute;right:18px;bottom:76px;background:rgba(20,24,30,.95);
+                border-radius:12px;padding:8px;min-width:230px;display:flex;
+                flex-direction:column;gap:4px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+          .pmenu.hidden{display:none}
+          .mitem{color:#fff;padding:10px 14px;border-radius:8px;font-size:15px;
+                border:2px solid transparent;cursor:pointer;white-space:nowrap}
+          .mitem.focused{border-color:var(--accent);background:var(--accent)}
+          .mitem.disabled{opacity:.5;cursor:default}
+          .ptoast{position:absolute;top:64px;left:50%;transform:translateX(-50%);
+                background:rgba(0,0,0,.75);color:#fff;padding:6px 16px;border-radius:10px;
+                font-size:15px;transition:opacity .2s ease;pointer-events:none}
+          .ptoast.hidden{opacity:0}
+          video::cue{background:rgba(0,0,0,.65);color:#fff;font-size:1.1em}
         </style>
     """.trimIndent()
 
-    /** Custom D-pad player: OK=play/pause, ←/→=seek 10s, ↑/↓ move controls, Back=exit. */
+    /**
+     * Custom D-pad player: OK=play/pause, ←/→=seek 10s, ↑/↓ move controls, Back=exit.
+     * Seeking is deferred (Netflix-style): arrow presses move only a preview bubble
+     * (storyboard frame + target time); currentTime is written once, 600ms after the
+     * last press, so a burst of presses costs a single Range request + re-buffer.
+     */
     private fun playerScript(): String = """
         <script>
         (function(){
@@ -445,9 +520,25 @@ class FileServer(
           var playBtn=pbar.querySelector('.pctl.play');
           var fill=document.getElementById('seekfill');
           var timeEl=document.getElementById('ptime');
+          var seekprev=document.getElementById('seekprev');
+          var sbframe=document.getElementById('sbframe');
+          var sbtime=document.getElementById('sbtime');
+          var seekBar=pbar.querySelector('.pctl.seek');
+          var seektarget=document.getElementById('seektarget');
           var ctrls=Array.prototype.slice.call(pbar.querySelectorAll('.pctl'));
           var ci=1; // default focus = play/pause
           var hideTimer=null;
+          var pending=-1; // scrub target in seconds; <0 = not scrubbing
+          var scrubDir=0; // +1/-1 while scrubbing
+          var commitTimer=null;
+          var ptoast=document.getElementById('ptoast');
+          var toastTimer=null;
+          var seekknob=document.getElementById('seekknob');
+          var pmenu=document.getElementById('pmenu');
+          var menuOpen=false, mi=0, mitems=[];
+
+          if(SB){ sbframe.style.backgroundImage='url('+SB.url+')'; new Image().src=SB.url; }
+          else { sbframe.classList.add('off'); }
 
           function fmt(t){
             if(!isFinite(t)||t<0) t=0;
@@ -461,8 +552,49 @@ class FileServer(
             ctrls[ci].classList.add('focused');
           }
           function toggle(){ if(media.paused) media.play(); else media.pause(); }
-          function seekBy(d){ var dur=media.duration||1e9; media.currentTime=Math.min(dur,Math.max(0,media.currentTime+d)); }
           function onSeek(){ return ctrls[ci].getAttribute('data-act')==='seek'; }
+
+          // Deferred scrub: presses only move the preview; the real seek commits on idle.
+          // Each scrub session is one-directional — the opposite arrow cancels it instead
+          // of stepping backward, so the target never bounces around.
+          function seekBy(d){
+            var dir=d>0?1:-1;
+            if(pending>=0&&dir!==scrubDir){ cancelScrub(); return; }
+            var dur=media.duration||1e9;
+            if(pending<0){ pending=media.currentTime; scrubDir=dir; }
+            pending=Math.min(dur,Math.max(0,pending+d));
+            updatePreview();
+            if(commitTimer) clearTimeout(commitTimer);
+            commitTimer=setTimeout(commitSeek,600);
+          }
+          function updatePreview(){
+            var d=media.duration||0;
+            var pct=d?(pending/d):0;
+            var r=seekBar.getBoundingClientRect();
+            var x=r.left+r.width*pct;
+            x=Math.min(window.innerWidth-90,Math.max(90,x));
+            seekprev.style.left=x+'px';
+            seekprev.classList.remove('hidden');
+            seektarget.style.left=(pct*100)+'%';
+            seektarget.classList.remove('hidden');
+            sbtime.textContent=fmt(pending);
+            if(SB){
+              var f=Math.min(SB.frames-1,Math.max(0,Math.floor(pending*1000/SB.interval)));
+              sbframe.style.backgroundPosition=(-(f%SB.cols)*160)+'px '+(-Math.floor(f/SB.cols)*90)+'px';
+            }
+          }
+          function commitSeek(){
+            if(commitTimer){ clearTimeout(commitTimer); commitTimer=null; }
+            if(pending>=0){ media.currentTime=pending; pending=-1; }
+            seekprev.classList.add('hidden');
+            seektarget.classList.add('hidden');
+          }
+          function cancelScrub(){
+            if(commitTimer){ clearTimeout(commitTimer); commitTimer=null; }
+            pending=-1;
+            seekprev.classList.add('hidden');
+            seektarget.classList.add('hidden');
+          }
           function toggleFullscreen(){
             var d=document;
             if(d.fullscreenElement||d.webkitFullscreenElement){
@@ -476,24 +608,87 @@ class FileServer(
           }
           function activate(){
             var act=ctrls[ci].getAttribute('data-act');
-            if(act==='play'||act==='seek') toggle();
+            if(act==='seek'){ if(pending>=0) commitSeek(); else toggle(); }
+            else if(act==='play') toggle();
             else if(act==='back') history.back();
-            else if(act==='fs') toggleFullscreen();
+            else if(act==='settings'){ if(menuOpen) closeMenu(); else openMenu(); }
             else if(act==='download') location.href=ctrls[ci].getAttribute('href');
           }
+          function toast(t){
+            ptoast.textContent=t; ptoast.classList.remove('hidden');
+            if(toastTimer) clearTimeout(toastTimer);
+            toastTimer=setTimeout(function(){ptoast.classList.add('hidden');},1500);
+          }
+
+          // Settings menu (gear): Fullscreen + subtitle selection, D-pad navigable.
+          function activeSub(){
+            var t=media.textTracks||[];
+            for(var i=0;i<t.length;i++) if(t[i].mode==='showing') return i;
+            return -1;
+          }
+          function setSub(i){
+            var t=media.textTracks||[];
+            for(var j=0;j<t.length;j++) t[j].mode=(j===i?'showing':'hidden');
+            toast(i<0?'Subtitles off':'Subtitles: '+(t[i].label||('track '+(i+1))));
+          }
+          function menuItems(){
+            var items=[{label:'⛶ Fullscreen',run:toggleFullscreen}];
+            var t=media.textTracks?media.textTracks.length:0;
+            if(t){
+              var cur=activeSub();
+              items.push({label:'Subtitles: Off',check:cur<0,run:function(){setSub(-1);}});
+              for(var i=0;i<t;i++)(function(i){
+                var lb=media.textTracks[i].label||('Track '+(i+1));
+                items.push({label:'Subtitles: '+lb,check:cur===i,run:function(){setSub(i);}});
+              })(i);
+            } else {
+              items.push({label:'No subtitles found',disabled:true});
+            }
+            return items;
+          }
+          function focusMenu(i){
+            if(!mitems.length) return;
+            mi=(i+mitems.length)%mitems.length;
+            mitems.forEach(function(m){m.el.classList.remove('focused');});
+            mitems[mi].el.classList.add('focused');
+          }
+          function pickMenu(){
+            var it=mitems[mi]&&mitems[mi].it;
+            if(!it||it.disabled) return;
+            closeMenu(); it.run();
+          }
+          function openMenu(){
+            pmenu.innerHTML='';
+            mitems=menuItems().map(function(it,i){
+              var el=document.createElement('div');
+              el.className='mitem'+(it.disabled?' disabled':'');
+              el.textContent=it.label+(it.check?'  ✓':'');
+              el.addEventListener('mouseenter',function(){focusMenu(i);});
+              el.addEventListener('click',function(){focusMenu(i);pickMenu();});
+              pmenu.appendChild(el);
+              return {el:el,it:it};
+            });
+            pmenu.classList.remove('hidden');
+            menuOpen=true;
+            focusMenu(0);
+          }
+          function closeMenu(){ pmenu.classList.add('hidden'); menuOpen=false; }
           function showControls(){
             pbar.classList.remove('hidden'); ptitle.classList.remove('hidden');
             if(hideTimer) clearTimeout(hideTimer);
             hideTimer=setTimeout(function(){
-              if(!media.paused){pbar.classList.add('hidden'); ptitle.classList.add('hidden');}
+              if(!media.paused&&!menuOpen){pbar.classList.add('hidden'); ptitle.classList.add('hidden');}
             },3000);
           }
 
           media.addEventListener('play',function(){playBtn.textContent='⏸';showControls();});
           media.addEventListener('pause',function(){playBtn.textContent='▶';showControls();});
+          // The fill+knob always track real playback; only the bubble + tick show the target.
           media.addEventListener('timeupdate',function(){
             var d=media.duration||0;
-            fill.style.width=(d?(media.currentTime/d*100):0)+'%';
+            var pct=d?(media.currentTime/d*100):0;
+            fill.style.width=pct+'%';
+            seekknob.style.left=pct+'%';
             timeEl.textContent=fmt(media.currentTime)+' / '+fmt(d);
           });
 
@@ -505,6 +700,7 @@ class FileServer(
               if(act==='download') return; // let the <a> navigate
               e.preventDefault();
               if(act==='seek'){
+                cancelScrub();
                 var r=c.getBoundingClientRect();
                 var p=(e.clientX-r.left)/r.width;
                 media.currentTime=(media.duration||0)*Math.min(1,Math.max(0,p));
@@ -529,6 +725,18 @@ class FileServer(
           }
 
           document.addEventListener('keydown',function(e){
+            if(menuOpen){
+              var mh=true;
+              switch(keyOf(e)){
+                case 'up': focusMenu(mi-1); break;
+                case 'down': focusMenu(mi+1); break;
+                case 'ok': pickMenu(); break;
+                case 'back': case 'left': case 'right': closeMenu(); break;
+                default: mh=false;
+              }
+              if(mh){ showControls(); e.preventDefault(); }
+              return;
+            }
             var handled=true;
             switch(keyOf(e)){
               case 'left': if(onSeek()) seekBy(-10); else focus(ci-1); break;
@@ -568,6 +776,124 @@ class FileServer(
             res
         } catch (e: Exception) {
             placeholderThumb()
+        }
+    }
+
+    /**
+     * GET /storyboard?id=<media_id> — the seek-preview sprite sheet. A plain 404 on miss;
+     * the player probes this and simply falls back to a time-only scrub bubble.
+     */
+    private fun serveStoryboard(session: IHTTPSession): Response {
+        val id = session.parameters["id"]?.firstOrNull()?.toLongOrNull()
+            ?: return text(Response.Status.NOT_FOUND, "No storyboard")
+        val path = library.getById(id)?.storyboardPath
+            ?: return text(Response.Status.NOT_FOUND, "No storyboard")
+        val file = java.io.File(path)
+        if (!file.exists()) return text(Response.Status.NOT_FOUND, "No storyboard")
+        return try {
+            val res = newFixedLengthResponse(
+                Response.Status.OK, "image/jpeg",
+                java.io.FileInputStream(file), file.length(),
+            )
+            res.addHeader("Cache-Control", "max-age=86400")
+            res
+        } catch (e: Exception) {
+            text(Response.Status.NOT_FOUND, "No storyboard")
+        }
+    }
+
+    // ---- Sidecar subtitles ----------------------------------------------------
+
+    /**
+     * Sidecar subtitle files for either player entry point (library id or /raw/ path):
+     * files in the same directory whose name starts with the video's base name and ends
+     * in .srt/.vtt, paired with a display label ("movie.en.srt" → "en"). Sorted by name
+     * so /subs?n= indices are stable between the page render and the track fetch.
+     */
+    private fun subtitlesFor(id: Long?, v: String?): List<Pair<ChildDoc, String>> = try {
+        when {
+            id != null -> {
+                val item = library.getById(id)
+                if (item == null) {
+                    emptyList()
+                } else {
+                    // Path-style document ids ("primary:Movies/film.mkv") hold for the
+                    // external-storage/SD providers users share from; anything exotic
+                    // lands in the catch and simply gets no subtitles.
+                    val docId = DocumentsContract.getDocumentId(Uri.parse(item.filePath))
+                    val cut = docId.lastIndexOf('/')
+                    if (cut >= 0) {
+                        subtitleSiblings(docId.substring(cut + 1), docId.substring(0, cut))
+                    } else {
+                        subtitleSiblings(docId.substringAfterLast(':'), rootDocId)
+                    }
+                }
+            }
+            v != null && v.startsWith("/raw/") -> {
+                val segments = splitPath(v.removePrefix("/raw/"))
+                val name = segments.lastOrNull()
+                if (name == null) {
+                    emptyList()
+                } else {
+                    subtitleSiblings(name, resolveDirDocId(segments.dropLast(1)))
+                }
+            }
+            else -> emptyList()
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun subtitleSiblings(
+        videoName: String,
+        parentDocId: String?,
+    ): List<Pair<ChildDoc, String>> {
+        if (parentDocId == null) return emptyList()
+        val base = videoName.substringBeforeLast('.')
+        if (base.isEmpty()) return emptyList()
+        val children = listChildren(parentDocId) ?: return emptyList()
+        return children
+            .filter { child ->
+                !child.isDirectory &&
+                    FileTypes.extensionOf(child.name) in setOf("srt", "vtt") &&
+                    child.name.lowercase().startsWith(base.lowercase())
+            }
+            .sortedBy { it.name.lowercase() }
+            .map { child ->
+                val label = child.name.substringBeforeLast('.')
+                    .drop(base.length).trim('.', ' ', '-', '_')
+                child to label.ifEmpty { "Subs" }
+            }
+    }
+
+    /**
+     * GET /subs?id=<media_id>&n=<i> or /subs?v=/raw/<path>&n=<i> — the i-th sidecar
+     * subtitle as WebVTT (SRT is converted on the fly; browsers only take VTT tracks).
+     */
+    private fun serveSubtitle(session: IHTTPSession): Response {
+        val n = session.parameters["n"]?.firstOrNull()?.toIntOrNull() ?: 0
+        val id = session.parameters["id"]?.firstOrNull()?.toLongOrNull()
+        val v = session.parameters["v"]?.firstOrNull()
+        val sub = subtitlesFor(id, v).getOrNull(n)?.first
+            ?: return text(Response.Status.NOT_FOUND, "No subtitles")
+        return try {
+            val input = context.contentResolver.openInputStream(docUriFor(sub.documentId))
+                ?: return text(Response.Status.NOT_FOUND, "No subtitles")
+            val raw = input.use { it.readBytes() }
+            if (raw.size > 2_000_000) return text(Response.Status.NOT_FOUND, "Subtitle too large")
+            val content = String(raw, Charsets.UTF_8).removePrefix("\uFEFF")
+            val vtt = if (FileTypes.extensionOf(sub.name) == "vtt") {
+                content
+            } else {
+                "WEBVTT\n\n" + content.replace(
+                    Regex("(\\d{2}:\\d{2}:\\d{2}),(\\d{3})"), "$1.$2",
+                )
+            }
+            val res = newFixedLengthResponse(Response.Status.OK, "text/vtt", vtt)
+            res.addHeader("Cache-Control", "max-age=3600")
+            res
+        } catch (e: Exception) {
+            text(Response.Status.NOT_FOUND, "No subtitles")
         }
     }
 

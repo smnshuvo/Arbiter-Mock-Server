@@ -17,6 +17,10 @@ data class MediaItem(
     val thumbnailPath: String?,
     val lastModified: Long,
     val addedAt: Long,
+    val storyboardPath: String? = null,
+    val storyboardFrames: Int = 0,
+    val storyboardIntervalMs: Long = 0,
+    val storyboardCols: Int = 0,
 )
 
 /**
@@ -29,7 +33,7 @@ class LibraryDatabase(context: Context) :
 
     companion object {
         private const val DB_NAME = "file_server_library.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
         const val TABLE = "media_items"
 
         private const val COL_ID = "id"
@@ -42,6 +46,10 @@ class LibraryDatabase(context: Context) :
         private const val COL_THUMB = "thumbnail_path"
         private const val COL_MODIFIED = "last_modified"
         private const val COL_ADDED = "added_at"
+        private const val COL_SB_PATH = "storyboard_path"
+        private const val COL_SB_FRAMES = "storyboard_frames"
+        private const val COL_SB_INTERVAL = "storyboard_interval_ms"
+        private const val COL_SB_COLS = "storyboard_cols"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -57,14 +65,23 @@ class LibraryDatabase(context: Context) :
               $COL_MIME TEXT,
               $COL_THUMB TEXT,
               $COL_MODIFIED INTEGER,
-              $COL_ADDED INTEGER
+              $COL_ADDED INTEGER,
+              $COL_SB_PATH TEXT,
+              $COL_SB_FRAMES INTEGER DEFAULT 0,
+              $COL_SB_INTERVAL INTEGER DEFAULT 0,
+              $COL_SB_COLS INTEGER DEFAULT 0
             )
             """.trimIndent(),
         )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // v1 only for now; future migrations go here.
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SB_PATH TEXT")
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SB_FRAMES INTEGER DEFAULT 0")
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SB_INTERVAL INTEGER DEFAULT 0")
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SB_COLS INTEGER DEFAULT 0")
+        }
     }
 
     /** Returns the row id for a path, or null if unknown. */
@@ -103,6 +120,10 @@ class LibraryDatabase(context: Context) :
             put(COL_THUMB, item.thumbnailPath)
             put(COL_MODIFIED, item.lastModified)
             put(COL_ADDED, item.addedAt)
+            put(COL_SB_PATH, item.storyboardPath)
+            put(COL_SB_FRAMES, item.storyboardFrames)
+            put(COL_SB_INTERVAL, item.storyboardIntervalMs)
+            put(COL_SB_COLS, item.storyboardCols)
         }
         // UNIQUE(file_path) makes this an upsert via CONFLICT_REPLACE.
         writableDatabase.insertWithOnConflict(
@@ -114,6 +135,23 @@ class LibraryDatabase(context: Context) :
         readableDatabase.query(
             TABLE, null, "$COL_ID = ?", arrayOf(id.toString()), null, null, null,
         ).use { c -> return if (c.moveToFirst()) c.toMediaItem() else null }
+    }
+
+    fun getByPath(filePath: String): MediaItem? {
+        readableDatabase.query(
+            TABLE, null, "$COL_PATH = ?", arrayOf(filePath), null, null, null,
+        ).use { c -> return if (c.moveToFirst()) c.toMediaItem() else null }
+    }
+
+    /** Attaches a generated storyboard to an existing row (backfill after incremental scans). */
+    fun updateStoryboard(id: Long, path: String, frames: Int, intervalMs: Long, cols: Int) {
+        val values = ContentValues().apply {
+            put(COL_SB_PATH, path)
+            put(COL_SB_FRAMES, frames)
+            put(COL_SB_INTERVAL, intervalMs)
+            put(COL_SB_COLS, cols)
+        }
+        writableDatabase.update(TABLE, values, "$COL_ID = ?", arrayOf(id.toString()))
     }
 
     /** All items, newest first, optionally filtered by a title LIKE query. */
@@ -159,5 +197,9 @@ class LibraryDatabase(context: Context) :
         thumbnailPath = getString(getColumnIndexOrThrow(COL_THUMB)),
         lastModified = getLong(getColumnIndexOrThrow(COL_MODIFIED)),
         addedAt = getLong(getColumnIndexOrThrow(COL_ADDED)),
+        storyboardPath = getString(getColumnIndexOrThrow(COL_SB_PATH)),
+        storyboardFrames = getInt(getColumnIndexOrThrow(COL_SB_FRAMES)),
+        storyboardIntervalMs = getLong(getColumnIndexOrThrow(COL_SB_INTERVAL)),
+        storyboardCols = getInt(getColumnIndexOrThrow(COL_SB_COLS)),
     )
 }
