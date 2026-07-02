@@ -171,6 +171,17 @@ class FileServerService {
     }
   }
 
+  /// A crisp native vibrator click for remote-button feedback (Flutter's
+  /// HapticFeedback is gated by the system touch-feedback setting on Android).
+  Future<void> hapticTick() async {
+    if (!_supported) return;
+    try {
+      await _channel.invokeMethod<void>('hapticTick');
+    } on PlatformException {
+      // Non-essential; ignore.
+    }
+  }
+
   /// Number of browsers currently listening for remote-control input.
   Future<int> getRemoteClients() async {
     if (!_supported) return 0;
