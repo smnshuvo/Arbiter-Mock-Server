@@ -728,6 +728,7 @@ class FileServer(
         sb.append("<div class='pmenu hidden' id='pmenu'></div>")
         sb.append("<div class='ptoast hidden' id='ptoast'></div>")
         sb.append("<div class='perr hidden' id='perr'></div>")
+        sb.append("<div class='pprog hidden' id='pprog'></div>")
         sb.append("<div class='ptitle' id='ptitle'>${escape(name)}</div>")
         sb.append("</div>")
         // Remux fallback config for convertible-container library items.
@@ -798,6 +799,10 @@ class FileServer(
                 font-size:16px;max-width:80%;text-align:center;z-index:5;
                 border:1px solid rgba(255,255,255,.15)}
           .perr.hidden{display:none}
+          .pprog{position:absolute;top:14px;right:18px;background:rgba(0,0,0,.7);color:#fff;
+                font-size:12.5px;padding:5px 12px;border-radius:10px;z-index:4;
+                font-variant-numeric:tabular-nums;border:1px solid rgba(255,255,255,.12)}
+          .pprog.hidden{display:none}
           video::cue{background:rgba(0,0,0,.65);color:#fff;font-size:1.1em}
         </style>
     """.trimIndent()
@@ -1004,17 +1009,41 @@ class FileServer(
           if(srcEl) srcEl.addEventListener('error',onMediaError);
 
           // Background optimization: kicked once direct playback of a convertible
-          // container actually starts. Silent — no overlay unless the user seeks.
+          // container actually starts. A small corner chip shows conversion progress
+          // (with an ETA once the rate stabilizes) so slow seeks during the window
+          // explain themselves; it never blocks playback.
+          var pprog=document.getElementById('pprog');
+          var bgT0=0, bgPct0=-1;
+          function progText(pct){
+            var t='⚡ Fast seeking: '+pct+'%';
+            var now=Date.now();
+            if(bgPct0<0&&pct>0){ bgPct0=pct; bgT0=now; }
+            else if(bgPct0>=0&&pct>bgPct0&&now>bgT0+5000){
+              var rate=(pct-bgPct0)/((now-bgT0)/1000); // pct per second
+              var left=Math.ceil((100-pct)/rate);
+              t+=left>=90?(' · ~'+Math.ceil(left/60)+' min left'):(' · ~'+left+'s left');
+            }
+            return t;
+          }
           function bgPoll(){
             bgTimer=setTimeout(function(){
               fetch('/remux/status?id='+REMUX.id)
                 .then(function(r){return r.json();})
                 .then(function(s){
-                  if(s.state==='ready'){ remuxReady=true; toast('Fast seeking ready'); }
-                  else if(s.state==='failed'){ /* direct play works; seeking stays slow */ }
-                  else bgPoll();
+                  if(s.state==='ready'){
+                    remuxReady=true;
+                    pprog.classList.add('hidden');
+                    toast('Fast seeking ready');
+                  } else if(s.state==='failed'){
+                    // Direct play works; seeking stays slow. Drop the chip quietly.
+                    pprog.classList.add('hidden');
+                  } else {
+                    pprog.textContent=progText(s.pct||0);
+                    pprog.classList.remove('hidden');
+                    bgPoll();
+                  }
                 })
-                .catch(function(){});
+                .catch(function(){ pprog.classList.add('hidden'); });
             },3000);
           }
           var bgStarted=false;
