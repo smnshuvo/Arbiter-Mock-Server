@@ -757,6 +757,7 @@ class FileServer(
         sb.append("<a class='pctl' data-act='download' href='$dlHref' title='Download'>⬇</a>")
         sb.append("</div>")
         sb.append("<div class='pmenu hidden' id='pmenu'></div>")
+        sb.append("<div class='pconfirm hidden' id='pconfirm'></div>")
         sb.append("<div class='presume hidden' id='presume'></div>")
         sb.append("<div class='ptoast hidden' id='ptoast'></div>")
         sb.append("<div class='perr hidden' id='perr'></div>")
@@ -794,6 +795,7 @@ class FileServer(
                 justify-content:flex-start;border-radius:6px;
                 background:rgba(255,255,255,.25);position:relative}
           .pctl.seek.focused{height:18px;border-color:var(--accent);background:rgba(255,255,255,.25)}
+          .pctl.seek.engaged{height:18px;box-shadow:0 0 10px 2px var(--accent)}
           .seek-fill{height:100%;width:0;background:var(--accent);border-radius:6px}
           .seek-knob{position:absolute;top:50%;left:0;width:14px;height:14px;margin-left:-7px;
                 border-radius:50%;background:#fff;transform:translateY(-50%);
@@ -842,6 +844,16 @@ class FileServer(
                 font-size:15px;max-width:80%;text-align:center;cursor:pointer;z-index:6;
                 border:2px solid var(--accent);box-shadow:0 8px 24px rgba(0,0,0,.5)}
           .presume.hidden{display:none}
+          .pconfirm{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                background:rgba(20,24,30,.97);color:#fff;padding:22px 26px;border-radius:14px;
+                max-width:80%;text-align:center;z-index:7;
+                border:1px solid rgba(255,255,255,.15);box-shadow:0 8px 28px rgba(0,0,0,.6)}
+          .pconfirm.hidden{display:none}
+          .cmsg{font-size:16px;line-height:1.4;margin-bottom:18px}
+          .crow{display:flex;gap:12px;justify-content:center}
+          .cbtn{background:rgba(255,255,255,.12);color:#fff;border:2px solid transparent;
+                border-radius:10px;padding:10px 20px;font-size:15px;font-weight:600;cursor:pointer}
+          .cbtn.focused{border-color:var(--accent);background:var(--accent)}
           video::cue{background:rgba(0,0,0,.65);color:#fff;font-size:1.1em}
         </style>
     """.trimIndent()
@@ -877,6 +889,13 @@ class FileServer(
           var seekknob=document.getElementById('seekknob');
           var pmenu=document.getElementById('pmenu');
           var menuOpen=false, mi=0, mitems=[];
+          var seekEngaged=false; // seek bar locked for scrubbing (entered with OK)
+          var pconfirm=document.getElementById('pconfirm');
+          var confirmOpen=false, confirmChoice=0, confirmBtns=[], confirmYes=null, confirmNo=null;
+          // Whether to ask before starting a (possibly long) conversion; persisted per device.
+          var askConvert=(function(){ try{ return localStorage.getItem('askConvert')!=='0'; }catch(e){ return true; } })();
+          // Whether to hide the "⚡ Fast seeking … min left" progress overlay.
+          var hideProg=(function(){ try{ return localStorage.getItem('hideFastSeek')==='1'; }catch(e){ return false; } })();
 
           if(SB){ sbframe.style.backgroundImage='url('+SB.url+')'; new Image().src=SB.url; }
           else { sbframe.classList.add('off'); }
@@ -887,7 +906,11 @@ class FileServer(
             var mm=(h>0&&m<10?'0':'')+m, ss=(s<10?'0':'')+s;
             return (h>0?h+':':'')+mm+':'+ss;
           }
+          function setEngaged(on){ seekEngaged=on; seekBar.classList.toggle('engaged',on); }
+          function disengageSeek(commit){ if(commit) commitSeek(); else cancelScrub(); setEngaged(false); }
           function focus(i){
+            // Moving the selection releases the seek bar so left/right traverse again.
+            if(seekEngaged){ cancelScrub(); setEngaged(false); }
             ci=(i+ctrls.length)%ctrls.length;
             ctrls.forEach(function(c){c.classList.remove('focused');});
             ctrls[ci].classList.add('focused');
@@ -949,7 +972,11 @@ class FileServer(
           }
           function activate(){
             var act=ctrls[ci].getAttribute('data-act');
-            if(act==='seek'){ if(pending>=0) commitSeek(); else toggle(); }
+            if(act==='seek'){
+              if(!seekEngaged){ setEngaged(true); toast('◀ ▶ to seek · Back to exit'); }
+              else if(pending>=0) commitSeek();
+              else toggle();
+            }
             else if(act==='play') toggle();
             else if(act==='back') history.back();
             else if(act==='settings'){ if(menuOpen) closeMenu(); else openMenu(); }
@@ -959,6 +986,40 @@ class FileServer(
             ptoast.textContent=t; ptoast.classList.remove('hidden');
             if(toastTimer) clearTimeout(toastTimer);
             toastTimer=setTimeout(function(){ptoast.classList.add('hidden');},1500);
+          }
+
+          // D-pad confirm dialog (Convert / Not now), reused for both conversion prompts.
+          function confirmFocus(i){
+            confirmChoice=(i+confirmBtns.length)%confirmBtns.length;
+            confirmBtns.forEach(function(b,j){b.classList.toggle('focused',j===confirmChoice);});
+          }
+          function closeConfirm(){ confirmOpen=false; pconfirm.classList.add('hidden'); }
+          function confirmActivate(){
+            var yes=confirmChoice===0, y=confirmYes, n=confirmNo;
+            closeConfirm();
+            if(yes){ if(y) y(); } else { if(n) n(); }
+          }
+          function confirmCancel(){ var n=confirmNo; closeConfirm(); if(n) n(); }
+          function openConfirm(msg,onYes,onNo){
+            confirmOpen=true; confirmYes=onYes; confirmNo=onNo;
+            pconfirm.innerHTML='';
+            var m=document.createElement('div'); m.className='cmsg'; m.textContent=msg;
+            var row=document.createElement('div'); row.className='crow';
+            confirmBtns=['Convert','Not now'].map(function(lb,i){
+              var b=document.createElement('div'); b.className='cbtn'; b.textContent=lb;
+              b.addEventListener('mouseenter',function(){confirmFocus(i);});
+              b.addEventListener('click',function(){confirmFocus(i);confirmActivate();});
+              row.appendChild(b); return b;
+            });
+            pconfirm.appendChild(m); pconfirm.appendChild(row);
+            pconfirm.classList.remove('hidden');
+            showControls(); confirmFocus(0);
+          }
+          // Gate a conversion behind the prompt (unless the user turned asking off).
+          function askConvertConfirm(onYes,onNo){
+            if(!askConvert){ onYes(); return; }
+            openConfirm("This file's format may not be fully supported by your browser. "
+              + "Convert it for smooth playback and seeking? This can take a while.", onYes, onNo);
           }
 
           // Remux integration. Two paths share the same server routes:
@@ -1034,10 +1095,12 @@ class FileServer(
             if(remuxTried||usingRemux){ finalErr(); return; }
             if(window.fetch&&REMUX&&REMUX.id&&REMUX.conv){
               remuxTried=true;
-              showErr('Preparing video…');
-              fetch('/remux/start?id='+REMUX.id)
-                .then(function(){ pollRemux(); })
-                .catch(function(){ finalErr(); });
+              askConvertConfirm(function(){
+                showErr('Preparing video…');
+                fetch('/remux/start?id='+REMUX.id)
+                  .then(function(){ pollRemux(); })
+                  .catch(function(){ finalErr(); });
+              }, function(){ finalErr(); });
             } else {
               finalErr();
             }
@@ -1072,13 +1135,14 @@ class FileServer(
                   if(s.state==='ready'){
                     remuxReady=true;
                     pprog.classList.add('hidden');
-                    toast('Fast seeking ready');
+                    if(!hideProg) toast('Fast seeking ready');
                   } else if(s.state==='failed'){
                     // Direct play works; seeking stays slow. Drop the chip quietly.
                     pprog.classList.add('hidden');
                   } else {
-                    pprog.textContent=progText(s.pct||0);
-                    pprog.classList.remove('hidden');
+                    // Keep polling either way; just don't surface the chip when hidden.
+                    if(hideProg){ pprog.classList.add('hidden'); }
+                    else { pprog.textContent=progText(s.pct||0); pprog.classList.remove('hidden'); }
                     bgPoll();
                   }
                 })
@@ -1090,9 +1154,13 @@ class FileServer(
             if(bgStarted||remuxTried||usingRemux) return;
             if(!(window.fetch&&REMUX&&REMUX.id&&REMUX.conv)) return;
             bgStarted=true;
-            fetch('/remux/start?id='+REMUX.id)
-              .then(function(){ bgPoll(); })
-              .catch(function(){});
+            // Ask before the (possibly long) background conversion. Declining just leaves
+            // playback as-is with slow seeks.
+            askConvertConfirm(function(){
+              fetch('/remux/start?id='+REMUX.id)
+                .then(function(){ bgPoll(); })
+                .catch(function(){});
+            }, function(){});
           });
 
           // Settings menu (gear): Fullscreen + subtitle selection, D-pad navigable.
@@ -1120,6 +1188,12 @@ class FileServer(
               items.push({label:'No sidecar subtitles found',disabled:true});
             }
             if(media.tagName==='VIDEO') items.push({label:'＋ Custom subtitle…',run:openSubBrowser});
+            if(REMUX&&REMUX.conv) items.push({label:'Fast-seek progress: '+(hideProg?'Hidden':'Shown'),run:function(){
+              hideProg=!hideProg;
+              try{ localStorage.setItem('hideFastSeek',hideProg?'1':'0'); }catch(e){}
+              if(hideProg) pprog.classList.add('hidden');
+              toast('Fast-seek progress '+(hideProg?'hidden':'shown'));
+            }});
             return items;
           }
           function focusMenu(i){
@@ -1239,6 +1313,15 @@ class FileServer(
           // seekback/seekfwd come only from the remote's media buttons and seek
           // regardless of which control is focused.
           function handleKey(k){
+            if(confirmOpen){
+              switch(k){
+                case 'left': confirmFocus(confirmChoice-1); break;
+                case 'right': confirmFocus(confirmChoice+1); break;
+                case 'ok': confirmActivate(); break;
+                case 'back': confirmCancel(); break;
+              }
+              return true; // modal — swallow everything
+            }
             if(resumePending){
               if(k==='ok'){ applyResume(); return true; }
               if(k==='back'){ dismissResume(); return true; }
@@ -1256,15 +1339,15 @@ class FileServer(
               return true;
             }
             switch(k){
-              case 'left': if(onSeek()) seekBy(-10); else focus(ci-1); break;
-              case 'right': if(onSeek()) seekBy(10); else focus(ci+1); break;
+              case 'left': if(onSeek()&&seekEngaged) seekBy(-10); else focus(ci-1); break;
+              case 'right': if(onSeek()&&seekEngaged) seekBy(10); else focus(ci+1); break;
               case 'up': focus(ci-1); break;
               case 'down': focus(ci+1); break;
               case 'ok': activate(); break;
               case 'playpause': toggle(); break;
               case 'seekback': seekBy(-10); break;
               case 'seekfwd': seekBy(10); break;
-              case 'back': history.back(); break;
+              case 'back': if(seekEngaged) disengageSeek(true); else history.back(); break;
               default: return false;
             }
             showControls();
@@ -1947,6 +2030,35 @@ class FileServer(
           }
           // Search filtering hides tiles; skip them when moving focus.
           function isVisible(t){ return t.style.display!=='none' && t.offsetParent!==null; }
+          function activeActIndex(tile){
+            var a=acts(tile);
+            for(var i=0;i<a.length;i++) if(a[i].classList.contains('active')) return i;
+            return 0;
+          }
+          function setActiveIndex(tile,i){
+            var a=acts(tile);
+            a.forEach(function(el){el.classList.remove('active');});
+            if(a.length){ i=Math.max(0,Math.min(a.length-1,i)); a[i].classList.add('active'); }
+          }
+          // Number of columns = tiles sharing the first visible row's offsetTop. offsetTop
+          // is layout-stable — unlike getBoundingClientRect it isn't perturbed by the focus
+          // scale transform or a smooth scroll in flight.
+          function colCount(){
+            var vis=tiles.filter(isVisible);
+            if(vis.length<2) return 1;
+            var t0=vis[0].offsetTop, c=1;
+            while(c<vis.length && vis[c].offsetTop===t0) c++;
+            return c;
+          }
+          // Index of the tile one row above/below (dir -1/+1) in visible order, or -1 (no wrap).
+          function rowMove(dir){
+            var vis=tiles.filter(isVisible);
+            var vp=vis.indexOf(tiles[idx]);
+            if(vp<0) return -1;
+            var np=vp+dir*colCount();
+            if(np<0||np>=vis.length) return -1;
+            return tiles.indexOf(vis[np]);
+          }
           function focus(i,which){
             var n=tiles.length;
             var dir=(i>=idx)?1:-1;
@@ -2006,8 +2118,18 @@ class FileServer(
             switch(k){
               case 'right': focus(idx+1); return true;
               case 'left': focus(idx-1); return true;
-              case 'up': setActive(tiles[idx],'view'); return true;
-              case 'down': setActive(tiles[idx],'dl'); return true;
+              case 'up': {
+                var t=tiles[idx], ai=activeActIndex(t);
+                if(ai>0){ setActiveIndex(t,ai-1); }
+                else { var pu=rowMove(-1); if(pu>=0){ focus(pu); setActiveIndex(tiles[pu],acts(tiles[pu]).length-1); } }
+                return true;
+              }
+              case 'down': {
+                var td=tiles[idx], ad=activeActIndex(td), na=acts(td).length;
+                if(ad<na-1){ setActiveIndex(td,ad+1); }
+                else { var pd=rowMove(1); if(pd>=0){ focus(pd); setActiveIndex(tiles[pd],0); } }
+                return true;
+              }
               case 'ok': activate(); return true;
               case 'back':
                 var up=grid.getAttribute('data-up-href');
