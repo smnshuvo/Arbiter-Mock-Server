@@ -1,3 +1,5 @@
+import 'package:arbiter_mock_server/core/ads/ad_config.dart';
+import 'package:arbiter_mock_server/core/ads/ad_service.dart';
 import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
 import 'package:arbiter_mock_server/core/services/file_server_service.dart';
 import 'package:arbiter_mock_server/core/services/foreground_service.dart';
@@ -1019,6 +1021,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             passThroughUrl: passThroughUrl,
             autoPassThrough: autoPassThrough,
           ));
+          // Full-screen ad on server start, throttled to once per hour.
+          sl<AdService>().maybeShowInterstitial(
+            'ad_gate_start_server',
+            AdConfig.interstitialStartServer,
+          );
         },
         onCreateProfile: () {
           Navigator.pop(ctx);

@@ -46,6 +46,24 @@ object FileServerEvents {
         send(mapOf("type" to "remote", "count" to count))
     }
 
+    /** Playback state reported by the TV player, for the phone remote's seekbar/volume. */
+    fun playback(positionMs: Long, durationMs: Long, paused: Boolean, volume: Double) {
+        send(
+            mapOf(
+                "type" to "playback",
+                "positionMs" to positionMs,
+                "durationMs" to durationMs,
+                "paused" to paused,
+                "volume" to volume,
+            ),
+        )
+    }
+
+    /** The server has stopped (e.g. idle auto-stop) so the UI can update. */
+    fun serverStopped() {
+        send(mapOf("type" to "stopped"))
+    }
+
     private fun send(payload: Map<String, Any?>) {
         val current = sink ?: return
         main.post {

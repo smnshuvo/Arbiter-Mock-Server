@@ -183,7 +183,8 @@ class MainActivity : FlutterActivity() {
                     FileServer.authUser =
                         call.argument<String>("authUser")?.takeIf { it.isNotBlank() }
                     FileServer.authPass = call.argument<String>("authPass")
-                    FileServerService.startService(this, port, rootUri)
+                    val stopIfIdle = call.argument<Boolean>("stopIfIdle") ?: true
+                    FileServerService.startService(this, port, rootUri, stopIfIdle)
                     result.success(true)
                 }
                 "setUploadsEnabled" -> {

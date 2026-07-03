@@ -46,3 +46,5 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
+# AdMob real ad unit IDs — keep out of version control
+/lib/core/ads/ad_config.dart

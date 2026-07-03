@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/ads/ad_banner.dart';
+import '../../core/ads/ad_config.dart';
 import '../../domain/entities/endpoint.dart';
 import '../../domain/entities/profile.dart';
 import '../bloc/endpoint/endpoint_bloc.dart';
@@ -122,6 +124,7 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
           },
           child: const Icon(Icons.add),
         ),
+        bottomNavigationBar: AdBanner(adUnitId: AdConfig.bannerEndpoint),
       ),
     );
   }

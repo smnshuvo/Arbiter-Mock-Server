@@ -31,15 +31,20 @@ class FileServerService : Service() {
 
         const val EXTRA_PORT = "extra_port"
         const val EXTRA_ROOT_URI = "extra_root_uri"
+        const val EXTRA_STOP_IF_IDLE = "extra_stop_if_idle"
+
+        /** Auto-stop the server after this much inactivity when "stop if idle" is on. */
+        private const val IDLE_TIMEOUT_MS = 60L * 60L * 1000L // 1 hour
 
         /** Broadcast fired when the notification "Stop" button is tapped. */
         const val ACTION_STOP_SERVER_BROADCAST =
             "auravation.arbiter.mock_server.ACTION_STOP_FILE_SERVER"
 
-        fun startService(context: Context, port: Int, rootUri: String) {
+        fun startService(context: Context, port: Int, rootUri: String, stopIfIdle: Boolean) {
             val intent = Intent(context, FileServerService::class.java).apply {
                 putExtra(EXTRA_PORT, port)
                 putExtra(EXTRA_ROOT_URI, rootUri)
+                putExtra(EXTRA_STOP_IF_IDLE, stopIfIdle)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -70,6 +75,8 @@ class FileServerService : Service() {
 
     private var server: FileServer? = null
     private var port: Int = 8080
+    private var stopIfIdle: Boolean = true
+    private var idleWatchdog: java.util.concurrent.ScheduledExecutorService? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -84,6 +91,7 @@ class FileServerService : Service() {
         }
 
         port = intent?.getIntExtra(EXTRA_PORT, 8080) ?: 8080
+        stopIfIdle = intent?.getBooleanExtra(EXTRA_STOP_IF_IDLE, true) ?: true
         val rootUriString = intent?.getStringExtra(EXTRA_ROOT_URI)
 
         // Show the notification first so we satisfy the foreground-service contract even
@@ -100,10 +108,12 @@ class FileServerService : Service() {
             stopServerInstance()
             // Traffic stats are per server session.
             FileServer.totalBytes.set(0)
+            FileServer.lastActivityAt = System.currentTimeMillis()
             server = FileServer(applicationContext, Uri.parse(rootUriString), port).also {
                 it.start(NanoHttpdConstants.SOCKET_READ_TIMEOUT, false)
             }
-            Log.d(TAG, "File server started on port $port")
+            Log.d(TAG, "File server started on port $port (stopIfIdle=$stopIfIdle)")
+            startIdleWatchdog()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start file server: ${e.message}")
             stopSelf()
@@ -123,12 +133,45 @@ class FileServerService : Service() {
     }
 
     private fun stopServerInstance() {
+        idleWatchdog?.shutdownNow()
+        idleWatchdog = null
         try {
             server?.stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping server: ${e.message}")
         }
         server = null
+    }
+
+    /**
+     * When "stop if idle" is enabled, poll once a minute and stop the server once it has
+     * gone [IDLE_TIMEOUT_MS] without a request — but never while a download/stream is
+     * still in flight. Notifies Dart so the UI flips back to the stopped state.
+     */
+    private fun startIdleWatchdog() {
+        idleWatchdog?.shutdownNow()
+        if (!stopIfIdle) {
+            idleWatchdog = null
+            return
+        }
+        val exec = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+        idleWatchdog = exec
+        exec.scheduleWithFixedDelay(
+            {
+                try {
+                    if (FileServer.idleMillis() >= IDLE_TIMEOUT_MS &&
+                        FileServer.activeStreamCount() == 0
+                    ) {
+                        Log.d(TAG, "Idle timeout reached; auto-stopping file server")
+                        FileServerEvents.serverStopped()
+                        stopSelf()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Idle watchdog error: ${e.message}")
+                }
+            },
+            60L, 60L, java.util.concurrent.TimeUnit.SECONDS,
+        )
     }
 
     private fun urlText(): String {
