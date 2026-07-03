@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:arbiter_mock_server/core/ads/ad_service.dart';
 import 'package:arbiter_mock_server/core/theme/app_theme_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -18,6 +21,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await di.init();
   await di.setupRequestNotificationCallback(); // Setup notification callback after all dependencies are ready
+  unawaited(di.sl<AdService>().init()); // Initialize the Mobile Ads SDK (no-op on desktop)
   runApp(
       BlocProvider(create: (_) => di.sl<ThemeCubit>(), child: const MyApp()));
 }

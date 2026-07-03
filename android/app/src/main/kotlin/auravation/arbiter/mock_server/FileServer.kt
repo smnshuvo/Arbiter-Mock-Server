@@ -141,6 +141,15 @@ class FileServer(
         fun activeStreamCount(): Int = activeStreams.get()
 
         /**
+         * Wall-clock time (ms) of the most recent request. The FileServerService
+         * idle watchdog reads this to auto-stop the server after inactivity.
+         */
+        @Volatile
+        var lastActivityAt: Long = System.currentTimeMillis()
+
+        fun idleMillis(): Long = System.currentTimeMillis() - lastActivityAt
+
+        /**
          * Optional HTTP Basic credentials from the app's "Require login" switch.
          * Null/blank user = anonymous access (the default). Volatile so flips apply to
          * the running server.
@@ -271,6 +280,7 @@ class FileServer(
     }
 
     override fun serve(session: IHTTPSession): Response {
+        lastActivityAt = System.currentTimeMillis()
         FileServerEvents.requestCount(requestCounter.incrementAndGet())
         val user = authUser
         if (!user.isNullOrEmpty() && !isAuthorized(session, user, authPass ?: "")) {
@@ -400,7 +410,9 @@ class FileServer(
             uri == "/thumb" -> serveThumb(session)
             uri == "/storyboard" -> serveStoryboard(session)
             uri == "/icon.png" -> serveIcon()
+            uri == "/favicon.ico" -> serveFavicon()
             uri == "/remote/events" -> remoteEvents()
+            uri == "/remote/state" -> remoteState(session)
             uri == "/remux/start" -> remuxStart(session)
             uri == "/remux/status" -> remuxStatus(session)
             uri == "/remux" -> serveRemux(session)
@@ -1277,6 +1289,31 @@ class FileServer(
             timeEl.textContent=fmt(media.currentTime)+' / '+fmt(d);
           });
 
+          // Click/tap the video surface toggles play/pause. The control-bar buttons
+          // are separate elements and handle their own clicks, so this only fires
+          // on the video itself.
+          media.addEventListener('click',function(){ toggle(); showControls(); });
+
+          // Report playback state to the phone remote so its seekbar + volume mirror
+          // the movie (throttled ~1/s on timeupdate; immediate on state changes).
+          var lastReport=0;
+          function reportState(force){
+            var now=Date.now();
+            if(!force && now-lastReport<900) return;
+            lastReport=now;
+            var d=media.duration, t=media.currentTime||0;
+            var url='/remote/state?t='+t.toFixed(2)
+                   +'&d='+(isFinite(d)?d.toFixed(2):'0')
+                   +'&p='+(media.paused?1:0)
+                   +'&v='+(media.volume!=null?media.volume.toFixed(2):'1');
+            try{ fetch(url,{method:'GET',keepalive:true}); }catch(e){}
+          }
+          media.addEventListener('timeupdate',function(){ reportState(false); });
+          media.addEventListener('play',function(){ reportState(true); });
+          media.addEventListener('pause',function(){ reportState(true); });
+          media.addEventListener('volumechange',function(){ reportState(true); });
+          media.addEventListener('loadedmetadata',function(){ reportState(true); });
+
           ctrls.forEach(function(c,i){
             c.addEventListener('mouseenter',function(){focus(i);showControls();});
             c.addEventListener('click',function(e){
@@ -1354,6 +1391,15 @@ class FileServer(
             return true;
           }
           window.__remoteKey=handleKey;
+          // Absolute seek + volume driven from the phone remote's sliders.
+          window.__remoteSeek=function(sec){
+            var s=parseFloat(sec);
+            if(!isNaN(s)){ applySeek(Math.max(0,s)); showControls(); reportState(true); }
+          };
+          window.__remoteVol=function(v){
+            var x=parseFloat(v);
+            if(!isNaN(x)){ media.volume=Math.min(1,Math.max(0,x)); reportState(true); }
+          };
 
           document.addEventListener('keydown',function(e){
             if(handleKey(keyOf(e))) e.preventDefault();
@@ -1678,6 +1724,22 @@ class FileServer(
         return res
     }
 
+    /**
+     * GET /remote/state — the TV player reports its playback position/duration/
+     * volume so the phone remote's seekbar and volume slider can mirror it.
+     * Params: t=currentTime(s), d=duration(s), p=paused(0/1), v=volume(0..1).
+     */
+    private fun remoteState(session: IHTTPSession): Response {
+        val t = session.parameters["t"]?.firstOrNull()?.toDoubleOrNull() ?: 0.0
+        val d = session.parameters["d"]?.firstOrNull()?.toDoubleOrNull() ?: 0.0
+        val paused = session.parameters["p"]?.firstOrNull() == "1"
+        val v = session.parameters["v"]?.firstOrNull()?.toDoubleOrNull() ?: 1.0
+        FileServerEvents.playback((t * 1000).toLong(), (d * 1000).toLong(), paused, v)
+        val res = newFixedLengthResponse(Response.Status.NO_CONTENT, "text/plain", "")
+        res.addHeader("Cache-Control", "no-cache")
+        return res
+    }
+
     /** GET /icon.png — the app's launcher icon (brand header + favicon). */
     private fun serveIcon(): Response {
         val bytes = iconPngBytes
@@ -1688,6 +1750,24 @@ class FileServer(
         )
         res.addHeader("Cache-Control", "max-age=86400")
         return res
+    }
+
+    /** GET /favicon.ico — the app's bundled favicon asset (used as the page icon). */
+    private fun serveFavicon(): Response {
+        return try {
+            val bytes = context.assets
+                .open("flutter_assets/assets/favicon.ico")
+                .use { it.readBytes() }
+            val res = newFixedLengthResponse(
+                Response.Status.OK, "image/x-icon",
+                java.io.ByteArrayInputStream(bytes), bytes.size.toLong(),
+            )
+            res.addHeader("Cache-Control", "max-age=86400")
+            res
+        } catch (e: Exception) {
+            // Fall back to the generated launcher icon if the asset is missing.
+            serveIcon()
+        }
     }
 
     /** Inline SVG placeholder (film strip, or a music note for audio). */
@@ -1929,7 +2009,7 @@ class FileServer(
         return """
         <!doctype html><html lang='en'><head><meta charset='utf-8'>
         <meta name='viewport' content='width=device-width,initial-scale=1'>
-        <link rel='icon' href='/icon.png'>
+        <link rel='icon' type='image/x-icon' href='/favicon.ico'>
         <title>$title · Arbiter File Server</title>
         <style>
           :root{--bg:#0f1216;--card:#181d24;--fg:#e7ecf2;--muted:#8a97a6;--accent:#4f9dff;--line:#232a33}
@@ -2166,6 +2246,14 @@ class FileServer(
               var d=ev.data||'';
               if(d.indexOf('text:')===0){
                 if(window.__remoteText) window.__remoteText(d.substring(5));
+                return;
+              }
+              if(d.indexOf('seek:')===0){
+                if(window.__remoteSeek) window.__remoteSeek(d.substring(5));
+                return;
+              }
+              if(d.indexOf('vol:')===0){
+                if(window.__remoteVol) window.__remoteVol(d.substring(4));
                 return;
               }
               if(window.__remoteKey) window.__remoteKey(d);

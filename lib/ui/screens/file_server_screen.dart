@@ -5,8 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/ads/ad_config.dart';
+import '../../core/ads/ad_service.dart';
 import '../../core/services/file_server_service.dart';
 import '../../core/theme/app_theme_data.dart';
+import '../bloc/dependency_container.dart';
 import 'file_server_remote_screen.dart';
 
 /// Android-only Wi-Fi file server control screen.
@@ -27,6 +30,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
   static const _authEnabledPrefKey = 'file_server_auth_enabled';
   static const _authUserPrefKey = 'file_server_auth_user';
   static const _authPassPrefKey = 'file_server_auth_pass';
+  static const _idleStopPrefKey = 'file_server_stop_if_idle';
 
   final FileServerService _service = FileServerService();
   final TextEditingController _portController =
@@ -45,6 +49,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
   int _remoteClients = 0;
   bool _uploadsEnabled = false;
   bool _authEnabled = false;
+  bool _stopIfIdle = true;
 
   int _totalBytes = 0;
   int _speedBps = 0;
@@ -74,6 +79,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
     final prefs = await SharedPreferences.getInstance();
     final savedPort = prefs.getInt(_portPrefKey);
     final uploads = prefs.getBool(_uploadsPrefKey) ?? false;
+    final stopIfIdle = prefs.getBool(_idleStopPrefKey) ?? true;
     final authEnabled = prefs.getBool(_authEnabledPrefKey) ?? false;
     final authUser = prefs.getString(_authUserPrefKey) ?? '';
     final authPass = prefs.getString(_authPassPrefKey) ?? '';
@@ -83,6 +89,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
     setState(() {
       if (savedPort != null) _portController.text = savedPort.toString();
       _uploadsEnabled = uploads;
+      _stopIfIdle = stopIfIdle;
       _authEnabled = authEnabled;
       _userController.text = authUser;
       _passController.text = authPass;
@@ -121,6 +128,16 @@ class _FileServerScreenState extends State<FileServerScreen> {
     await prefs.setBool(_uploadsPrefKey, enabled);
     // Takes effect immediately on an already-running server.
     if (_running) await _service.setUploadsEnabled(enabled);
+  }
+
+  Future<void> _setStopIfIdle(bool enabled) async {
+    setState(() => _stopIfIdle = enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_idleStopPrefKey, enabled);
+    // Applies on the next server start (the watchdog is configured at startup).
+    if (_running) {
+      _snack('Takes effect the next time you start the server');
+    }
   }
 
   void _startStatsPolling() {
@@ -171,10 +188,20 @@ class _FileServerScreenState extends State<FileServerScreen> {
           _scanDone = event.done;
           _scanTotal = event.total;
           break;
+        case FileServerEventType.stopped:
+          _running = false;
+          _url = null;
+          _remoteClients = 0;
+          _stopStatsPolling();
+          break;
+        case FileServerEventType.playback:
+          break; // Only the remote screen consumes playback events.
       }
     });
     if (event.type == FileServerEventType.scan && event.complete) {
       _snack('Scan complete · ${event.total} media file(s)');
+    } else if (event.type == FileServerEventType.stopped) {
+      _snack('Server stopped after 1 hour of inactivity');
     }
   }
 
@@ -224,6 +251,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
       uploadsEnabled: _uploadsEnabled,
       authUser: _effectiveAuthUser,
       authPass: _passController.text,
+      stopIfIdle: _stopIfIdle,
     );
     final ip = ok ? await _service.getLocalIp() : null;
     if (!mounted) return;
@@ -291,6 +319,8 @@ class _FileServerScreenState extends State<FileServerScreen> {
           _portField(),
           const SizedBox(height: 16),
           _uploadsToggle(),
+          const SizedBox(height: 16),
+          _idleStopToggle(),
           const SizedBox(height: 16),
           _accessCard(),
           const SizedBox(height: 16),
@@ -498,6 +528,33 @@ class _FileServerScreenState extends State<FileServerScreen> {
     );
   }
 
+  Widget _idleStopToggle() {
+    final cs = Theme.of(context).colorScheme;
+    return _card(
+      child: Row(
+        children: [
+          const Icon(Icons.timer_off_outlined, size: 24, color: AppColors.accent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Stop server if idle',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(
+                  'Automatically stop after 1 hour with no requests to save battery.',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: _stopIfIdle, onChanged: _setStopIfIdle),
+        ],
+      ),
+    );
+  }
+
   Widget _accessCard() {
     final cs = Theme.of(context).colorScheme;
     return _card(
@@ -619,6 +676,11 @@ class _FileServerScreenState extends State<FileServerScreen> {
           ),
           FilledButton.tonal(
             onPressed: () {
+              // Full-screen ad on opening the remote, throttled to once per hour.
+              sl<AdService>().maybeShowInterstitial(
+                'ad_gate_open_remote',
+                AdConfig.interstitialOpenRemote,
+              );
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) =>

@@ -2,6 +2,7 @@ import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/ads/ad_service.dart';
 import '../../core/services/foreground_service.dart';
 import '../../core/services/overlay_service.dart';
 import '../../core/services/server_manager.dart';
@@ -234,6 +235,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => ForegroundService());
   sl.registerLazySingleton(() => OverlayService());
   sl.registerLazySingleton(() => ThemeCubit());
+  sl.registerLazySingleton(() => AdService(sl<SharedPreferences>()));
 
   // Use cases - Foreground Service
   sl.registerLazySingleton(() => StartForegroundService(sl()));

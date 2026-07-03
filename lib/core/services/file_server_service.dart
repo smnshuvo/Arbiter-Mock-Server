@@ -18,21 +18,57 @@ class FileServerEvent {
     required this.complete,
   })  : type = FileServerEventType.scan,
         requestCount = 0,
-        remoteClients = 0;
+        remoteClients = 0,
+        positionMs = 0,
+        durationMs = 0,
+        paused = true,
+        volume = 1.0;
 
   const FileServerEvent.requests(this.requestCount)
       : type = FileServerEventType.requests,
         done = 0,
         total = 0,
         complete = false,
-        remoteClients = 0;
+        remoteClients = 0,
+        positionMs = 0,
+        durationMs = 0,
+        paused = true,
+        volume = 1.0;
 
   const FileServerEvent.remote(this.remoteClients)
       : type = FileServerEventType.remote,
         done = 0,
         total = 0,
         complete = false,
-        requestCount = 0;
+        requestCount = 0,
+        positionMs = 0,
+        durationMs = 0,
+        paused = true,
+        volume = 1.0;
+
+  const FileServerEvent.playback({
+    required this.positionMs,
+    required this.durationMs,
+    required this.paused,
+    required this.volume,
+  })  : type = FileServerEventType.playback,
+        done = 0,
+        total = 0,
+        complete = false,
+        requestCount = 0,
+        remoteClients = 0;
+
+  const FileServerEvent.stopped()
+      : type = FileServerEventType.stopped,
+        done = 0,
+        total = 0,
+        complete = false,
+        requestCount = 0,
+        remoteClients = 0,
+        positionMs = 0,
+        durationMs = 0,
+        paused = true,
+        volume = 1.0;
 
   final FileServerEventType type;
   final int done;
@@ -40,9 +76,13 @@ class FileServerEvent {
   final bool complete;
   final int requestCount;
   final int remoteClients;
+  final int positionMs;
+  final int durationMs;
+  final bool paused;
+  final double volume;
 }
 
-enum FileServerEventType { scan, requests, remote }
+enum FileServerEventType { scan, requests, remote, playback, stopped }
 
 /// Dart bridge to the native NanoHTTPD Wi-Fi file server (Android only).
 ///
@@ -74,6 +114,17 @@ class FileServerService {
       }
       if (map['type'] == 'remote') {
         return FileServerEvent.remote((map['count'] as int?) ?? 0);
+      }
+      if (map['type'] == 'playback') {
+        return FileServerEvent.playback(
+          positionMs: (map['positionMs'] as int?) ?? 0,
+          durationMs: (map['durationMs'] as int?) ?? 0,
+          paused: (map['paused'] as bool?) ?? true,
+          volume: ((map['volume'] as num?) ?? 1.0).toDouble(),
+        );
+      }
+      if (map['type'] == 'stopped') {
+        return const FileServerEvent.stopped();
       }
       return FileServerEvent.requests((map['count'] as int?) ?? 0);
     });
@@ -122,6 +173,7 @@ class FileServerService {
     bool uploadsEnabled = false,
     String? authUser,
     String? authPass,
+    bool stopIfIdle = true,
   }) async {
     if (!_supported) return false;
     try {
@@ -131,6 +183,7 @@ class FileServerService {
         'uploadsEnabled': uploadsEnabled,
         'authUser': authUser,
         'authPass': authPass,
+        'stopIfIdle': stopIfIdle,
       });
       return ok ?? false;
     } on PlatformException catch (e) {
@@ -160,6 +213,14 @@ class FileServerService {
       print('FileServerService.sendRemoteKey failed: ${e.message}');
     }
   }
+
+  /// Seeks the TV player to an absolute position (seconds).
+  Future<void> seekTo(double seconds) =>
+      sendRemoteKey('seek:${seconds.toStringAsFixed(2)}');
+
+  /// Sets the TV player's volume (0..1).
+  Future<void> setVolume(double volume) =>
+      sendRemoteKey('vol:${volume.clamp(0.0, 1.0).toStringAsFixed(2)}');
 
   /// Sends search text to connected browsers (lands in the library search box).
   Future<void> sendRemoteText(String text) async {
