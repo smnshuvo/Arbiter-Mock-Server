@@ -118,6 +118,10 @@ class FileServer(
     private val requestCounter = java.util.concurrent.atomic.AtomicInteger(0)
 
     companion object {
+        /** Caps for the /subslist tree walk so a huge share can't stall the request. */
+        private const val MAX_SUBTITLE_FILES = 500
+        private const val MAX_SUBTITLE_DIRS = 2000
+
         /**
          * App-side toggle: when false, every POST /upload is refused. Volatile so a flip
          * from the Flutter screen takes effect on the already-running server.
@@ -401,6 +405,7 @@ class FileServer(
             uri == "/remux/status" -> remuxStatus(session)
             uri == "/remux" -> serveRemux(session)
             uri == "/subs" -> serveSubtitle(session)
+            uri == "/subslist" -> subtitleListJson()
             else -> text(Response.Status.NOT_FOUND, "Not found")
         }
     }
@@ -752,6 +757,7 @@ class FileServer(
         sb.append("<a class='pctl' data-act='download' href='$dlHref' title='Download'>⬇</a>")
         sb.append("</div>")
         sb.append("<div class='pmenu hidden' id='pmenu'></div>")
+        sb.append("<div class='presume hidden' id='presume'></div>")
         sb.append("<div class='ptoast hidden' id='ptoast'></div>")
         sb.append("<div class='perr hidden' id='perr'></div>")
         sb.append("<div class='pprog hidden' id='pprog'></div>")
@@ -809,9 +815,11 @@ class FileServer(
                   transition:opacity .25s ease;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
           .ptitle.hidden{opacity:0}
           .pmenu{position:absolute;right:18px;bottom:76px;background:rgba(20,24,30,.95);
-                border-radius:12px;padding:8px;min-width:230px;display:flex;
+                border-radius:12px;padding:8px;min-width:230px;max-width:min(70vw,520px);
+                max-height:70vh;overflow-y:auto;display:flex;
                 flex-direction:column;gap:4px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
           .pmenu.hidden{display:none}
+          .mitem.wrap{white-space:normal;word-break:break-word}
           .mitem{color:#fff;padding:10px 14px;border-radius:8px;font-size:15px;
                 border:2px solid transparent;cursor:pointer;white-space:nowrap}
           .mitem.focused{border-color:var(--accent);background:var(--accent)}
@@ -829,6 +837,11 @@ class FileServer(
                 font-size:12.5px;padding:5px 12px;border-radius:10px;z-index:4;
                 font-variant-numeric:tabular-nums;border:1px solid rgba(255,255,255,.12)}
           .pprog.hidden{display:none}
+          .presume{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);
+                background:rgba(20,24,30,.96);color:#fff;padding:12px 20px;border-radius:12px;
+                font-size:15px;max-width:80%;text-align:center;cursor:pointer;z-index:6;
+                border:2px solid var(--accent);box-shadow:0 8px 24px rgba(0,0,0,.5)}
+          .presume.hidden{display:none}
           video::cue{background:rgba(0,0,0,.65);color:#fff;font-size:1.1em}
         </style>
     """.trimIndent()
@@ -1104,8 +1117,9 @@ class FileServer(
                 items.push({label:'Subtitles: '+lb,check:cur===i,run:function(){setSub(i);}});
               })(i);
             } else {
-              items.push({label:'No subtitles found',disabled:true});
+              items.push({label:'No sidecar subtitles found',disabled:true});
             }
+            if(media.tagName==='VIDEO') items.push({label:'＋ Custom subtitle…',run:openSubBrowser});
             return items;
           }
           function focusMenu(i){
@@ -1113,17 +1127,19 @@ class FileServer(
             mi=(i+mitems.length)%mitems.length;
             mitems.forEach(function(m){m.el.classList.remove('focused');});
             mitems[mi].el.classList.add('focused');
+            if(mitems[mi].el.scrollIntoView) mitems[mi].el.scrollIntoView({block:'nearest'});
           }
           function pickMenu(){
             var it=mitems[mi]&&mitems[mi].it;
             if(!it||it.disabled) return;
             closeMenu(); it.run();
           }
-          function openMenu(){
+          function renderMenu(list){
             pmenu.innerHTML='';
-            mitems=menuItems().map(function(it,i){
+            pmenu.scrollTop=0;
+            mitems=list.map(function(it,i){
               var el=document.createElement('div');
-              el.className='mitem'+(it.disabled?' disabled':'');
+              el.className='mitem'+(it.disabled?' disabled':'')+(it.wrap?' wrap':'');
               el.textContent=it.label+(it.check?'  ✓':'');
               el.addEventListener('mouseenter',function(){focusMenu(i);});
               el.addEventListener('click',function(){focusMenu(i);pickMenu();});
@@ -1134,7 +1150,40 @@ class FileServer(
             menuOpen=true;
             focusMenu(0);
           }
+          function openMenu(){ renderMenu(menuItems()); }
           function closeMenu(){ pmenu.classList.add('hidden'); menuOpen=false; }
+
+          // Custom subtitle picker: /subslist is every .srt/.vtt in the share, so the user
+          // can attach one whose name/folder doesn't match the video. Selecting it appends
+          // a <track> and shows only it.
+          function openSubBrowser(){
+            toast('Loading subtitles…');
+            fetch('/subslist').then(function(r){return r.json();}).then(function(list){
+              var items=[{label:'← Back',run:openMenu}];
+              if(!list.length){
+                items.push({label:'No subtitle files in the share',disabled:true});
+              } else {
+                list.forEach(function(s){
+                  items.push({label:'📜 '+s.label,wrap:true,run:function(){loadCustomSub(s);}});
+                });
+              }
+              renderMenu(items);
+            }).catch(function(){ toast('Could not load subtitles'); });
+          }
+          function loadCustomSub(s){
+            var tr=document.createElement('track');
+            tr.kind='subtitles';
+            tr.label=s.label||'Custom';
+            tr.srclang='und';
+            tr.src='/subs?doc='+encodeURIComponent(s.doc)+'&ext='+encodeURIComponent(s.ext||'srt');
+            media.appendChild(tr);
+            // The appended <track> registers in media.textTracks; show only it.
+            setTimeout(function(){
+              var tt=media.textTracks;
+              for(var i=0;i<tt.length;i++) tt[i].mode=(tt[i]===tr.track?'showing':'hidden');
+              toast('Subtitle: '+(s.label||'custom'));
+            },0);
+          }
           function showControls(){
             pbar.classList.remove('hidden'); ptitle.classList.remove('hidden');
             if(hideTimer) clearTimeout(hideTimer);
@@ -1190,6 +1239,11 @@ class FileServer(
           // seekback/seekfwd come only from the remote's media buttons and seek
           // regardless of which control is focused.
           function handleKey(k){
+            if(resumePending){
+              if(k==='ok'){ applyResume(); return true; }
+              if(k==='back'){ dismissResume(); return true; }
+              dismissResume(); // any other key dismisses, then acts normally below
+            }
             if(menuOpen){
               switch(k){
                 case 'up': focusMenu(mi-1); break;
@@ -1221,6 +1275,57 @@ class FileServer(
           document.addEventListener('keydown',function(e){
             if(handleKey(keyOf(e))) e.preventDefault();
           });
+
+          // Resume-from-last-position. Position is saved per video (keyed by the /player
+          // URL, so it survives the remux source-swap) in localStorage; on reopen we offer
+          // to jump back. Saving pauses while the prompt is up so the fresh autoplay-from-0
+          // doesn't clobber the stored position before the user answers.
+          var STOREKEY='resume:'+location.pathname+location.search;
+          var presume=document.getElementById('presume');
+          var resumePending=false, resumeSecs=0, resumeShown=false;
+          var resumeTimer=null, lastSave=0;
+          function loadSaved(){ try{ return parseInt(localStorage.getItem(STOREKEY)||'0',10)||0; }catch(e){ return 0; } }
+          function saveNow(){
+            if(resumePending) return;
+            try{
+              var t=Math.floor(media.currentTime), d=media.duration||0;
+              if(d&&t>=d-10) localStorage.removeItem(STOREKEY);
+              else if(t>3) localStorage.setItem(STOREKEY,String(t));
+            }catch(e){}
+          }
+          function askResume(s){
+            resumePending=true; resumeSecs=s;
+            presume.textContent='▶ Resume from '+fmt(s)+'?  ·  OK to resume, Back to start over';
+            presume.classList.remove('hidden');
+            showControls();
+            if(resumeTimer) clearTimeout(resumeTimer);
+            resumeTimer=setTimeout(dismissResume,12000);
+          }
+          function endResume(){
+            resumePending=false;
+            presume.classList.add('hidden');
+            if(resumeTimer){ clearTimeout(resumeTimer); resumeTimer=null; }
+          }
+          function applyResume(){
+            if(!resumePending) return;
+            var t=resumeSecs; endResume(); applySeek(t); toast('Resumed from '+fmt(t));
+          }
+          function dismissResume(){ if(resumePending) endResume(); }
+          presume.addEventListener('click',applyResume);
+          media.addEventListener('loadedmetadata',function(){
+            if(resumeShown) return; // fire once — the remux swap reloads metadata
+            resumeShown=true;
+            var s=loadSaved(), d=media.duration||0;
+            if(s>5&&(!d||s<d-15)) askResume(s);
+          });
+          media.addEventListener('timeupdate',function(){
+            var now=Date.now();
+            if(now-lastSave<5000) return;
+            lastSave=now; saveNow();
+          });
+          media.addEventListener('pause',saveNow);
+          media.addEventListener('ended',function(){ try{ localStorage.removeItem(STOREKEY); }catch(e){} });
+          window.addEventListener('beforeunload',saveNow);
 
           focus(1); showControls();
         })();
@@ -1339,21 +1444,37 @@ class FileServer(
 
     /**
      * GET /subs?id=<media_id>&n=<i> or /subs?v=/raw/<path>&n=<i> — the i-th sidecar
-     * subtitle as WebVTT (SRT is converted on the fly; browsers only take VTT tracks).
+     * subtitle as WebVTT; or /subs?doc=<documentId>&ext=<srt|vtt> — an arbitrary
+     * subtitle file the user picked from the share (see /subslist). SRT is converted
+     * on the fly; browsers only take VTT tracks.
      */
     private fun serveSubtitle(session: IHTTPSession): Response {
+        val doc = session.parameters["doc"]?.firstOrNull()
+        if (!doc.isNullOrEmpty()) {
+            val isVtt = session.parameters["ext"]?.firstOrNull()?.lowercase() == "vtt"
+            return serveSubtitleDoc(doc, isVtt)
+        }
         val n = session.parameters["n"]?.firstOrNull()?.toIntOrNull() ?: 0
         val id = session.parameters["id"]?.firstOrNull()?.toLongOrNull()
         val v = session.parameters["v"]?.firstOrNull()
         val sub = subtitlesFor(id, v).getOrNull(n)?.first
             ?: return text(Response.Status.NOT_FOUND, "No subtitles")
+        return serveSubtitleDoc(sub.documentId, FileTypes.extensionOf(sub.name) == "vtt")
+    }
+
+    /**
+     * Reads a subtitle document (restricted to the shared tree by [docUriFor], which
+     * only resolves ids the persisted tree permission covers) and returns it as WebVTT.
+     * SRT gets its comma timestamps rewritten to dots; VTT is passed through.
+     */
+    private fun serveSubtitleDoc(documentId: String, isVtt: Boolean): Response {
         return try {
-            val input = context.contentResolver.openInputStream(docUriFor(sub.documentId))
+            val input = context.contentResolver.openInputStream(docUriFor(documentId))
                 ?: return text(Response.Status.NOT_FOUND, "No subtitles")
             val raw = input.use { it.readBytes() }
             if (raw.size > 2_000_000) return text(Response.Status.NOT_FOUND, "Subtitle too large")
             val content = String(raw, Charsets.UTF_8).removePrefix("\uFEFF")
-            val vtt = if (FileTypes.extensionOf(sub.name) == "vtt") {
+            val vtt = if (isVtt) {
                 content
             } else {
                 "WEBVTT\n\n" + content.replace(
@@ -1366,6 +1487,56 @@ class FileServer(
         } catch (e: Exception) {
             text(Response.Status.NOT_FOUND, "No subtitles")
         }
+    }
+
+    /**
+     * GET /subslist \u2014 every .srt/.vtt anywhere in the shared tree as JSON
+     * [{"label":"Subs/movie.fr.srt","doc":"<documentId>","ext":"srt"}], so the player's
+     * "Custom subtitle" picker can load one whose name/folder doesn't match the video.
+     * Bounded (depth + count caps) so a huge share can't stall the request.
+     */
+    private fun subtitleListJson(): Response {
+        val subs = allSubtitles()
+        val sb = StringBuilder("[")
+        subs.forEachIndexed { i, (relPath, documentId) ->
+            if (i > 0) sb.append(",")
+            sb.append("{\"label\":\"").append(jsonEscape(relPath))
+                .append("\",\"doc\":\"").append(jsonEscape(documentId))
+                .append("\",\"ext\":\"").append(FileTypes.extensionOf(relPath))
+                .append("\"}")
+        }
+        sb.append("]")
+        val res = newFixedLengthResponse(Response.Status.OK, "application/json", sb.toString())
+        res.addHeader("Cache-Control", "no-store")
+        return res
+    }
+
+    /**
+     * Breadth-first walk of the shared tree collecting subtitle files, each paired with
+     * its share-relative path (for a readable label). Caps keep a pathological library
+     * (deeply nested / tens of thousands of files) from blocking the server thread.
+     */
+    private fun allSubtitles(): List<Pair<String, String>> {
+        val root = rootDocId ?: return emptyList()
+        val out = ArrayList<Pair<String, String>>()
+        val queue = ArrayDeque<Pair<String, String>>() // (documentId, share-relative path)
+        queue.add(root to "")
+        var dirsVisited = 0
+        while (queue.isNotEmpty() && out.size < MAX_SUBTITLE_FILES && dirsVisited < MAX_SUBTITLE_DIRS) {
+            val (dirId, prefix) = queue.removeFirst()
+            dirsVisited++
+            val children = listChildren(dirId) ?: continue
+            for (child in children) {
+                val rel = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
+                if (child.isDirectory) {
+                    queue.add(child.documentId to rel)
+                } else if (FileTypes.extensionOf(child.name) in setOf("srt", "vtt")) {
+                    out.add(rel to child.documentId)
+                    if (out.size >= MAX_SUBTITLE_FILES) break
+                }
+            }
+        }
+        return out.sortedBy { it.first.lowercase() }
     }
 
     // ---- MKV remux fallback ---------------------------------------------------
@@ -1900,6 +2071,22 @@ class FileServer(
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
+
+    /** Escapes a string for embedding inside a JSON string literal (see /subslist). */
+    private fun jsonEscape(s: String): String {
+        val sb = StringBuilder(s.length + 8)
+        for (c in s) {
+            when (c) {
+                '\\' -> sb.append("\\\\")
+                '"' -> sb.append("\\\"")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> if (c < ' ') sb.append("\\u%04x".format(c.code)) else sb.append(c)
+            }
+        }
+        return sb.toString()
+    }
 
     /**
      * Opens the file positioned at [start]. Uses a real O(1) seek on the file descriptor
