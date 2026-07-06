@@ -120,24 +120,67 @@ class _FileServerRemoteScreenState extends State<FileServerRemoteScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('TV Remote')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            children: [
-              _statusCard(),
-              const SizedBox(height: 12),
-              _searchField(),
-              const SizedBox(height: 16),
-              _playbackControls(),
-              const SizedBox(height: 24),
-              _dpad(),
-              const SizedBox(height: 24),
-              _mediaRow(),
-            ],
-          ),
+        child: OrientationBuilder(
+          builder: (context, orientation) => orientation == Orientation.landscape
+              ? _landscapeBody()
+              : _portraitBody(),
         ),
       ),
       bottomNavigationBar: AdBanner(adUnitId: AdConfig.bannerRemote),
+    );
+  }
+
+  Widget _portraitBody() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      child: Column(
+        children: [
+          _statusCard(),
+          const SizedBox(height: 12),
+          _searchField(),
+          const SizedBox(height: 16),
+          _playbackControls(),
+          const SizedBox(height: 24),
+          _dpad(),
+          const SizedBox(height: 24),
+          _mediaRow(),
+        ],
+      ),
+    );
+  }
+
+  /// Landscape splits the screen: the D-pad on the left, playback/transport
+  /// controls on the right, so nothing is buried below the fold.
+  Widget _landscapeBody() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      child: Column(
+        children: [
+          _statusCard(),
+          const SizedBox(height: 10),
+          _searchField(),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Pad on the left.
+              Expanded(child: Center(child: _dpad())),
+              const SizedBox(width: 20),
+              // Controls on the right.
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _playbackControls(),
+                    const SizedBox(height: 20),
+                    _mediaRow(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

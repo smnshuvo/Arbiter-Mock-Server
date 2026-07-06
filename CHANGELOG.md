@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 3.0.1 (Build 9)
+
+The app is now **Arbiter File Server** — renamed across Android, iOS, macOS, Linux, and Windows.
+
+**Phone as TV remote**
+• Control the file-server web UI from your phone: D-pad, search typing, and playback keys pushed live to connected browsers (with a crisp native click on every press)
+• Live playback sync — a real seekbar and volume slider in the app that track and control the video playing on the TV
+• Landscape layout for the remote: D-pad on the left, playback controls on the right
+
+**Player & media**
+• MKV/TS files are now playable and fast-seekable — converted to MP4 on-device, with live progress shown in the player and a prompt before converting
+• Custom subtitle picker (choose any subtitle file from the share) and resume-from-last-position
+• Seek-engage mode for precise scrubbing; audio-drift fix for remuxed files
+• New full-screen image viewer: open photos from the file browser, flip through the folder with remote arrows or keys, with counter and download
+• File browser tiles now show real thumbnails for images and videos (generated lazily, cached)
+
+**File server**
+• Auto-stop after 1 hour of inactivity (optional) so the server doesn't run forever in the background
+• Fixed: reopening the File Server screen while the server was running showed it as stopped — the screen now re-syncs with the live server (URL, port, request count, traffic stats)
+
+---
+
 ## Version 3.0.0 (Build 8)
 
 ### 🎉 Major Feature: Wi-Fi File Server (Android)

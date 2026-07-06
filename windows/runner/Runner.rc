@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "spartan_mock_server" "\0"
+            VALUE "FileDescription", "Arbiter File Server" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "spartan_mock_server" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
             VALUE "OriginalFilename", "spartan_mock_server.exe" "\0"
-            VALUE "ProductName", "spartan_mock_server" "\0"
+            VALUE "ProductName", "Arbiter File Server" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

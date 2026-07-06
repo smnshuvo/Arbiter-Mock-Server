@@ -1,64 +1,93 @@
-# Tasks
+# Arbiter UI Revamp — Task Board
 
-# Home Screen Revamp — Feasibility & Work Scope
+Source design: Claude Design project **"Mock server live activities UI"** (`20250bb0-…`), file `Arbiter Revamp.dc.html`.
+Design screens: **Servers Home**, **Server Detail** (Endpoints / Logs / Settings tabs, HTTP + FTP variants), **New Server**, **Endpoint Editor**, plus a **Desktop** layout.
 
-Source design: `Arbiter Revamp.dc.html` (Claude Design project "Mock server live activities UI", id `20250bb0-…`).
-Scope requested: **revamp the Home screen only.**
+Visual language: warm off-white surfaces, orange accent `#F4541F`, Hanken Grotesk + JetBrains Mono, dotted background, soft shadows, glow/pulse animation. Applied app-wide via `AppColors` tokens + `monoTextStyle()` in `lib/core/theme/app_theme_data.dart`.
 
-> The design file also contains a Server-Detail screen (Endpoints/Logs/Settings tabs + bottom nav), an Endpoint Editor (Mock / Code-exec / Pass-through), and Desktop layouts. Those are **out of scope** here and referenced only where Home navigates into them.
+## Standing decisions
+- **Themes:** keep both light and dark (palette tokenized into each); do not hardcode the design's light-only colors.
+- **Interception:** the global real-time interception control lives in **Settings** (not Home). Per-server interception is shown as a read-only chip.
+- **Stats (Network/Disk):** static placeholders until a metrics source exists.
+- **FTP:** `Profile.type` (http/ftp) exists and drives the type chip; the actual FTP server is a separate backend task.
 
-## 1. What the design's Home ("Servers") screen contains
-A single scrolling screen (`vServers`):
-1. **Header** — animated Arbiter icon, "Arbiter" / "mock servers", settings gear.
-2. **Big title** "Servers" + running summary (e.g. "2 of 3 running").
-3. **Stats strip** — Network card (`MB/s`, ▲up/▼down) + Disk card (used/total GB + progress bar).
-4. **Server cards** (one per profile): pulsing status dot, name, **type chip (HTTP/FTP)**, inline **Run/Stop toggle**, `localhost:port` URL, chips row (status, endpoint count, optional interception chip, optional error chip); tap → Server Detail.
-5. **"＋ New server"** dashed button.
+---
 
-Visual language: light theme only, warm off-white cards (`#FFFCFA`), orange accent (`#F4541F`), Hanken Grotesk + JetBrains Mono, dotted background, glow/pulse animations.
+## ✅ Completed
+- **Theme foundation** — `AppColors` tokens + `monoTextStyle()`; light/dark `ThemeData` on accent `#F4541F`; fonts via `google_fonts`.
+- **Profile.type** — `enum ServerType { http, ftp }` on `Profile`/`ProfileModel`; `type` column, DB migration v3→v4 (default `http`).
+- **Servers Home** — per-profile server-card list (status dot, name, type chip, elevated Run/Stop, URL, endpoint-count chip, `intercepting` chip), running summary, static stats strip, header (theme toggle + Logs + Settings), "＋ New server".
+- **Interception → Settings** — toggle + mode dropdown moved to `SettingsScreen`.
+- Card tap switches active profile → opens Endpoints; per-card Run uses stored settings with free-port fallback.
 
-## 2. Mapping to the current Home screen
-Current `home_screen.dart`: single/multi server status card + global Port card + global Real-time Interception card + "Manage Endpoints"/"View Logs" buttons; AppBar has settings + light/dark theme switch; `_StartProfileSheet` collects profile/port/device-IP/auto-pass-through on start.
+Remaining verification for the above: run the app end-to-end (start/stop, multi-profile, theme switch, interception).
 
-| Design element | Current app | Feasibility |
-| --- | --- | --- |
-| One card per profile | Profiles exist (`Profile`, `ProfileBloc`, `MultiServerRunning`) | ✅ Good fit |
-| Inline Run/Stop per card | `StartProfileEvent`/`StopProfileEvent` exist | ✅ (start currently needs a sheet for port/pass-through) |
-| Endpoint count per card | Endpoints are **global**, not per-profile | ⚠️ Needs per-profile counting |
-| Request/error chips | No live per-profile counters | ⚠️ New metrics |
-| Interception chip per card | Interception is **global** | ⚠️ Conflict (§3.1) |
-| Type chip HTTP/FTP | No `Profile.type`; **FTP not implemented** | ⛔ New (branch: `ui-revamp-and-ftp-addition`) |
-| Network + Disk stats | No data source | ⛔ New / must mock or drop |
-| Light-only warm theme | App supports light **and** dark (`ThemeCubit`) | ⚠️ Conflict (§3.3) |
+---
 
-## 3. Conflicts with current features
-1. **Real-time Interception has no place on the new Home.** It's currently a global toggle+mode dropdown on Home. The design's home has none; its per-card "interception chip" is read-only, and its detail-screen "Interceptor" card is actually *auto-pass-through* (a different feature). **Must decide where the interception control lives.**
-2. **Global port field disappears from Home** — design sets port per-server in the (out-of-scope) detail Settings. Recommend keeping `_StartProfileSheet` for New-server/start so port/device-IP/pass-through stay reachable.
-3. **Dark mode** — design is single warm light palette with hardcoded orange. App supports dark via `ThemeCubit`. Decide: keep dark (derive palette into both), go light-only, or style light now.
-4. **Per-profile metrics don't exist** — endpoint counts, request/error counts, network/disk throughput have no backing data (endpoints/logs are global). Real numbers need new plumbing; otherwise hide or placeholder.
-5. **FTP + server type** — type chip presumes `Profile.type` and a working FTP server, neither exists yet. Home renders a type chip once FTP lands; until then all servers are HTTP.
+## Roadmap (remaining pages)
 
-## 4. Feasibility summary
-- **Directly feasible:** profile-driven server cards, inline run/stop, running summary, "New server" via existing start sheet, header/settings, visual restyle.
-- **Needs new plumbing:** per-profile endpoint count, per-profile request/error counters.
-- **Blocked on other work/decisions:** Network/Disk stats (no source), HTTP/FTP chip (FTP not built), interception placement, dark-mode strategy.
+### 1. Server Detail screen — HTTP  ⏳
+A per-server screen opened from a Home card, replacing today's "tap card → Endpoints" shortcut.
+- Header: back button, server name, `localhost:port`, status chip.
+- Bottom nav: **Endpoints / Logs / Settings** tabs.
+- Endpoints tab: run + URL card (copy, start/stop, request/error/endpoint counts), Interceptor (auto pass-through) card with scope toggle (all vs specific) + base URL, searchable endpoint list with method/status/mode/conditional/delay chips.
+- **Depends on:** per-profile request/error counters (new plumbing); reuse existing endpoint list/CRUD.
+- **Conflicts/notes:** today Endpoints & Logs are global screens keyed to the *active* profile. This screen makes them per-server — decide whether to switch the active profile on open (current behavior) or scope queries by an explicit `profileId` argument. Request/error counts don't exist yet.
 
-**Recommended "home only" MVP:** restyle to the design; one card per profile with status + inline run/stop + endpoint count + running summary + "New server"; keep the existing start bottom sheet; **defer** the stats strip and FTP chip; resolve interception placement + dark mode per the questions.
+### 2. Server Detail screen — FTP  ⏳
+FTP variant of the detail screen.
+- Run + URL card (`ftp://localhost:port`).
+- Credentials (user / pass / root), Options (passive mode, read-only), Files-served list.
+- **Depends on:** FTP server backend (task 8) and an FTP-specific settings model on `Profile`.
+- **Conflicts/notes:** none of this data model exists yet; blocked until FTP lands.
 
-## 5. Decisions (resolved)
-1. **Interception → move to Settings.** Remove the global interception toggle/mode from Home; Home shows only a read-only per-server interception chip. Add the toggle + mode dropdown to `SettingsScreen`.
-2. **Stats strip → static placeholder.** Render Network + Disk cards matching the design with placeholder/zeroed values; wire real data later.
-3. **Dark mode → keep both themes.** Adapt the warm palette + orange accent into both light and dark via `ThemeCubit`; keep the AppBar theme switch (or relocate it). Do **not** hardcode the design's light-only colors.
-4. **FTP chip → include.** Add a `type` (HTTP/FTP) concept to `Profile` and render the type chip on cards, coordinating with the FTP work on branch `ui-revamp-and-ftp-addition`. Endpoint count per card is in; live request/error counters remain deferred (placeholder or hidden) unless trivial.
+### 3. New Server screen  ⏳
+Dedicated create/configure flow (design has a full screen; today it's the `_StartProfileSheet` bottom sheet).
+- Name, **type selector (HTTP / FTP)**, port, and type-specific options (pass-through for HTTP, credentials for FTP).
+- **Depends on:** `Profile.type` (done); FTP options depend on task 8.
+- **Conflicts/notes:** decide whether to promote the bottom sheet to a full screen or keep the sheet. Creating a profile currently defaults `type=http`; wire the selector through `CreateProfileEvent`.
 
-## 6. Work breakdown
-1. ✅ **Theme foundation** (done) — added `AppColors` tokens + `monoTextStyle()` helper; light/dark `ThemeData` seeded on accent `#F4541F`, Hanken Grotesk body + JetBrains Mono via `google_fonts: ^6.2.1`; Home color literals routed to theme tokens.
-2. ✅ **Profile.type** (done) — `enum ServerType { http, ftp }` + `type` field on `Profile`/`ProfileModel`; `type` column with DB migration **v3 → v4**, default `http`. `profile_model.g.dart` regenerated.
-3. ✅ **Home restructure** (done) — rebuilt `home_screen.dart` body: in-body header (icon + Arbiter/mock servers + theme toggle + Logs + Settings), "Servers" title + running summary, static stats strip, one server card per profile (status dot, name, type chip, inline Run/Stop, URL, endpoint-count chip, `intercepting` chip when interception is on), and a "＋ New server" button. All lifecycle/overlay/interception-dialog/permission logic preserved.
-4. ✅ **Per-profile endpoint count** (done) — `_loadEndpointCounts` queries `EndpointRepository.getAllEndpoints(profileId:)` per profile into a map, refreshed on `ProfileLoaded` and on return from the endpoints screen; rendered as the card's endpoint chip.
-5. ✅ **Start flow** (done) — `_StartProfileSheet` kept and driven by "＋ New server"; per-card Run starts directly from the profile's stored settings, picking a free port if the preferred one is taken.
-6. ✅ **Move interception controls** (done) — interception toggle + mode dropdown + info box moved to `SettingsScreen` (`_buildInterceptionCard`); removed from Home. Home still hosts the live intercept **dialog** + overlay sync.
-7. ✅ **Wire card tap** (done) — tapping a card switches the active profile and opens the existing Endpoints screen (which follows the active profile); global Logs reachable from the header.
-8. ⏳ **Verify** (pending) — `flutter analyze` passes with 0 errors/warnings. Still to do: run the app and confirm start/stop, multi-profile, theme switch, and interception behavior end-to-end.
+### 4. Endpoint Editor redesign  ⏳
+Restyle + extend `EndpointFormScreen` to the design.
+- Method dropdown + path, **Match type** (exact / wildcard / regex — already in `MatchType`), **Mode** (Mock / Code-exec / Pass-through).
+- Mock: status + delay steppers, response body with **Code** (JSON + highlight + format) and **Form** (tree editor) views, conditional responses.
+- **Depends on:** Code-exec mode (task 5) for the third mode.
+- **Conflicts/notes:** current model has Mock + Pass-through only and `LogType { mock, passThrough }`; the Form tree editor and JSON highlighting are new UI. Conditional mocks already exist (`ConditionalMatchType`).
 
-Out of scope: Server-Detail tabbed screen, Endpoint Editor redesign (Mock/Code-exec/Pass-through), Desktop layout, real network/disk metrics, actual FTP server implementation (chip only).
+### 5. Code execution mode  ⏳ (new feature)
+Endpoint mode that runs a JS handler to build the response.
+- Handler editor, request context, sandboxed execution, output/error surfacing.
+- **Depends on:** a JS runtime/eval decision (e.g. `flutter_js`); new endpoint `mode` value + storage; server hot-path integration in `http_server_service.dart`.
+- **Conflicts/notes:** largest new backend piece; security/sandboxing and desktop/mobile runtime support need evaluation. Referenced by `production_page_settings_parser/` screenshots.
+
+### 6. Logs screen redesign  ⏳
+Restyle `LogsScreen` to the design.
+- Filter chips (method/type), compact rows (method, path, status, type, time, ms), tap to expand pretty-printed body.
+- **Depends on:** nothing new; reuse `LogBloc`. Real-time logs already tracked separately.
+- **Conflicts/notes:** keep existing filter capabilities; per-server scoping mirrors task 1.
+
+### 7. Settings (per-server) + global Settings restyle  ⏳
+- Per-server Settings tab (in detail): port (locked while running), auto pass-through + base URL, export configuration, delete server.
+- Global `SettingsScreen`: restyle to the new language (already hosts interception, notifications, overlay).
+- **Conflicts/notes:** export/import exists in the endpoint repository; "delete server" = delete profile (guard the `default` profile).
+
+### 8. FTP server backend  ⏳ (new feature)
+Actual FTP server behind the type chip / FTP detail screen.
+- FTP listener, passive mode, read-only, credentials, served-files root; lifecycle wired into `ServerManager`/`ServerBloc` alongside the HTTP server.
+- **Depends on:** an FTP server package decision; per-platform support (desktop vs mobile).
+- **Conflicts/notes:** `ServerManager` currently assumes HTTP (`shelf`). Needs a per-type start path.
+
+### 9. Desktop layout  ⏳
+Design has a Phone/Desktop toggle with a desktop-optimized layout (master-detail, wider surfaces).
+- **Depends on:** the phone screens above stabilizing first.
+- **Conflicts/notes:** responsive/adaptive layout work; lower priority than mobile.
+
+### 10. Real Network / Disk metrics  ⏳
+Replace the Home stats-strip placeholders with live throughput + disk usage.
+- **Depends on:** per-server request accounting (task 1) and a disk-usage source.
+- **Conflicts/notes:** no data source today; purely additive once counters exist.
+
+---
+
+## Suggested order
+1 (Server Detail HTTP) → 4 (Editor) → 6 (Logs) → 7 (Settings) → 8 (FTP backend) → 2 (FTP detail) → 3 (New Server) → 5 (Code-exec) → 10 (metrics) → 9 (Desktop).

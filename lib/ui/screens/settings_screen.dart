@@ -465,7 +465,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Arbiter Mock Server',
+              'Arbiter File Server',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,

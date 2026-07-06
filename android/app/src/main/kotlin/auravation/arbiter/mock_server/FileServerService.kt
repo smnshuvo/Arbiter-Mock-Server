@@ -40,6 +40,15 @@ class FileServerService : Service() {
         const val ACTION_STOP_SERVER_BROADCAST =
             "auravation.arbiter.mock_server.ACTION_STOP_FILE_SERVER"
 
+        /**
+         * Port the server is currently bound to, or -1 when stopped. The UI screen is
+         * disposed on navigation while this service keeps running, so Dart queries this
+         * (via "getStatus") to re-sync its state when the screen is reopened.
+         */
+        @Volatile
+        var runningPort: Int = -1
+            private set
+
         fun startService(context: Context, port: Int, rootUri: String, stopIfIdle: Boolean) {
             val intent = Intent(context, FileServerService::class.java).apply {
                 putExtra(EXTRA_PORT, port)
@@ -108,10 +117,12 @@ class FileServerService : Service() {
             stopServerInstance()
             // Traffic stats are per server session.
             FileServer.totalBytes.set(0)
+            FileServer.requestCounter.set(0)
             FileServer.lastActivityAt = System.currentTimeMillis()
             server = FileServer(applicationContext, Uri.parse(rootUriString), port).also {
                 it.start(NanoHttpdConstants.SOCKET_READ_TIMEOUT, false)
             }
+            runningPort = port
             Log.d(TAG, "File server started on port $port (stopIfIdle=$stopIfIdle)")
             startIdleWatchdog()
         } catch (e: Exception) {
@@ -133,6 +144,7 @@ class FileServerService : Service() {
     }
 
     private fun stopServerInstance() {
+        runningPort = -1
         idleWatchdog?.shutdownNow()
         idleWatchdog = null
         try {

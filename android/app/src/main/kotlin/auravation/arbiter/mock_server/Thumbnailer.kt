@@ -62,6 +62,45 @@ object Thumbnailer {
         }
     }
 
+    /**
+     * Downscales an image [input] stream to a cached JPEG thumbnail and returns its path,
+     * or null on any failure. Decodes bounds first so a huge photo is sub-sampled instead of
+     * fully decoded into memory. Writes via a temp file + rename so a concurrent reader never
+     * sees a half-written thumbnail.
+     */
+    fun generateImageThumb(context: Context, sourceUri: String, input: java.io.InputStream): String? {
+        return try {
+            val bytes = input.readBytes()
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val opts = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight)
+            }
+            val decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                ?: return null
+            val scaled = scaleDown(decoded)
+            val out = cachePathFor(context, sourceUri)
+            val tmp = File(out.parentFile, out.name + ".tmp")
+            FileOutputStream(tmp).use { fos ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, fos)
+            }
+            if (scaled !== decoded) scaled.recycle()
+            decoded.recycle()
+            if (tmp.renameTo(out)) out.absolutePath else { tmp.delete(); null }
+        } catch (e: Exception) {
+            Log.w(TAG, "Image thumbnail failed for $sourceUri: ${e.message}")
+            null
+        }
+    }
+
+    /** Largest power-of-two sub-sample that keeps the image at/above the thumbnail box. */
+    private fun sampleSize(w: Int, h: Int): Int {
+        if (w <= 0 || h <= 0) return 1
+        var s = 1
+        while (w / (s * 2) >= MAX_W && h / (s * 2) >= MAX_H) s *= 2
+        return s
+    }
+
     /** A generated seek-preview sprite sheet: [frames] tiles of [SB_W]x[SB_H] in [cols] columns. */
     data class Storyboard(val path: String, val frames: Int, val intervalMs: Long, val cols: Int)
 

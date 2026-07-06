@@ -1,9 +1,11 @@
 package auravation.arbiter.mock_server
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import fi.iki.elonen.NanoHTTPD
 import java.io.FilterInputStream
@@ -88,6 +90,9 @@ class FileServer(
     private val fileDocCache = TtlCache<String, ChildDoc>(60_000)
     private val mediaInfoCache = TtlCache<Long, Pair<String, Long>>(60_000)
 
+    /** Per-cache-file locks so two concurrent /thumb hits don't generate the same file twice. */
+    private val thumbLocks = ConcurrentHashMap<String, Any>()
+
     /** Scanned-media store, backing the /thumb and /library routes. */
     private val library: LibraryDatabase by lazy { LibraryDatabase(context) }
 
@@ -114,10 +119,12 @@ class FileServer(
         }
     }
 
-    /** Requests served since this server instance started (surfaced to the UI). */
-    private val requestCounter = java.util.concurrent.atomic.AtomicInteger(0)
-
     companion object {
+        /** Requests served since the server last started (surfaced to the UI). */
+        val requestCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+        private const val TAG = "FileServer"
+
         /** Caps for the /subslist tree walk so a huge share can't stall the request. */
         private const val MAX_SUBTITLE_FILES = 500
         private const val MAX_SUBTITLE_DIRS = 2000
@@ -407,6 +414,7 @@ class FileServer(
             uri.startsWith("/raw/") -> serveFile(session, splitPath(uri.removePrefix("/raw/")))
             uri == "/media" -> serveMedia(session)
             uri == "/player" -> playerPage(session)
+            uri == "/view" -> imageViewerPage(session)
             uri == "/thumb" -> serveThumb(session)
             uri == "/storyboard" -> serveStoryboard(session)
             uri == "/icon.png" -> serveIcon()
@@ -491,10 +499,21 @@ class FileServer(
             val meta = "${FileTypes.humanSize(f.size)} · ${FileTypes.formatDate(f.lastModified)}"
             val viewHref: String? = when {
                 FileTypes.isPlayable(name) -> "/player?v=" + encode(rawHref)
+                FileTypes.isImage(name) -> "/view?src=" + encode(rawHref)
                 FileTypes.isViewableInline(name) -> rawHref
                 else -> null
             }
-            sb.append(tile(mediaIcon = FileTypes.iconFor(name, false), name = name, meta = meta))
+            // Images and videos get a lazily-generated preview; everything else keeps its glyph.
+            val mediaHtml = if (FileTypes.isImage(name) || FileTypes.isVideo(name)) {
+                val thumbHref = "/thumb?p=" + encode(basePath + encode(name))
+                "<img loading='lazy' src='${escape(thumbHref)}' alt=''>"
+            } else {
+                null
+            }
+            sb.append(tile(
+                mediaIcon = FileTypes.iconFor(name, false), name = name, meta = meta,
+                mediaHtml = mediaHtml,
+            ))
             sb.append(actionRow(viewHref = viewHref, viewLabel = "▶ View", dlHref = "$rawHref?dl=1"))
             sb.append("</div>")
         }
@@ -539,6 +558,126 @@ class FileServer(
         sb.append("</div>")
         return sb.toString()
     }
+
+    // ---- Image viewer -------------------------------------------------------
+
+    /**
+     * GET /view?src=/raw/<path> — a minimal full-screen image viewer with Back plus
+     * prev/next across the other images in the same folder. Driven by the D-pad/remote
+     * (←/→ = prev/next, OK = next, Back = folder) and the physical keyboard. Neighbours
+     * are resolved server-side so each page renders its own counter and arrows.
+     */
+    private fun imageViewerPage(session: IHTTPSession): Response {
+        val src = session.parameters["src"]?.firstOrNull()
+        if (src.isNullOrEmpty() || !src.startsWith("/raw/")) {
+            return text(Response.Status.BAD_REQUEST, "Bad image path")
+        }
+        val segments = splitPath(src.removePrefix("/raw/"))
+        if (segments.isEmpty()) return text(Response.Status.NOT_FOUND, "Image not found")
+        val name = segments.last()
+        val dirSegments = segments.dropLast(1)
+        val basePath = dirSegments.joinToString("") { encode(it) + "/" }
+
+        // Siblings for prev/next: the other images in this folder, same sort as the listing.
+        val images = resolveDirDocId(dirSegments)?.let { listChildren(it) }
+            ?.filter { !it.isDirectory && FileTypes.isImage(it.name) }
+            ?.sortedBy { it.name.lowercase() }
+            ?: emptyList()
+        val idx = images.indexOfFirst { it.name == name }
+
+        fun viewHrefFor(fileName: String) =
+            "/view?src=" + encode("/raw/" + basePath + encode(fileName))
+        val prevHref = if (idx > 0) viewHrefFor(images[idx - 1].name) else null
+        val nextHref = if (idx in 0 until images.size - 1) viewHrefFor(images[idx + 1].name) else null
+        val upHref = "/files/" + basePath
+        val counter = if (idx >= 0) "${idx + 1} / ${images.size}" else ""
+
+        val sb = StringBuilder()
+        sb.append(htmlHead(escape(name), showBrand = false))
+        sb.append("<div class='iv-wrap'>")
+        sb.append("<img class='iv-img' src='${escape(src)}' alt=''>")
+        if (prevHref != null) {
+            sb.append("<a class='iv-nav prev' id='ivprev' href='${escape(prevHref)}'>‹</a>")
+        }
+        if (nextHref != null) {
+            sb.append("<a class='iv-nav next' id='ivnext' href='${escape(nextHref)}'>›</a>")
+        }
+        sb.append("<div class='iv-bar' id='ivbar'>")
+        sb.append("<a class='iv-btn' id='ivback' href='${escape(upHref)}'>← Back</a>")
+        sb.append("<div class='iv-title'>${escape(name)}</div>")
+        sb.append("<div class='iv-count'>${escape(counter)}</div>")
+        sb.append("<a class='iv-btn' href='${escape(src)}?dl=1'>⬇</a>")
+        sb.append("</div></div>")
+        sb.append(imageViewerStyles())
+        sb.append(imageViewerScript())
+        sb.append(remoteScript())
+        sb.append("</body></html>")
+        return html(sb.toString())
+    }
+
+    private fun imageViewerStyles(): String = """
+        <style>
+          .iv-wrap{position:fixed;inset:0;background:#000;overflow:hidden;
+                   display:flex;align-items:center;justify-content:center}
+          .iv-img{max-width:100%;max-height:100%;object-fit:contain;
+                  user-select:none;-webkit-user-drag:none}
+          .iv-nav{position:absolute;top:0;bottom:0;width:22%;display:flex;align-items:center;
+                  color:#fff;font-size:56px;text-decoration:none;opacity:.55;cursor:pointer;
+                  transition:opacity .15s ease;text-shadow:0 2px 8px rgba(0,0,0,.8);
+                  -webkit-tap-highlight-color:transparent}
+          .iv-nav:hover,.iv-nav.focused{opacity:1;background:rgba(0,0,0,.15)}
+          .iv-nav.prev{left:0;justify-content:flex-start;padding-left:16px}
+          .iv-nav.next{right:0;justify-content:flex-end;padding-right:16px}
+          .iv-bar{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:14px;
+                  padding:14px 18px;background:linear-gradient(rgba(0,0,0,.8),transparent);
+                  transition:opacity .25s ease}
+          .iv-bar.hidden{opacity:0;pointer-events:none}
+          .iv-title{flex:1;color:#fff;font-size:15px;font-weight:600;overflow:hidden;
+                    white-space:nowrap;text-overflow:ellipsis}
+          .iv-count{color:#cbd5e1;font-size:13px;white-space:nowrap}
+          .iv-btn{background:rgba(255,255,255,.14);color:#fff;border:2px solid transparent;
+                  border-radius:10px;min-width:44px;height:40px;padding:0 12px;font-size:15px;
+                  display:inline-flex;align-items:center;justify-content:center;
+                  text-decoration:none;cursor:pointer}
+          .iv-btn.focused,.iv-btn:hover{border-color:var(--accent);background:var(--accent)}
+        </style>
+    """.trimIndent()
+
+    /**
+     * Reads the prev/next/back targets straight off the rendered anchors, so there is no
+     * string to escape into JS. Missing arrows (first/last image) simply resolve to null.
+     */
+    private fun imageViewerScript(): String = """
+        <script>
+        (function(){
+          var bar=document.getElementById('ivbar');
+          var hideTimer=null;
+          function showBar(){
+            bar.classList.remove('hidden');
+            if(hideTimer) clearTimeout(hideTimer);
+            hideTimer=setTimeout(function(){ bar.classList.add('hidden'); },3000);
+          }
+          function href(id){ var e=document.getElementById(id); return e?e.getAttribute('href'):''; }
+          function go(u){ if(u) location.href=u; }
+          function handleKey(k){
+            showBar();
+            if(k==='left') go(href('ivprev'));
+            else if(k==='right'||k==='ok') go(href('ivnext'));
+            else if(k==='back') go(href('ivback'));
+          }
+          window.__remoteKey=handleKey;
+          document.addEventListener('keydown',function(e){
+            var k=e.key;
+            if(k==='ArrowLeft'){ e.preventDefault(); handleKey('left'); }
+            else if(k==='ArrowRight'){ e.preventDefault(); handleKey('right'); }
+            else if(k==='Escape'||k==='Backspace'){ e.preventDefault(); handleKey('back'); }
+          });
+          document.addEventListener('mousemove',showBar);
+          document.addEventListener('click',showBar);
+          showBar();
+        })();
+        </script>
+    """.trimIndent()
 
     // ---- Library grid (T11) -------------------------------------------------
 
@@ -792,6 +931,10 @@ class FileServer(
           .player-wrap{position:fixed;inset:0;background:#000;overflow:hidden}
           .stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
           .stage video{max-width:100%;max-height:100%}
+          /* Video fit modes (see settings gear -> Video fit). */
+          .stage video.fit-cover{width:100%;height:100%;object-fit:cover}
+          .stage video.fit-fill{width:100%;height:100%;object-fit:fill}
+          .stage video.fit-actual{max-width:none;max-height:none;width:auto;height:auto}
           .player-wrap.audio .stage{background:var(--bg)}
           .audio-glyph{position:absolute;font-size:96px;opacity:.25}
           .stage audio{width:min(640px,90%)}
@@ -970,6 +1113,33 @@ class FileServer(
             pending=-1;
             seekprev.classList.add('hidden');
             seektarget.classList.add('hidden');
+          }
+          // Video fit modes: contain (letterbox), cover (crop-fill), fill
+          // (stretch), actual (100%). Persisted so it sticks across videos.
+          var FIT_MODES=[['contain','Fit to screen'],['cover','Fill (crop)'],
+                         ['fill','Stretch'],['actual','Actual size (100%)']];
+          var fitMode='contain';
+          try{ fitMode=localStorage.getItem('fitMode')||'contain'; }catch(e){}
+          function fitLabel(){
+            for(var i=0;i<FIT_MODES.length;i++) if(FIT_MODES[i][0]===fitMode) return FIT_MODES[i][1];
+            return 'Fit to screen';
+          }
+          function applyFit(){
+            if(media.tagName!=='VIDEO') return;
+            media.classList.remove('fit-contain','fit-cover','fit-fill','fit-actual');
+            if(fitMode!=='contain') media.classList.add('fit-'+fitMode);
+          }
+          function setFit(m){
+            fitMode=m;
+            try{ localStorage.setItem('fitMode',m); }catch(e){}
+            applyFit(); toast('Video fit: '+fitLabel());
+          }
+          function openFitMenu(){
+            var items=[{label:'← Back',run:openMenu}];
+            FIT_MODES.forEach(function(f){
+              items.push({label:f[1],check:fitMode===f[0],run:function(){setFit(f[0]);}});
+            });
+            renderMenu(items);
           }
           function toggleFullscreen(){
             var d=document;
@@ -1188,6 +1358,7 @@ class FileServer(
           }
           function menuItems(){
             var items=[{label:'⛶ Fullscreen',run:toggleFullscreen}];
+            if(media.tagName==='VIDEO') items.push({label:'🔳 Video fit: '+fitLabel(),run:openFitMenu});
             var t=media.textTracks?media.textTracks.length:0;
             if(t){
               var cur=activeSub();
@@ -1456,6 +1627,7 @@ class FileServer(
           media.addEventListener('ended',function(){ try{ localStorage.removeItem(STOREKEY); }catch(e){} });
           window.addEventListener('beforeunload',saveNow);
 
+          applyFit();
           focus(1); showControls();
         })();
         </script>
@@ -1465,6 +1637,8 @@ class FileServer(
 
     /** GET /thumb?id=<media_id> — the cached JPEG, or an SVG placeholder on miss. */
     private fun serveThumb(session: IHTTPSession): Response {
+        // File-browser lazy thumbnails come in by raw path; library items by DB id.
+        session.parameters["p"]?.firstOrNull()?.let { return serveRawThumb(it) }
         val id = session.parameters["id"]?.firstOrNull()?.toLongOrNull()
             ?: return placeholderThumb()
         val item = library.getById(id) ?: return placeholderThumb()
@@ -1472,16 +1646,67 @@ class FileServer(
         if (path.isNullOrEmpty()) return placeholderThumb(audio = item.mimeType.startsWith("audio/"))
         val file = java.io.File(path)
         if (!file.exists()) return placeholderThumb(audio = item.mimeType.startsWith("audio/"))
-        return try {
-            val res = newFixedLengthResponse(
-                Response.Status.OK, "image/jpeg",
-                CountingInputStream(java.io.FileInputStream(file)), file.length(),
-            )
-            res.addHeader("Cache-Control", "max-age=86400")
-            res
-        } catch (e: Exception) {
-            placeholderThumb()
+        return serveThumbFile(file)
+    }
+
+    /**
+     * GET /thumb?p=<raw path> — lazily generates (and caches) a thumbnail for an image or
+     * video in the browsed folder, so the file grid shows previews without a library scan.
+     * Generation is serialized per cache file and falls back to a glyph placeholder on any
+     * failure; the browser requests these lazily so only visible tiles are ever built.
+     */
+    private fun serveRawThumb(pathParam: String): Response {
+        val segments = splitPath(pathParam)
+        val child = resolveChildDoc(segments)?.takeIf { !it.isDirectory }
+            ?: return placeholderThumb()
+        val name = child.name
+        val isImg = FileTypes.isImage(name)
+        val isVid = FileTypes.isVideo(name)
+        if (!isImg && !isVid) return placeholderThumb()
+
+        val uri = docUriFor(child.documentId)
+        val cacheKey = uri.toString()
+        val cacheFile = Thumbnailer.cachePathFor(context, cacheKey)
+        if (!cacheFile.exists()) {
+            val lock = thumbLocks.getOrPut(cacheFile.name) { Any() }
+            synchronized(lock) {
+                if (!cacheFile.exists()) generateRawThumb(cacheKey, uri, isImg)
+            }
         }
+        if (!cacheFile.exists()) return placeholderThumb(glyph = if (isImg) "🖼️" else "🎬")
+        return serveThumbFile(cacheFile)
+    }
+
+    /** Builds a single thumbnail into the cache. Never throws; logs and leaves no file on failure. */
+    private fun generateRawThumb(cacheKey: String, uri: Uri, isImage: Boolean) {
+        try {
+            if (isImage) {
+                context.contentResolver.openInputStream(uri)?.use {
+                    Thumbnailer.generateImageThumb(context, cacheKey, it)
+                }
+            } else {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, uri)
+                    Thumbnailer.generate(context, cacheKey, retriever)
+                } finally {
+                    try { retriever.release() } catch (_: Exception) {}
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Lazy thumbnail failed for $uri: ${e.message}")
+        }
+    }
+
+    private fun serveThumbFile(file: java.io.File): Response = try {
+        val res = newFixedLengthResponse(
+            Response.Status.OK, "image/jpeg",
+            CountingInputStream(java.io.FileInputStream(file)), file.length(),
+        )
+        res.addHeader("Cache-Control", "max-age=86400")
+        res
+    } catch (e: Exception) {
+        placeholderThumb()
     }
 
     /**
@@ -1771,13 +1996,13 @@ class FileServer(
     }
 
     /** Inline SVG placeholder (film strip, or a music note for audio). */
-    private fun placeholderThumb(audio: Boolean = false): Response {
-        val glyph = if (audio) "🎵" else "🎬"
+    private fun placeholderThumb(audio: Boolean = false, glyph: String? = null): Response {
+        val g = glyph ?: if (audio) "🎵" else "🎬"
         val svg = """
             <svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'>
               <rect width='100%' height='100%' fill='#232a33'/>
               <text x='50%' y='50%' font-size='64' text-anchor='middle'
-                    dominant-baseline='central'>$glyph</text>
+                    dominant-baseline='central'>$g</text>
             </svg>
         """.trimIndent()
         val res = newFixedLengthResponse(Response.Status.OK, "image/svg+xml", svg)
