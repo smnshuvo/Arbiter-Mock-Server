@@ -85,6 +85,12 @@ class _FileServerScreenState extends State<FileServerScreen> {
     final authPass = prefs.getString(_authPassPrefKey) ?? '';
     final folder = await _service.getSavedFolder();
     final scanning = await _service.isScanning();
+    // The foreground service keeps the server alive after this screen is
+    // disposed, so ask the native side whether it is still running instead of
+    // defaulting to "stopped" (which left the port busy behind a stale UI).
+    final status = await _service.getStatus();
+    final ip = status.running ? await _service.getLocalIp() : null;
+    final totalBytes = status.running ? await _service.getTotalBytes() : 0;
     if (!mounted) return;
     setState(() {
       if (savedPort != null) _portController.text = savedPort.toString();
@@ -95,7 +101,16 @@ class _FileServerScreenState extends State<FileServerScreen> {
       _passController.text = authPass;
       _folder = folder;
       _scanning = scanning;
+      if (status.running) {
+        _running = true;
+        _portController.text = status.port.toString();
+        _url = ip != null ? 'http://$ip:${status.port}' : null;
+        _requestCount = status.requestCount;
+        // Baseline for the speed display; the first poll delta starts from here.
+        _totalBytes = totalBytes;
+      }
     });
+    if (status.running) _startStatsPolling();
   }
 
   /// Credentials to send natively: null user means anonymous access.

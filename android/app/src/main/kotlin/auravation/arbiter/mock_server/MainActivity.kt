@@ -217,6 +217,16 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "getLocalIp" -> result.success(FileServerService.getLocalIpAddress())
+                "getStatus" -> {
+                    val port = FileServerService.runningPort
+                    result.success(
+                        mapOf(
+                            "running" to (port >= 0),
+                            "port" to port,
+                            "requestCount" to FileServer.requestCounter.get(),
+                        ),
+                    )
+                }
                 "pickFolder" -> pickSharedFolder(result)
                 "getSavedFolder" -> result.success(savedFolder())
                 "scanLibrary" -> {

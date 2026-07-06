@@ -9,6 +9,23 @@ class SharedFolder {
   final String name;
 }
 
+/// Live state of the native file server, queried when the File Server screen
+/// (re)opens — the foreground service keeps the server running after the
+/// screen is disposed, so the UI cannot rely on its own state alone.
+class FileServerStatus {
+  const FileServerStatus({
+    required this.running,
+    required this.port,
+    required this.requestCount,
+  });
+
+  static const stopped = FileServerStatus(running: false, port: -1, requestCount: 0);
+
+  final bool running;
+  final int port;
+  final int requestCount;
+}
+
 /// An event pushed from the native file server (scan progress, request count,
 /// or connected remote-control clients).
 class FileServerEvent {
@@ -274,6 +291,24 @@ class FileServerService {
     } on PlatformException catch (e) {
       print('FileServerService.getTotalBytes failed: ${e.message}');
       return 0;
+    }
+  }
+
+  /// Whether the native server is currently running (and on which port).
+  Future<FileServerStatus> getStatus() async {
+    if (!_supported) return FileServerStatus.stopped;
+    try {
+      final result =
+          await _channel.invokeMethod<Map<dynamic, dynamic>>('getStatus');
+      if (result == null) return FileServerStatus.stopped;
+      return FileServerStatus(
+        running: (result['running'] as bool?) ?? false,
+        port: (result['port'] as int?) ?? -1,
+        requestCount: (result['requestCount'] as int?) ?? 0,
+      );
+    } on PlatformException catch (e) {
+      print('FileServerService.getStatus failed: ${e.message}');
+      return FileServerStatus.stopped;
     }
   }
 
