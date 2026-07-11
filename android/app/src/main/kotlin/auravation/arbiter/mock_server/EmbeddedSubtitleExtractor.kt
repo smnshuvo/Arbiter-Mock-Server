@@ -48,7 +48,8 @@ object EmbeddedSubtitleExtractor {
                 // Matroska text samples are often CRLF-terminated internally (not just at
                 // the ends), which trim() alone doesn't reach — a stray \r before each \n
                 // renders as a visible glyph in the browser. Normalize before trimming.
-                val text = String(bytes, Charsets.UTF_8)
+                // SubtitleEncoding falls back off strict UTF-8 for non-compliant muxers.
+                val text = SubtitleEncoding.decode(bytes)
                     .replace("\r\n", "\n")
                     .replace('\r', '\n')
                     .trim()

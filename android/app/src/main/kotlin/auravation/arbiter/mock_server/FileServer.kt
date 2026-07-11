@@ -1374,16 +1374,21 @@ class FileServer(
             try{ localStorage.setItem('lastSubLang',i<0?'off':(t[i].language||'')); }catch(e){}
             if(!silent) toast(i<0?'Subtitles off':'Subtitles: '+(t[i].label||('track '+(i+1))));
           }
-          // Auto-enable the last language the user picked, on any video that has it.
+          // Prefer the last language the user picked, on any video that has it; if there's
+          // no saved preference, default to the first available track rather than leaving
+          // subtitles off. An explicit past "off" choice is still honored.
           (function(){
             var t=media.textTracks||[];
             if(!t.length) return;
             var saved;
             try{ saved=localStorage.getItem('lastSubLang'); }catch(e){ saved=null; }
-            if(!saved||saved==='off') return;
-            for(var i=0;i<t.length;i++){
-              if(t[i].language===saved){ setSub(i,true); break; }
+            if(saved==='off') return;
+            if(saved){
+              for(var i=0;i<t.length;i++){
+                if(t[i].language===saved){ setSub(i,true); return; }
+              }
             }
+            setSub(0,true);
           })();
           function menuItems(){
             var items=[{label:'⛶ Fullscreen',run:toggleFullscreen}];
@@ -1904,7 +1909,7 @@ class FileServer(
                 ?: return text(Response.Status.NOT_FOUND, "No subtitles")
             val raw = input.use { it.readBytes() }
             if (raw.size > 2_000_000) return text(Response.Status.NOT_FOUND, "Subtitle too large")
-            val content = String(raw, Charsets.UTF_8).removePrefix("\uFEFF")
+            val content = SubtitleEncoding.decode(raw).removePrefix("\uFEFF")
             val vtt = if (isVtt) {
                 content
             } else {
