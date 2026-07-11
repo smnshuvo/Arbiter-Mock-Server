@@ -102,9 +102,12 @@ class LibraryScanner(
         val isVideo = FileTypes.isVideo(name)
 
         // Incremental: unchanged files are left as-is, except videos indexed before
-        // storyboards existed — those get their seek-preview sprite backfilled.
+        // storyboards/subtitle tracks existed — those get backfilled.
         if (db.lastModifiedFor(path) == lastModified) {
-            if (isVideo) backfillStoryboard(path, file)
+            if (isVideo) {
+                backfillStoryboard(path, file)
+                backfillSubtitleTracks(path, file)
+            }
             return
         }
 
@@ -146,7 +149,7 @@ class LibraryScanner(
             }
         }
 
-        db.upsert(
+        val mediaId = db.upsert(
             MediaItem(
                 id = 0,
                 filePath = path,
@@ -164,6 +167,23 @@ class LibraryScanner(
                 storyboardCols = storyboard?.cols ?: 0,
             ),
         )
+
+        if (isVideo) {
+            val tracks = SubtitleTrackDetector.detect(context, file.uri, mediaId)
+            db.replaceSubtitleTracks(mediaId, tracks)
+        }
+    }
+
+    /** Detects embedded subtitle tracks for a row scanned before this feature existed. */
+    private fun backfillSubtitleTracks(path: String, file: DocumentFile) {
+        val row = db.getByPath(path) ?: return
+        if (db.hasSubtitleScan(row.id)) return
+        try {
+            val tracks = SubtitleTrackDetector.detect(context, file.uri, row.id)
+            db.replaceSubtitleTracks(row.id, tracks)
+        } catch (e: Exception) {
+            Log.w(TAG, "Subtitle backfill failed for ${row.title}: ${e.message}")
+        }
     }
 
     /** Generates the seek-preview sprite for a row scanned before storyboards existed. */
