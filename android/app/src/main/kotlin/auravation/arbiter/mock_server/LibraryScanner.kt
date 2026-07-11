@@ -101,13 +101,14 @@ class LibraryScanner(
         val name = file.name ?: "Unknown"
         val isVideo = FileTypes.isVideo(name)
 
-        // Incremental: unchanged files are left as-is, except videos indexed before
-        // storyboards/subtitle tracks existed — those get backfilled.
+        // Incremental: unchanged files are left as-is, except rows indexed before
+        // storyboards/subtitle tracks/codec info existed — those get backfilled.
         if (db.lastModifiedFor(path) == lastModified) {
             if (isVideo) {
                 backfillStoryboard(path, file)
                 backfillSubtitleTracks(path, file)
             }
+            backfillCodecInfo(path, file)
             return
         }
 
@@ -149,6 +150,9 @@ class LibraryScanner(
             }
         }
 
+        val container = FileTypes.extensionOf(name)
+        val codecInfo = CodecDetector.detect(context, file.uri, container, file.length(), duration)
+
         val mediaId = db.upsert(
             MediaItem(
                 id = 0,
@@ -165,6 +169,11 @@ class LibraryScanner(
                 storyboardFrames = storyboard?.frames ?: 0,
                 storyboardIntervalMs = storyboard?.intervalMs ?: 0,
                 storyboardCols = storyboard?.cols ?: 0,
+                videoCodec = codecInfo?.videoCodec,
+                audioCodec = codecInfo?.audioCodec,
+                container = codecInfo?.container ?: container,
+                bitrate = codecInfo?.bitrate ?: 0,
+                playbackTier = codecInfo?.playbackTier ?: PlaybackTier.DIRECT,
             ),
         )
 
@@ -183,6 +192,24 @@ class LibraryScanner(
             db.replaceSubtitleTracks(row.id, tracks)
         } catch (e: Exception) {
             Log.w(TAG, "Subtitle backfill failed for ${row.title}: ${e.message}")
+        }
+    }
+
+    /** Detects codec/container/tier info for a row scanned before Phase T1 existed. */
+    private fun backfillCodecInfo(path: String, file: DocumentFile) {
+        val row = db.getByPath(path) ?: return
+        if (db.hasCodecInfo(row.id)) return
+        try {
+            val name = file.name ?: return
+            val container = FileTypes.extensionOf(name)
+            val info = CodecDetector.detect(context, file.uri, container, file.length(), row.durationMs)
+                ?: return
+            db.updateCodecInfo(
+                row.id, info.videoCodec, info.audioCodec, info.container, info.bitrate,
+                info.playbackTier,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Codec backfill failed for ${row.title}: ${e.message}")
         }
     }
 
