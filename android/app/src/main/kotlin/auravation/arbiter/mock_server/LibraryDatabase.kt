@@ -24,6 +24,22 @@ data class MediaItem(
 )
 
 /**
+ * An embedded subtitle track discovered inside a media file's container (as opposed to a
+ * sidecar .srt/.vtt file, which [auravation.arbiter.mock_server.FileServer] handles
+ * separately). [isText] distinguishes convertible-to-WebVTT tracks (SRT, mov_text) from
+ * bitmap tracks (PGS, VobSub) that can only be burned in during a transcode.
+ */
+data class SubtitleTrack(
+    val id: Long,
+    val mediaId: Long,
+    val trackIndex: Int,
+    val codec: String,
+    val language: String?,
+    val title: String?,
+    val isText: Boolean,
+)
+
+/**
  * SQLite store for scanned media metadata (native, separate from the app's Dart sqflite
  * DB — the two are intentionally distinct). Backs the library grid so it renders without
  * re-scanning the filesystem on every request.
@@ -33,8 +49,9 @@ class LibraryDatabase(context: Context) :
 
     companion object {
         private const val DB_NAME = "file_server_library.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
         const val TABLE = "media_items"
+        const val TABLE_SUBS = "subtitle_tracks"
 
         private const val COL_ID = "id"
         private const val COL_PATH = "file_path"
@@ -50,6 +67,14 @@ class LibraryDatabase(context: Context) :
         private const val COL_SB_FRAMES = "storyboard_frames"
         private const val COL_SB_INTERVAL = "storyboard_interval_ms"
         private const val COL_SB_COLS = "storyboard_cols"
+
+        private const val SCOL_ID = "id"
+        private const val SCOL_MEDIA_ID = "media_id"
+        private const val SCOL_TRACK_INDEX = "track_index"
+        private const val SCOL_CODEC = "codec"
+        private const val SCOL_LANGUAGE = "language"
+        private const val SCOL_TITLE = "title"
+        private const val SCOL_IS_TEXT = "is_text"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -73,6 +98,7 @@ class LibraryDatabase(context: Context) :
             )
             """.trimIndent(),
         )
+        createSubtitleTracksTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -82,6 +108,29 @@ class LibraryDatabase(context: Context) :
             db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SB_INTERVAL INTEGER DEFAULT 0")
             db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SB_COLS INTEGER DEFAULT 0")
         }
+        if (oldVersion < 3) {
+            createSubtitleTracksTable(db)
+        }
+    }
+
+    private fun createSubtitleTracksTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $TABLE_SUBS (
+              $SCOL_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+              $SCOL_MEDIA_ID INTEGER NOT NULL,
+              $SCOL_TRACK_INDEX INTEGER NOT NULL,
+              $SCOL_CODEC TEXT,
+              $SCOL_LANGUAGE TEXT,
+              $SCOL_TITLE TEXT,
+              $SCOL_IS_TEXT INTEGER NOT NULL DEFAULT 0,
+              FOREIGN KEY($SCOL_MEDIA_ID) REFERENCES $TABLE($COL_ID)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_subs_media_id ON $TABLE_SUBS($SCOL_MEDIA_ID)",
+        )
     }
 
     /** Returns the row id for a path, or null if unknown. */
@@ -104,7 +153,8 @@ class LibraryDatabase(context: Context) :
         }
     }
 
-    fun upsert(item: MediaItem) {
+    /** Upserts [item] and returns its row id (existing or newly assigned). */
+    fun upsert(item: MediaItem): Long {
         // Reuse the existing row id if this path is already known. Without this,
         // CONFLICT_REPLACE deletes + re-inserts and AUTOINCREMENT hands out a NEW id
         // on every rescan, breaking any /media?id= or /player?id= URL already in use.
@@ -126,9 +176,10 @@ class LibraryDatabase(context: Context) :
             put(COL_SB_COLS, item.storyboardCols)
         }
         // UNIQUE(file_path) makes this an upsert via CONFLICT_REPLACE.
-        writableDatabase.insertWithOnConflict(
+        val rowId = writableDatabase.insertWithOnConflict(
             TABLE, null, values, SQLiteDatabase.CONFLICT_REPLACE,
         )
+        return existingId ?: rowId
     }
 
     fun getById(id: Long): MediaItem? {
@@ -177,7 +228,81 @@ class LibraryDatabase(context: Context) :
     }
 
     fun deleteByPath(filePath: String) {
+        val id = idForPath(filePath)
         writableDatabase.delete(TABLE, "$COL_PATH = ?", arrayOf(filePath))
+        if (id != null) {
+            writableDatabase.delete(TABLE_SUBS, "$SCOL_MEDIA_ID = ?", arrayOf(id.toString()))
+        }
+    }
+
+    /**
+     * Replaces every embedded-subtitle row for [mediaId] with [tracks] (a fresh scan
+     * result). When [tracks] is empty, a sentinel row (track_index = -1) is written so
+     * [hasSubtitleScan] can tell "scanned, none found" apart from "never scanned" without
+     * re-running MediaExtractor on every incremental scan. [subtitleTracksFor] hides it.
+     */
+    fun replaceSubtitleTracks(mediaId: Long, tracks: List<SubtitleTrack>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(TABLE_SUBS, "$SCOL_MEDIA_ID = ?", arrayOf(mediaId.toString()))
+            if (tracks.isEmpty()) {
+                val sentinel = ContentValues().apply {
+                    put(SCOL_MEDIA_ID, mediaId)
+                    put(SCOL_TRACK_INDEX, -1)
+                    put(SCOL_CODEC, "")
+                    put(SCOL_IS_TEXT, 0)
+                }
+                db.insert(TABLE_SUBS, null, sentinel)
+            }
+            for (t in tracks) {
+                val values = ContentValues().apply {
+                    put(SCOL_MEDIA_ID, mediaId)
+                    put(SCOL_TRACK_INDEX, t.trackIndex)
+                    put(SCOL_CODEC, t.codec)
+                    put(SCOL_LANGUAGE, t.language)
+                    put(SCOL_TITLE, t.title)
+                    put(SCOL_IS_TEXT, if (t.isText) 1 else 0)
+                }
+                db.insert(TABLE_SUBS, null, values)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** True if [mediaId] has ever been scanned for embedded subtitle tracks. */
+    fun hasSubtitleScan(mediaId: Long): Boolean {
+        readableDatabase.query(
+            TABLE_SUBS, arrayOf(SCOL_ID), "$SCOL_MEDIA_ID = ?", arrayOf(mediaId.toString()),
+            null, null, null, "1",
+        ).use { c -> return c.moveToFirst() }
+    }
+
+    /** Real subtitle tracks for [mediaId], excluding the "scanned, none found" sentinel. */
+    fun subtitleTracksFor(mediaId: Long): List<SubtitleTrack> {
+        val out = ArrayList<SubtitleTrack>()
+        readableDatabase.query(
+            TABLE_SUBS, null, "$SCOL_MEDIA_ID = ? AND $SCOL_TRACK_INDEX >= 0",
+            arrayOf(mediaId.toString()),
+            null, null, "$SCOL_TRACK_INDEX ASC",
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    SubtitleTrack(
+                        id = c.getLong(c.getColumnIndexOrThrow(SCOL_ID)),
+                        mediaId = c.getLong(c.getColumnIndexOrThrow(SCOL_MEDIA_ID)),
+                        trackIndex = c.getInt(c.getColumnIndexOrThrow(SCOL_TRACK_INDEX)),
+                        codec = c.getString(c.getColumnIndexOrThrow(SCOL_CODEC)) ?: "",
+                        language = c.getString(c.getColumnIndexOrThrow(SCOL_LANGUAGE)),
+                        title = c.getString(c.getColumnIndexOrThrow(SCOL_TITLE)),
+                        isText = c.getInt(c.getColumnIndexOrThrow(SCOL_IS_TEXT)) != 0,
+                    ),
+                )
+            }
+        }
+        return out
     }
 
     fun count(): Int {
