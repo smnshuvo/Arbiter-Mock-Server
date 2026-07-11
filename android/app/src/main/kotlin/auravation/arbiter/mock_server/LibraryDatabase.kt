@@ -5,6 +5,14 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
+/** Playback tier per the Three-Tier Playback Decision (task.md): a default, pre-browser
+ * assumption — the client-side canPlayType check makes the final per-browser call. */
+object PlaybackTier {
+    const val DIRECT = 1
+    const val REMUX = 2
+    const val TRANSCODE = 3
+}
+
 /** A scanned media file with its extracted metadata. */
 data class MediaItem(
     val id: Long,
@@ -21,6 +29,11 @@ data class MediaItem(
     val storyboardFrames: Int = 0,
     val storyboardIntervalMs: Long = 0,
     val storyboardCols: Int = 0,
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
+    val container: String? = null,
+    val bitrate: Long = 0,
+    val playbackTier: Int = PlaybackTier.DIRECT,
 )
 
 /**
@@ -49,7 +62,7 @@ class LibraryDatabase(context: Context) :
 
     companion object {
         private const val DB_NAME = "file_server_library.db"
-        private const val DB_VERSION = 3
+        private const val DB_VERSION = 4
         const val TABLE = "media_items"
         const val TABLE_SUBS = "subtitle_tracks"
 
@@ -67,6 +80,11 @@ class LibraryDatabase(context: Context) :
         private const val COL_SB_FRAMES = "storyboard_frames"
         private const val COL_SB_INTERVAL = "storyboard_interval_ms"
         private const val COL_SB_COLS = "storyboard_cols"
+        private const val COL_VIDEO_CODEC = "video_codec"
+        private const val COL_AUDIO_CODEC = "audio_codec"
+        private const val COL_CONTAINER = "container"
+        private const val COL_BITRATE = "bitrate"
+        private const val COL_TIER = "playback_tier"
 
         private const val SCOL_ID = "id"
         private const val SCOL_MEDIA_ID = "media_id"
@@ -94,7 +112,12 @@ class LibraryDatabase(context: Context) :
               $COL_SB_PATH TEXT,
               $COL_SB_FRAMES INTEGER DEFAULT 0,
               $COL_SB_INTERVAL INTEGER DEFAULT 0,
-              $COL_SB_COLS INTEGER DEFAULT 0
+              $COL_SB_COLS INTEGER DEFAULT 0,
+              $COL_VIDEO_CODEC TEXT,
+              $COL_AUDIO_CODEC TEXT,
+              $COL_CONTAINER TEXT,
+              $COL_BITRATE INTEGER DEFAULT 0,
+              $COL_TIER INTEGER DEFAULT ${PlaybackTier.DIRECT}
             )
             """.trimIndent(),
         )
@@ -110,6 +133,15 @@ class LibraryDatabase(context: Context) :
         }
         if (oldVersion < 3) {
             createSubtitleTracksTable(db)
+        }
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_VIDEO_CODEC TEXT")
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_AUDIO_CODEC TEXT")
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_CONTAINER TEXT")
+            db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_BITRATE INTEGER DEFAULT 0")
+            db.execSQL(
+                "ALTER TABLE $TABLE ADD COLUMN $COL_TIER INTEGER DEFAULT ${PlaybackTier.DIRECT}",
+            )
         }
     }
 
@@ -174,6 +206,11 @@ class LibraryDatabase(context: Context) :
             put(COL_SB_FRAMES, item.storyboardFrames)
             put(COL_SB_INTERVAL, item.storyboardIntervalMs)
             put(COL_SB_COLS, item.storyboardCols)
+            put(COL_VIDEO_CODEC, item.videoCodec)
+            put(COL_AUDIO_CODEC, item.audioCodec)
+            put(COL_CONTAINER, item.container)
+            put(COL_BITRATE, item.bitrate)
+            put(COL_TIER, item.playbackTier)
         }
         // UNIQUE(file_path) makes this an upsert via CONFLICT_REPLACE.
         val rowId = writableDatabase.insertWithOnConflict(
@@ -201,6 +238,33 @@ class LibraryDatabase(context: Context) :
             put(COL_SB_FRAMES, frames)
             put(COL_SB_INTERVAL, intervalMs)
             put(COL_SB_COLS, cols)
+        }
+        writableDatabase.update(TABLE, values, "$COL_ID = ?", arrayOf(id.toString()))
+    }
+
+    /** True if [id]'s row already has codec/tier info (scanned since T1 shipped). */
+    fun hasCodecInfo(id: Long): Boolean {
+        readableDatabase.query(
+            TABLE, arrayOf(COL_CONTAINER), "$COL_ID = ? AND $COL_CONTAINER IS NOT NULL",
+            arrayOf(id.toString()), null, null, null,
+        ).use { c -> return c.moveToFirst() }
+    }
+
+    /** Attaches codec/container/tier info to an existing row (backfill for older scans). */
+    fun updateCodecInfo(
+        id: Long,
+        videoCodec: String?,
+        audioCodec: String?,
+        container: String,
+        bitrate: Long,
+        playbackTier: Int,
+    ) {
+        val values = ContentValues().apply {
+            put(COL_VIDEO_CODEC, videoCodec)
+            put(COL_AUDIO_CODEC, audioCodec)
+            put(COL_CONTAINER, container)
+            put(COL_BITRATE, bitrate)
+            put(COL_TIER, playbackTier)
         }
         writableDatabase.update(TABLE, values, "$COL_ID = ?", arrayOf(id.toString()))
     }
@@ -326,5 +390,11 @@ class LibraryDatabase(context: Context) :
         storyboardFrames = getInt(getColumnIndexOrThrow(COL_SB_FRAMES)),
         storyboardIntervalMs = getLong(getColumnIndexOrThrow(COL_SB_INTERVAL)),
         storyboardCols = getInt(getColumnIndexOrThrow(COL_SB_COLS)),
+        videoCodec = getString(getColumnIndexOrThrow(COL_VIDEO_CODEC)),
+        audioCodec = getString(getColumnIndexOrThrow(COL_AUDIO_CODEC)),
+        container = getString(getColumnIndexOrThrow(COL_CONTAINER)),
+        bitrate = getLong(getColumnIndexOrThrow(COL_BITRATE)),
+        playbackTier = getInt(getColumnIndexOrThrow(COL_TIER)).takeIf { it != 0 }
+            ?: PlaybackTier.DIRECT,
     )
 }

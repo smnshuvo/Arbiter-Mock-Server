@@ -36,13 +36,16 @@ object Remuxer {
     /** Priming holds early video samples in RAM; interleaved sources need only a few. */
     private const val MAX_HELD_VIDEO_BYTES = 64L * 1024 * 1024
 
-    private val VIDEO_MIMES = setOf(
+    /** Video codecs this pipeline can stream-copy; also used by [SubtitleTrackDetector]'s
+     * sibling, the codec/tier scan (see LibraryScanner), to assume a Remux vs Transcode
+     * tier before any browser-specific canPlayType check runs. */
+    internal val VIDEO_MIMES = setOf(
         MediaFormat.MIMETYPE_VIDEO_AVC,
         MediaFormat.MIMETYPE_VIDEO_HEVC,
     )
 
     /** Audio MP4 carries as-is; everything else goes through the transcoder. */
-    private val AUDIO_COPY_MIMES = setOf(
+    internal val AUDIO_COPY_MIMES = setOf(
         MediaFormat.MIMETYPE_AUDIO_AAC,
         MediaFormat.MIMETYPE_AUDIO_MPEG,
     )
