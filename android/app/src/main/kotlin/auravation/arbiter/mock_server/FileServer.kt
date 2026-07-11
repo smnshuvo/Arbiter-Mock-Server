@@ -868,6 +868,23 @@ class FileServer(
             "<track kind='subtitles' label='${escape(label)}' srclang='$lang' src='$subSrc'>"
         }.joinToString("")
 
+        // Embedded (in-container) text subtitle tracks — detected at scan time by
+        // SubtitleTrackDetector, extracted on demand by /subs?id=&track=. Bitmap tracks
+        // (PGS/VobSub) are omitted here; they need a burned-in transcode (T0.4).
+        val embeddedTrackTags = if (isVideo && item != null) {
+            library.subtitleTracksFor(item.id).filter { it.isText }.mapIndexed { i, t ->
+                val subSrc = "/subs?id=${item.id}&track=${t.trackIndex}"
+                val lang = t.language?.takeIf { it.length in 2..3 && it.all(Char::isLetter) }
+                    ?.lowercase() ?: "und"
+                val label = t.title?.takeIf { it.isNotBlank() }
+                    ?: t.language?.let { languageLabel(it) }
+                    ?: "Embedded ${i + 1}"
+                "<track kind='subtitles' label='${escape(label)}' srclang='$lang' src='${escape(subSrc)}'>"
+            }.joinToString("")
+        } else {
+            ""
+        }
+
         // Convertible containers (MKV/TS/MOV/3GP): browsers reject the declared type via
         // canPlayType() without reading a single byte, yet many can demux these with
         // compatible codecs when allowed to sniff — omit the type and let them try; if
@@ -880,7 +897,7 @@ class FileServer(
         // D-pad remote. Custom, focusable controls are driven by the script below.
         val mediaEl = if (isVideo) {
             "<video id='media' autoplay playsinline><source src='$srcAttr'$typeAttr>" +
-                "${trackTags}Your browser cannot play this video.</video>"
+                "$trackTags${embeddedTrackTags}Your browser cannot play this video.</video>"
         } else {
             "<audio id='media' autoplay><source src='$srcAttr' type='${escape(mime)}'>" +
                 "Your browser cannot play this audio.</audio>"
@@ -1351,11 +1368,23 @@ class FileServer(
             for(var i=0;i<t.length;i++) if(t[i].mode==='showing') return i;
             return -1;
           }
-          function setSub(i){
+          function setSub(i,silent){
             var t=media.textTracks||[];
             for(var j=0;j<t.length;j++) t[j].mode=(j===i?'showing':'hidden');
-            toast(i<0?'Subtitles off':'Subtitles: '+(t[i].label||('track '+(i+1))));
+            try{ localStorage.setItem('lastSubLang',i<0?'off':(t[i].language||'')); }catch(e){}
+            if(!silent) toast(i<0?'Subtitles off':'Subtitles: '+(t[i].label||('track '+(i+1))));
           }
+          // Auto-enable the last language the user picked, on any video that has it.
+          (function(){
+            var t=media.textTracks||[];
+            if(!t.length) return;
+            var saved;
+            try{ saved=localStorage.getItem('lastSubLang'); }catch(e){ saved=null; }
+            if(!saved||saved==='off') return;
+            for(var i=0;i<t.length;i++){
+              if(t[i].language===saved){ setSub(i,true); break; }
+            }
+          })();
           function menuItems(){
             var items=[{label:'⛶ Fullscreen',run:toggleFullscreen}];
             if(media.tagName==='VIDEO') items.push({label:'🔳 Video fit: '+fitLabel(),run:openFitMenu});
@@ -1368,7 +1397,7 @@ class FileServer(
                 items.push({label:'Subtitles: '+lb,check:cur===i,run:function(){setSub(i);}});
               })(i);
             } else {
-              items.push({label:'No sidecar subtitles found',disabled:true});
+              items.push({label:'No subtitles found',disabled:true});
             }
             if(media.tagName==='VIDEO') items.push({label:'＋ Custom subtitle…',run:openSubBrowser});
             if(REMUX&&REMUX.conv) items.push({label:'Fast-seek progress: '+(hideProg?'Hidden':'Shown'),run:function(){
@@ -1798,9 +1827,10 @@ class FileServer(
 
     /**
      * GET /subs?id=<media_id>&n=<i> or /subs?v=/raw/<path>&n=<i> — the i-th sidecar
-     * subtitle as WebVTT; or /subs?doc=<documentId>&ext=<srt|vtt> — an arbitrary
-     * subtitle file the user picked from the share (see /subslist). SRT is converted
-     * on the fly; browsers only take VTT tracks.
+     * subtitle as WebVTT; /subs?doc=<documentId>&ext=<srt|vtt> — an arbitrary subtitle
+     * file the user picked from the share (see /subslist); or /subs?id=<media_id>&track=<i>
+     * — the i-th *embedded* subtitle track (see [SubtitleTrackDetector]), extracted and
+     * cached on first request. SRT is converted on the fly; browsers only take VTT tracks.
      */
     private fun serveSubtitle(session: IHTTPSession): Response {
         val doc = session.parameters["doc"]?.firstOrNull()
@@ -1808,13 +1838,60 @@ class FileServer(
             val isVtt = session.parameters["ext"]?.firstOrNull()?.lowercase() == "vtt"
             return serveSubtitleDoc(doc, isVtt)
         }
-        val n = session.parameters["n"]?.firstOrNull()?.toIntOrNull() ?: 0
         val id = session.parameters["id"]?.firstOrNull()?.toLongOrNull()
+        val trackIndex = session.parameters["track"]?.firstOrNull()?.toIntOrNull()
+        if (id != null && trackIndex != null) {
+            return serveEmbeddedSubtitle(id, trackIndex)
+        }
+        val n = session.parameters["n"]?.firstOrNull()?.toIntOrNull() ?: 0
         val v = session.parameters["v"]?.firstOrNull()
         val sub = subtitlesFor(id, v).getOrNull(n)?.first
             ?: return text(Response.Status.NOT_FOUND, "No subtitles")
         return serveSubtitleDoc(sub.documentId, FileTypes.extensionOf(sub.name) == "vtt")
     }
+
+    /**
+     * Serves an embedded subtitle track as WebVTT, extracting it with
+     * [EmbeddedSubtitleExtractor] on first request and caching the result under
+     * [embeddedSubsCacheDir] keyed by media id + track index + the file's last-modified
+     * stamp (so a re-encoded/replaced file invalidates the cache on its next scan).
+     */
+    private fun serveEmbeddedSubtitle(mediaId: Long, trackIndex: Int): Response {
+        val item = library.getById(mediaId)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val track = library.subtitleTracksFor(mediaId).find { it.trackIndex == trackIndex }
+            ?: return text(Response.Status.NOT_FOUND, "No such subtitle track")
+        if (!track.isText) {
+            return text(
+                Response.Status.NOT_FOUND,
+                "Bitmap subtitle track — requires burned-in transcode (not yet available)",
+            )
+        }
+
+        val cacheFile = java.io.File(
+            embeddedSubsCacheDir(),
+            "${mediaId}_${trackIndex}_${item.lastModified}.vtt",
+        )
+        val vtt = if (cacheFile.exists()) {
+            cacheFile.readText(Charsets.UTF_8)
+        } else {
+            val extracted = EmbeddedSubtitleExtractor.extractToWebVtt(
+                context, Uri.parse(item.filePath), trackIndex,
+            ) ?: return text(Response.Status.NOT_FOUND, "Could not extract subtitle")
+            try {
+                cacheFile.writeText(extracted, Charsets.UTF_8)
+            } catch (_: Exception) {
+                // Cache write failure isn't fatal — still serve what we extracted.
+            }
+            extracted
+        }
+        val res = newFixedLengthResponse(Response.Status.OK, "text/vtt", vtt)
+        res.addHeader("Cache-Control", "max-age=3600")
+        return res
+    }
+
+    private fun embeddedSubsCacheDir(): java.io.File =
+        java.io.File(context.cacheDir, "embedded_subs").apply { if (!exists()) mkdirs() }
 
     /**
      * Reads a subtitle document (restricted to the shared tree by [docUriFor], which
@@ -2494,6 +2571,24 @@ class FileServer(
     private fun appendParam(url: String, key: String, value: String): String {
         val sep = if (url.contains('?')) "&" else "?"
         return "$url$sep$key=$value"
+    }
+
+    /** ISO-639 code → display name for embedded subtitle track labels; falls back to the code. */
+    private fun languageLabel(code: String): String = when (code.lowercase()) {
+        "eng" -> "English"
+        "spa" -> "Spanish"
+        "fre", "fra" -> "French"
+        "ger", "deu" -> "German"
+        "ita" -> "Italian"
+        "por" -> "Portuguese"
+        "rus" -> "Russian"
+        "jpn" -> "Japanese"
+        "kor" -> "Korean"
+        "chi", "zho" -> "Chinese"
+        "ara" -> "Arabic"
+        "hin" -> "Hindi"
+        "ben" -> "Bengali"
+        else -> code.uppercase()
     }
 
     private fun encode(s: String): String =
