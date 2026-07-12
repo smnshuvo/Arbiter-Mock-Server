@@ -31,6 +31,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
   static const _authUserPrefKey = 'file_server_auth_user';
   static const _authPassPrefKey = 'file_server_auth_pass';
   static const _idleStopPrefKey = 'file_server_stop_if_idle';
+  static const _transcodePrefKey = 'file_server_transcode_allowed';
 
   final FileServerService _service = FileServerService();
   final TextEditingController _portController =
@@ -50,6 +51,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
   bool _uploadsEnabled = false;
   bool _authEnabled = false;
   bool _stopIfIdle = true;
+  bool _transcodeAllowed = false;
 
   int _totalBytes = 0;
   int _speedBps = 0;
@@ -80,6 +82,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
     final savedPort = prefs.getInt(_portPrefKey);
     final uploads = prefs.getBool(_uploadsPrefKey) ?? false;
     final stopIfIdle = prefs.getBool(_idleStopPrefKey) ?? true;
+    final transcodeAllowed = prefs.getBool(_transcodePrefKey) ?? false;
     final authEnabled = prefs.getBool(_authEnabledPrefKey) ?? false;
     final authUser = prefs.getString(_authUserPrefKey) ?? '';
     final authPass = prefs.getString(_authPassPrefKey) ?? '';
@@ -96,6 +99,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
       if (savedPort != null) _portController.text = savedPort.toString();
       _uploadsEnabled = uploads;
       _stopIfIdle = stopIfIdle;
+      _transcodeAllowed = transcodeAllowed;
       _authEnabled = authEnabled;
       _userController.text = authUser;
       _passController.text = authPass;
@@ -143,6 +147,21 @@ class _FileServerScreenState extends State<FileServerScreen> {
     await prefs.setBool(_uploadsPrefKey, enabled);
     // Takes effect immediately on an already-running server.
     if (_running) await _service.setUploadsEnabled(enabled);
+  }
+
+  void _showTranscodeLog() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _TranscodeLogDialog(service: _service),
+    );
+  }
+
+  Future<void> _setTranscodeAllowed(bool enabled) async {
+    setState(() => _transcodeAllowed = enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_transcodePrefKey, enabled);
+    // Takes effect immediately on an already-running server.
+    if (_running) await _service.setTranscodeAllowed(enabled);
   }
 
   Future<void> _setStopIfIdle(bool enabled) async {
@@ -264,6 +283,7 @@ class _FileServerScreenState extends State<FileServerScreen> {
       port: _port,
       rootUri: folder.uri,
       uploadsEnabled: _uploadsEnabled,
+      transcodeAllowed: _transcodeAllowed,
       authUser: _effectiveAuthUser,
       authPass: _passController.text,
       stopIfIdle: _stopIfIdle,
@@ -334,6 +354,8 @@ class _FileServerScreenState extends State<FileServerScreen> {
           _portField(),
           const SizedBox(height: 16),
           _uploadsToggle(),
+          const SizedBox(height: 16),
+          _transcodeToggle(),
           const SizedBox(height: 16),
           _idleStopToggle(),
           const SizedBox(height: 16),
@@ -538,6 +560,48 @@ class _FileServerScreenState extends State<FileServerScreen> {
             ),
           ),
           Switch(value: _uploadsEnabled, onChanged: _setUploadsEnabled),
+        ],
+      ),
+    );
+  }
+
+  Widget _transcodeToggle() {
+    final cs = Theme.of(context).colorScheme;
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.bolt_outlined, size: 24, color: AppColors.accent),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Allow on-device transcoding',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Lets the player fully convert videos your browser can\'t play '
+                      'at all. Uses noticeably more battery and CPU than the usual '
+                      'quick conversion — off by default.',
+                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(value: _transcodeAllowed, onChanged: _setTranscodeAllowed),
+            ],
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _showTranscodeLog,
+              icon: const Icon(Icons.history, size: 18),
+              label: const Text('View log'),
+            ),
+          ),
         ],
       ),
     );
@@ -808,6 +872,178 @@ class _UnsupportedNotice extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Shows ongoing Tier-3 transcode jobs plus recent history (last 20). Polls
+/// while open so an in-progress conversion's percentage updates live.
+class _TranscodeLogDialog extends StatefulWidget {
+  const _TranscodeLogDialog({required this.service});
+
+  final FileServerService service;
+
+  @override
+  State<_TranscodeLogDialog> createState() => _TranscodeLogDialogState();
+}
+
+class _TranscodeLogDialogState extends State<_TranscodeLogDialog> {
+  Timer? _timer;
+  TranscodeLog _log = const TranscodeLog(ongoing: [], history: []);
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _poll();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _poll() async {
+    final log = await widget.service.getTranscodeLog();
+    if (!mounted) return;
+    setState(() {
+      _log = log;
+      _loading = false;
+    });
+  }
+
+  static String _fmtDuration(Duration d) {
+    if (d.inMinutes >= 1) return '${d.inMinutes}m ${d.inSeconds % 60}s';
+    return '${d.inSeconds}s';
+  }
+
+  static String _fmtAgo(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+    if (d.inHours < 24) return '${d.inHours} hr ago';
+    return '${d.inDays} day${d.inDays == 1 ? '' : 's'} ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Transcode log'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: _loading
+            ? const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : (_log.ongoing.isEmpty && _log.history.isEmpty)
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      'No transcodes yet.',
+                      style: TextStyle(color: cs.onSurfaceVariant),
+                    ),
+                  )
+                : ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 420),
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        if (_log.ongoing.isNotEmpty) ...[
+                          Text('In progress',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700, color: cs.primary)),
+                          const SizedBox(height: 4),
+                          for (final job in _log.ongoing)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(job.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w600)),
+                                        Text(
+                                          '${job.pct}% · started ${_fmtAgo(job.startedAt)}',
+                                          style: TextStyle(
+                                              fontSize: 12, color: cs.onSurfaceVariant),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          const Divider(height: 20),
+                        ],
+                        if (_log.history.isNotEmpty) ...[
+                          Text('Recent',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700, color: cs.primary)),
+                          const SizedBox(height: 4),
+                          for (final entry in _log.history)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    entry.succeeded
+                                        ? Icons.check_circle_outline
+                                        : Icons.error_outline,
+                                    size: 18,
+                                    color: entry.succeeded ? Colors.green : cs.error,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(entry.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w600)),
+                                        Text(
+                                          entry.succeeded
+                                              ? '${_fmtDuration(entry.duration)} · '
+                                                  '${_fmtAgo(entry.finishedAt)}'
+                                              : '${entry.reason ?? 'Failed'} · '
+                                                  '${_fmtAgo(entry.finishedAt)}',
+                                          style: TextStyle(
+                                              fontSize: 12, color: cs.onSurfaceVariant),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
     );
   }
 }

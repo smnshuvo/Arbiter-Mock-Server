@@ -26,6 +26,67 @@ class FileServerStatus {
   final int requestCount;
 }
 
+/// A Tier-3 transcode currently in progress (see TranscodeController.ongoing).
+class TranscodeOngoing {
+  const TranscodeOngoing({
+    required this.mediaId,
+    required this.title,
+    required this.pct,
+    required this.startedAt,
+  });
+
+  factory TranscodeOngoing.fromMap(Map<dynamic, dynamic> m) => TranscodeOngoing(
+        mediaId: (m['mediaId'] as num).toInt(),
+        title: m['title'] as String? ?? 'Unknown',
+        pct: (m['pct'] as num?)?.toInt() ?? 0,
+        startedAt: DateTime.fromMillisecondsSinceEpoch((m['startedAt'] as num).toInt()),
+      );
+
+  final int mediaId;
+  final String title;
+  final int pct;
+  final DateTime startedAt;
+}
+
+/// One finished Tier-3 transcode job (see TranscodeController.recentLog).
+class TranscodeLogEntry {
+  const TranscodeLogEntry({
+    required this.mediaId,
+    required this.title,
+    required this.startedAt,
+    required this.finishedAt,
+    required this.outcome,
+    this.reason,
+  });
+
+  factory TranscodeLogEntry.fromMap(Map<dynamic, dynamic> m) => TranscodeLogEntry(
+        mediaId: (m['mediaId'] as num).toInt(),
+        title: m['title'] as String? ?? 'Unknown',
+        startedAt: DateTime.fromMillisecondsSinceEpoch((m['startedAt'] as num).toInt()),
+        finishedAt: DateTime.fromMillisecondsSinceEpoch((m['finishedAt'] as num).toInt()),
+        outcome: m['outcome'] as String? ?? 'failed',
+        reason: m['reason'] as String?,
+      );
+
+  final int mediaId;
+  final String title;
+  final DateTime startedAt;
+  final DateTime finishedAt;
+  final String outcome; // "ready" | "failed" | "cancelled"
+  final String? reason;
+
+  Duration get duration => finishedAt.difference(startedAt);
+  bool get succeeded => outcome == 'ready';
+}
+
+/// Ongoing Tier-3 jobs plus recent history, for the Settings screen's log view.
+class TranscodeLog {
+  const TranscodeLog({required this.ongoing, required this.history});
+
+  final List<TranscodeOngoing> ongoing;
+  final List<TranscodeLogEntry> history;
+}
+
 /// An event pushed from the native file server (scan progress, request count,
 /// or connected remote-control clients).
 class FileServerEvent {
@@ -188,6 +249,7 @@ class FileServerService {
     required int port,
     required String rootUri,
     bool uploadsEnabled = false,
+    bool transcodeAllowed = false,
     String? authUser,
     String? authPass,
     bool stopIfIdle = true,
@@ -198,6 +260,7 @@ class FileServerService {
         'port': port,
         'rootUri': rootUri,
         'uploadsEnabled': uploadsEnabled,
+        'transcodeAllowed': transcodeAllowed,
         'authUser': authUser,
         'authPass': authPass,
         'stopIfIdle': stopIfIdle,
@@ -278,6 +341,39 @@ class FileServerService {
       await _channel.invokeMethod<void>('setUploadsEnabled', {'enabled': enabled});
     } on PlatformException catch (e) {
       print('FileServerService.setUploadsEnabled failed: ${e.message}');
+    }
+  }
+
+  /// Enables/disables on-device Tier-3 transcoding (a hardware-costly full
+  /// re-encode) on the (possibly running) server. Off by default — the player
+  /// only offers it as a last-resort fallback when this is on.
+  Future<void> setTranscodeAllowed(bool enabled) async {
+    if (!_supported) return;
+    try {
+      await _channel
+          .invokeMethod<void>('setTranscodeAllowed', {'enabled': enabled});
+    } on PlatformException catch (e) {
+      print('FileServerService.setTranscodeAllowed failed: ${e.message}');
+    }
+  }
+
+  /// Ongoing Tier-3 jobs plus the last 20 finished ones (see TranscodeController).
+  Future<TranscodeLog> getTranscodeLog() async {
+    if (!_supported) return const TranscodeLog(ongoing: [], history: []);
+    try {
+      final result =
+          await _channel.invokeMethod<Map<dynamic, dynamic>>('getTranscodeLog');
+      if (result == null) return const TranscodeLog(ongoing: [], history: []);
+      final ongoing = (result['ongoing'] as List<dynamic>? ?? [])
+          .map((m) => TranscodeOngoing.fromMap(Map<dynamic, dynamic>.from(m as Map)))
+          .toList();
+      final history = (result['history'] as List<dynamic>? ?? [])
+          .map((m) => TranscodeLogEntry.fromMap(Map<dynamic, dynamic>.from(m as Map)))
+          .toList();
+      return TranscodeLog(ongoing: ongoing, history: history);
+    } on PlatformException catch (e) {
+      print('FileServerService.getTranscodeLog failed: ${e.message}');
+      return const TranscodeLog(ongoing: [], history: []);
     }
   }
 

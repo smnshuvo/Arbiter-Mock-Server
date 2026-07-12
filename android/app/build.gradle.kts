@@ -66,4 +66,14 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     // Background media scanning (off the main thread, cancellable)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // On-the-fly transcoding (Tier 3). LGPL "video" package: adds libvpx (VP9 software
+    // encode) over the "min" package's built-in decoders. Switched from "min" +
+    // Android's hardware MediaCodec encoder after both FFmpeg's h264_mediacodec wrapper
+    // AND direct MediaCodec calls hung on this device's Samsung Exynos AVC encoder
+    // (OMXNodeInstance UnsupportedIndex errors, encoder never leaves CONFIGURED state) —
+    // libvpx-vp9 is pure CPU software encoding, sidestepping the vendor hardware encoder
+    // entirely. Accepted tradeoff: Safari's native HLS/video doesn't support VP9, so
+    // Tier-3-converted files won't play there (Direct Play/Remux files are unaffected).
+    // Community-maintained continuation of the retired arthenica/ffmpeg-kit project.
+    implementation("com.antonkarpenko:ffmpeg-kit-video:2.2.0")
 }

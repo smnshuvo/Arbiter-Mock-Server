@@ -137,6 +137,15 @@ class FileServer(
         var uploadsEnabled: Boolean = false
 
         /**
+         * App-side toggle: when false, /transcode/start refuses to run. Off by default —
+         * a Tier-3 full transcode is a genuinely hardware-costly operation (sustained
+         * decode+encode), so it's opt-in rather than automatic like the Tier-2 remux.
+         * Volatile so a flip from the Flutter Settings screen takes effect immediately.
+         */
+        @Volatile
+        var transcodeAllowed: Boolean = false
+
+        /**
          * Bytes moved (served + uploaded) since the server last started. The app polls
          * this over the MethodChannel for its speed / total-bandwidth display.
          */
@@ -306,6 +315,8 @@ class FileServer(
                     )
                 session.method == Method.POST && (session.uri ?: "") == "/upload" ->
                     handleUpload(session)
+                session.method == Method.DELETE && (session.uri ?: "").startsWith("/stream/") ->
+                    streamStop(session.uri ?: "")
                 session.method != Method.GET && session.method != Method.HEAD ->
                     text(Response.Status.METHOD_NOT_ALLOWED, "Only GET/HEAD are supported")
                 else -> route(session)
@@ -424,8 +435,14 @@ class FileServer(
             uri == "/remux/start" -> remuxStart(session)
             uri == "/remux/status" -> remuxStatus(session)
             uri == "/remux" -> serveRemux(session)
+            uri == "/transcode/start" -> transcodeStart(session)
+            uri == "/transcode/status" -> transcodeStatus(session)
+            uri == "/transcode" -> serveTranscode(session)
             uri == "/subs" -> serveSubtitle(session)
             uri == "/subslist" -> subtitleListJson()
+            uri == "/hls_test" -> hlsTest(session)
+            uri == "/transcode_test" -> transcodeTest(session)
+            uri.startsWith("/stream/") -> streamAsset(session, uri)
             else -> text(Response.Status.NOT_FOUND, "Not found")
         }
     }
@@ -934,9 +951,16 @@ class FileServer(
         sb.append("</div>")
         // Remux fallback config for convertible-container library items.
         val remuxConfig = item?.let { "{id:${it.id},conv:$convertible}" } ?: "null"
+        // Tier-3 full-transcode fallback (see TranscodeController): only reachable when
+        // direct play AND remux both fail, and gated by the Settings opt-in since it's a
+        // genuinely hardware-costly operation.
+        val transcodeConfig = item?.let { "{id:${it.id},allowed:${FileServer.transcodeAllowed}}" }
+            ?: "null"
 
         sb.append(playerStyles())
-        sb.append("<script>var SB=$sbConfig;var REMUX=$remuxConfig;</script>")
+        sb.append(
+            "<script>var SB=$sbConfig;var REMUX=$remuxConfig;var TRANSCODE=$transcodeConfig;</script>",
+        )
         sb.append(playerScript())
         sb.append(remoteScript())
         sb.append("</body></html>")
@@ -1282,11 +1306,75 @@ class FileServer(
                 .then(function(s){
                   // Resume where playback died, not from the beginning.
                   if(s.state==='ready'){ swapToRemux(lastKnownT,true); }
-                  else if(s.state==='failed'){ finalErr(s.reason); }
+                  else if(s.state==='failed'){ offerTranscodeOrFail(s.reason); }
                   else { showErr('Preparing video… '+(s.pct||0)+'%'); pollRemux(); }
                 })
                 .catch(function(){ finalErr(); });
             },2000);
+          }
+
+          // Tier-3 last-resort fallback: only reached once direct play AND the cheap
+          // remux have both failed. A full transcode is genuinely hardware-costly (sustained
+          // decode+encode), so it's opt-in via Settings and always asks explicitly — it does
+          // not share the "askConvert" skip-the-prompt toggle the lighter remux uses.
+          var transcodeTried=false, usingTranscode=false;
+          function swapToTranscode(resumeT,autoplay){
+            usingTranscode=true;
+            swapping=true;
+            perr.classList.add('hidden');
+            var s=media.querySelector('source');
+            s.setAttribute('src','/transcode?id='+TRANSCODE.id);
+            s.removeAttribute('type');
+            var guard=setTimeout(function(){
+              if(swapping){ swapping=false; finalErr(); }
+            },8000);
+            var once=function(){
+              media.removeEventListener('loadedmetadata',once);
+              clearTimeout(guard);
+              swapping=false;
+              if(resumeT>0) media.currentTime=resumeT;
+              if(autoplay) media.play();
+            };
+            media.addEventListener('loadedmetadata',once);
+            media.load();
+          }
+          function pollTranscode(){
+            setTimeout(function(){
+              fetch('/transcode/status?id='+TRANSCODE.id)
+                .then(function(r){return r.json();})
+                .then(function(s){
+                  if(s.state==='ready'){ swapToTranscode(lastKnownT,true); }
+                  else if(s.state==='failed'||s.state==='disallowed'){ finalErr(s.reason); }
+                  else { showErr('Converting video… '+(s.pct||0)+'%'); pollTranscode(); }
+                })
+                .catch(function(){ finalErr(); });
+            },2000);
+          }
+          function offerTranscodeOrFail(remuxReason){
+            if(!(window.fetch&&TRANSCODE&&TRANSCODE.id)||transcodeTried){
+              finalErr(remuxReason); return;
+            }
+            transcodeTried=true;
+            if(!TRANSCODE.allowed){
+              finalErr('This file needs full conversion, which is off in Settings '
+                +'(File Server → Allow on-device transcoding).');
+              return;
+            }
+            openConfirm(
+              "This file needs a full conversion to play in your browser. This uses "
+                +"noticeably more battery and CPU than usual, and can take a while. Convert now?",
+              function(){
+                showErr('Converting video…');
+                fetch('/transcode/start?id='+TRANSCODE.id)
+                  .then(function(r){return r.json();})
+                  .then(function(s){
+                    if(s.state==='disallowed'){ finalErr(s.reason); }
+                    else { pollTranscode(); }
+                  })
+                  .catch(function(){ finalErr(); });
+              },
+              function(){ finalErr(remuxReason); },
+            );
           }
           function onMediaError(){
             if(swapping) return; // aborting the old stream mid-swap is not a failure
@@ -1300,6 +1388,11 @@ class FileServer(
                   .then(function(){ pollRemux(); })
                   .catch(function(){ finalErr(); });
               }, function(){ finalErr(); });
+            } else if(window.fetch&&TRANSCODE&&TRANSCODE.id){
+              // Container didn't look convertible, so remux wouldn't help — this is
+              // likely an unsupported codec regardless of container; go straight to the
+              // heavier transcode offer instead of failing outright.
+              offerTranscodeOrFail();
             } else {
               finalErr();
             }
@@ -1975,6 +2068,56 @@ class FileServer(
         return out.sortedBy { it.first.lowercase() }
     }
 
+    // ---- HLS/FFmpegKit proof-of-concept (task.md build-order step 5) ----------
+
+    /**
+     * GET /hls_test?id= — diagnostic-only route: runs a synchronous one-shot HLS
+     * conversion via [HlsConverter] and reports the outcome as JSON. Blocks this
+     * request's thread for the whole encode (fine for a manual on-device check; the real
+     * `/stream/{id}/...` session manager from Phase T2 will run this off-thread and
+     * incrementally). Not linked from any UI — exists purely to prove the FFmpegKit +
+     * hardware-encoder pipeline works before building the live session manager on it.
+     */
+    private fun hlsTest(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val outDir = java.io.File(context.cacheDir, "hls_test/${item.id}")
+        val result = HlsConverter.convert(context, Uri.parse(item.filePath), outDir)
+        val json = if (result.ok) {
+            val playlist = java.io.File(outDir, "master.m3u8").readText()
+            "{\"ok\":true,\"dir\":\"${jsonEscape(outDir.absolutePath)}\"," +
+                "\"playlist\":\"${jsonEscape(playlist)}\"}"
+        } else {
+            "{\"ok\":false,\"reason\":\"${jsonEscape(result.reason ?: "unknown")}\"}"
+        }
+        val res = newFixedLengthResponse(Response.Status.OK, "application/json", json)
+        res.addHeader("Cache-Control", "no-store")
+        return res
+    }
+
+    /**
+     * GET /transcode_test?id= — diagnostic-only route: runs [VideoTranscoder] synchronously
+     * and reports the outcome, bypassing [FileServer.transcodeAllowed] entirely. Exists to
+     * validate the decode/encode/merge pipeline directly before wiring the opt-in
+     * player/Settings UI on top of it. Not linked from any UI.
+     */
+    private fun transcodeTest(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val outFile = java.io.File(context.cacheDir, "transcode_test/${item.id}.mp4")
+        outFile.parentFile?.mkdirs()
+        val result = VideoTranscoder.transcode(context, Uri.parse(item.filePath), outFile)
+        val json = if (result.ok) {
+            "{\"ok\":true,\"file\":\"${jsonEscape(outFile.absolutePath)}\"," +
+                "\"size\":${outFile.length()}}"
+        } else {
+            "{\"ok\":false,\"reason\":\"${jsonEscape(result.reason ?: "unknown")}\"}"
+        }
+        val res = newFixedLengthResponse(Response.Status.OK, "application/json", json)
+        res.addHeader("Cache-Control", "no-store")
+        return res
+    }
+
     // ---- MKV remux fallback ---------------------------------------------------
 
     private fun libraryItem(session: IHTTPSession): MediaItem? =
@@ -2012,6 +2155,143 @@ class FileServer(
             return text(Response.Status.NOT_FOUND, "Not remuxed")
         }
         return serveDocument(session, Uri.fromFile(file), item.title + ".mp4", file.length())
+    }
+
+    // ---- Tier-3 full transcode (FFmpeg decode + MediaCodec encode) ------------
+
+    /**
+     * GET /transcode/start?id= — queue a full Tier-3 transcode (no-op when disallowed,
+     * already converted, or busy). Gated by [FileServer.transcodeAllowed]; the response
+     * reflects that immediately so the player can show "disabled in Settings" instead of
+     * silently doing nothing.
+     */
+    private fun transcodeStart(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val s = TranscodeController.start(context, item)
+        return statusJson(s)
+    }
+
+    /** GET /transcode/status?id= — {"state":"none|working|ready|failed|disallowed","pct":N}. */
+    private fun transcodeStatus(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        return statusJson(TranscodeController.status(context, item))
+    }
+
+    private fun statusJson(s: TranscodeController.Status): Response {
+        val reasonJson = s.reason
+            ?.let { ",\"reason\":\"${it.replace("\\", "").replace("\"", "'")}\"" } ?: ""
+        val res = newFixedLengthResponse(
+            Response.Status.OK, "application/json",
+            "{\"state\":\"${s.state}\",\"pct\":${s.pct}$reasonJson}",
+        )
+        res.addHeader("Cache-Control", "no-cache")
+        return res
+    }
+
+    /** GET /transcode?id= — the transcoded MP4, with the same Range support as /media. */
+    private fun serveTranscode(session: IHTTPSession): Response {
+        val item = libraryItem(session)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val file = TranscodeController.outputFor(context, item)
+        if (!file.exists() || file.length() == 0L) {
+            return text(Response.Status.NOT_FOUND, "Not transcoded")
+        }
+        return serveDocument(session, Uri.fromFile(file), item.title + ".mp4", file.length())
+    }
+
+    /**
+     * GET /stream/{id}/master.m3u8[?t=<seconds>] — starts (or reuses) a live HLS session
+     * for {id} via [StreamController], then serves the current, possibly still-growing
+     * playlist. GET /stream/{id}/init.mp4 and /stream/{id}/seg{n}.m4s serve that session's
+     * segment files, with a short grace wait for a not-yet-produced segment. A `t=`
+     * request at a different offset than the active session is a seek: StreamController
+     * kills the old FFmpeg process and starts a fresh one at the new position.
+     */
+    private fun streamAsset(session: IHTTPSession, uri: String): Response {
+        val rest = uri.removePrefix("/stream/")
+        val slash = rest.indexOf('/')
+        if (slash < 0) return text(Response.Status.NOT_FOUND, "Not found")
+        val mediaId = rest.substring(0, slash).toLongOrNull()
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        val filename = rest.substring(slash + 1)
+        val item = library.getById(mediaId)
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+
+        return when {
+            filename == "master.m3u8" -> {
+                val offsetSec =
+                    session.parameters["t"]?.firstOrNull()?.toDoubleOrNull()?.toInt() ?: 0
+                val streamSession = StreamController.startOrGetSession(context, item, offsetSec)
+                // ffmpeg writes this file incrementally as segments land; reading it
+                // mid-write can occasionally catch a truncated line, which the player
+                // just retries on its next poll — acceptable for a v1 live playlist.
+                val bytes = waitForStreamFile(
+                    java.io.File(streamSession.outputDir, "master.m3u8"), 4000,
+                )
+                if (bytes == null) {
+                    text(Response.Status.NOT_FOUND, "Stream not ready")
+                } else {
+                    val res = newFixedLengthResponse(
+                        Response.Status.OK, "application/vnd.apple.mpegurl", String(bytes),
+                    )
+                    res.addHeader("Cache-Control", "no-store")
+                    res
+                }
+            }
+            filename == "init.mp4" -> {
+                StreamController.touch(mediaId)
+                val dir = StreamController.activeSession(mediaId)?.outputDir
+                    ?: return text(Response.Status.NOT_FOUND, "No active session")
+                serveStreamSegment(java.io.File(dir, "init.mp4"), "video/mp4")
+            }
+            filename.startsWith("seg") && filename.endsWith(".m4s") -> {
+                StreamController.touch(mediaId)
+                val dir = StreamController.activeSession(mediaId)?.outputDir
+                    ?: return text(Response.Status.NOT_FOUND, "No active session")
+                serveStreamSegment(java.io.File(dir, filename), "video/iso.segment")
+            }
+            else -> text(Response.Status.NOT_FOUND, "Not found")
+        }
+    }
+
+    /** Waits up to [timeoutMs] for [file] to exist and be non-empty (the encoder may not
+     * have produced it yet), then returns its bytes — null if it never showed up. */
+    private fun waitForStreamFile(file: java.io.File, timeoutMs: Long): ByteArray? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (file.exists() && file.length() > 0) {
+                return try {
+                    file.readBytes()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            Thread.sleep(200)
+        }
+        return if (file.exists()) file.readBytes() else null
+    }
+
+    /** A short grace wait smooths over the normal "player is a beat ahead of ffmpeg" case
+     * without the player needing its own retry/backoff logic for each segment. */
+    private fun serveStreamSegment(file: java.io.File, mime: String): Response {
+        val bytes = waitForStreamFile(file, 3000)
+            ?: return text(Response.Status.NOT_FOUND, "Segment not ready")
+        val res = newFixedLengthResponse(
+            Response.Status.OK, mime, java.io.ByteArrayInputStream(bytes), bytes.size.toLong(),
+        )
+        res.addHeader("Cache-Control", "no-store")
+        return res
+    }
+
+    /** DELETE /stream/{id} — client signals playback stopped; kills the session right
+     * away instead of waiting out the idle timeout. */
+    private fun streamStop(uri: String): Response {
+        val mediaId = uri.removePrefix("/stream/").substringBefore('/').toLongOrNull()
+            ?: return text(Response.Status.NOT_FOUND, "Unknown media")
+        StreamController.killSession(mediaId)
+        return text(Response.Status.OK, "stopped")
     }
 
     /**
