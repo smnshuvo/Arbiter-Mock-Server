@@ -119,6 +119,8 @@ class FileServerService : Service() {
             FileServer.totalBytes.set(0)
             FileServer.requestCounter.set(0)
             FileServer.lastActivityAt = System.currentTimeMillis()
+            FileServer.sessionStartedAtMs = System.currentTimeMillis()
+            FileServer.sessionEndedAtMs = -1L
             server = FileServer(applicationContext, Uri.parse(rootUriString), port).also {
                 it.start(NanoHttpdConstants.SOCKET_READ_TIMEOUT, false)
             }
@@ -144,6 +146,7 @@ class FileServerService : Service() {
     }
 
     private fun stopServerInstance() {
+        val wasRunning = runningPort >= 0
         runningPort = -1
         idleWatchdog?.shutdownNow()
         idleWatchdog = null
@@ -153,6 +156,7 @@ class FileServerService : Service() {
             Log.e(TAG, "Error stopping server: ${e.message}")
         }
         server = null
+        if (wasRunning) FileServer.sessionEndedAtMs = System.currentTimeMillis()
     }
 
     /**

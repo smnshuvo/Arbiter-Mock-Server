@@ -151,6 +151,16 @@ class FileServer(
          */
         val totalBytes = java.util.concurrent.atomic.AtomicLong(0)
 
+        /**
+         * Wall-clock bounds of the current/last server session (epoch ms), used to
+         * derive an average speed even after the server has stopped. -1 = not yet set.
+         */
+        @Volatile
+        var sessionStartedAtMs: Long = -1L
+
+        @Volatile
+        var sessionEndedAtMs: Long = -1L
+
         /** In-flight file/media streams; the remux worker yields while this is > 0. */
         private val activeStreams = java.util.concurrent.atomic.AtomicInteger(0)
 

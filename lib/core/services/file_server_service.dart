@@ -26,6 +26,35 @@ class FileServerStatus {
   final int requestCount;
 }
 
+/// Traffic counters for the current/last file server session. [totalBytes]
+/// resets to 0 on the next server start but otherwise persists after a stop,
+/// so [averageBps] stays meaningful for a "last known speed" display.
+class FileServerTraffic {
+  const FileServerTraffic({
+    required this.totalBytes,
+    required this.sessionStartedAtMs,
+    required this.sessionEndedAtMs,
+  });
+
+  static const none =
+      FileServerTraffic(totalBytes: 0, sessionStartedAtMs: -1, sessionEndedAtMs: -1);
+
+  final int totalBytes;
+  final int sessionStartedAtMs; // -1 if the server has never been started
+  final int sessionEndedAtMs; // -1 while the server is still running
+
+  /// Average bytes/sec over the session (still running, or just-ended).
+  double get averageBps {
+    if (sessionStartedAtMs < 0) return 0;
+    final endMs = sessionEndedAtMs >= 0
+        ? sessionEndedAtMs
+        : DateTime.now().millisecondsSinceEpoch;
+    final elapsedSeconds = (endMs - sessionStartedAtMs) / 1000.0;
+    if (elapsedSeconds <= 0) return 0;
+    return totalBytes / elapsedSeconds;
+  }
+}
+
 /// A Tier-3 transcode currently in progress (see TranscodeController.ongoing).
 class TranscodeOngoing {
   const TranscodeOngoing({
@@ -387,6 +416,24 @@ class FileServerService {
     } on PlatformException catch (e) {
       print('FileServerService.getTotalBytes failed: ${e.message}');
       return 0;
+    }
+  }
+
+  /// Traffic counters for the current/last server session (see [FileServerTraffic]).
+  Future<FileServerTraffic> getTrafficStats() async {
+    if (!_supported) return FileServerTraffic.none;
+    try {
+      final result =
+          await _channel.invokeMethod<Map<dynamic, dynamic>>('getTrafficStats');
+      if (result == null) return FileServerTraffic.none;
+      return FileServerTraffic(
+        totalBytes: (result['totalBytes'] as int?) ?? 0,
+        sessionStartedAtMs: (result['sessionStartedAtMs'] as int?) ?? -1,
+        sessionEndedAtMs: (result['sessionEndedAtMs'] as int?) ?? -1,
+      );
+    } on PlatformException catch (e) {
+      print('FileServerService.getTrafficStats failed: ${e.message}');
+      return FileServerTraffic.none;
     }
   }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:arbiter_mock_server/core/ads/ad_config.dart';
 import 'package:arbiter_mock_server/core/ads/ad_service.dart';
 import 'package:arbiter_mock_server/core/theme/theme_cubit.dart';
@@ -45,6 +47,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// the endpoints screen.
   Map<String, int> _endpointCounts = {};
   bool _loadingCounts = false;
+
+  /// Wi-Fi File Server traffic, shown in the home screen's NETWORK/DISK cards.
+  final FileServerService _fileServerSvc = FileServerService();
+  Timer? _fsStatsTimer;
+  int? _fsLastPollBytes;
+  bool _fsRunning = false;
+  bool _fsHasData = false;
+  int _fsTotalBytes = 0;
+  int _fsRequestCount = 0;
+  double _fsSpeedBps = 0;
+  double _fsAvgBps = 0;
 
   @override
   void initState() {
@@ -133,6 +146,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _loadEndpointCounts(profileState.profiles);
       }
     });
+
+    if (FileServerService.isSupported) {
+      _refreshFileServerStats();
+      _fsStatsTimer =
+          Timer.periodic(const Duration(seconds: 2), (_) => _refreshFileServerStats());
+    }
+  }
+
+  /// Polls the Wi-Fi File Server for the NETWORK/DISK stat cards: live speed
+  /// while running, average speed of the last session once stopped.
+  Future<void> _refreshFileServerStats() async {
+    final status = await _fileServerSvc.getStatus();
+    final traffic = await _fileServerSvc.getTrafficStats();
+    if (!mounted) return;
+    setState(() {
+      _fsRunning = status.running;
+      _fsRequestCount = status.requestCount;
+      _fsTotalBytes = traffic.totalBytes;
+      _fsHasData = traffic.sessionStartedAtMs >= 0;
+      _fsAvgBps = traffic.averageBps;
+      _fsSpeedBps = (status.running && _fsLastPollBytes != null)
+          ? (traffic.totalBytes - _fsLastPollBytes!).clamp(0, 1 << 62) / 2.0
+          : 0;
+      _fsLastPollBytes = traffic.totalBytes;
+    });
   }
 
   final OverlayService _overlay = OverlayService();
@@ -219,6 +257,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _portController.dispose();
+    _fsStatsTimer?.cancel();
     super.dispose();
   }
 
@@ -627,10 +666,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  // NOTE: Network + Disk figures are static placeholders — there is no metrics
-  // data source yet (tracked in task.md §5.2). Styled to match the design so the
-  // real numbers can be wired in later without a layout change.
+  /// Splits a byte count into a display value + unit, auto-scaling KB→TB.
+  static (String, String) _splitBytes(num bytes) {
+    if (bytes < 1024) return (bytes.toStringAsFixed(0), 'B');
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    var value = bytes / 1024;
+    var i = 0;
+    while (value >= 1024 && i < units.length - 1) {
+      value /= 1024;
+      i++;
+    }
+    return (value.toStringAsFixed(1), units[i]);
+  }
+
+  // NETWORK + DISK reflect the Wi-Fi File Server's traffic (see
+  // _refreshFileServerStats): live speed and cumulative bytes while running,
+  // last-session average/total once stopped. Both read 0 on non-Android,
+  // where the file server does not exist.
   Widget _buildStatsStrip() {
+    final (speedValue, speedUnit) =
+        _splitBytes(_fsRunning ? _fsSpeedBps : _fsAvgBps);
+    final (totalValue, totalUnit) = _splitBytes(_fsTotalBytes);
+
     return Row(
       children: [
         Expanded(
@@ -638,21 +695,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             icon: Icons.swap_vert,
             iconColor: AppColors.info,
             label: 'NETWORK',
-            value: '0.0',
-            unit: 'MB/s',
+            value: speedValue,
+            unit: '$speedUnit/s',
             footer: Row(
               children: [
-                Text('▲ 0',
-                    style: monoTextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.running)),
-                const SizedBox(width: 10),
-                Text('▼ 0',
-                    style: monoTextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.info)),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _fsRunning ? AppColors.running : AppColors.info,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _fsRunning
+                      ? 'live'
+                      : (_fsHasData ? 'avg (last session)' : 'file server off'),
+                  style: monoTextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.info,
+                  ),
+                ),
               ],
             ),
           ),
@@ -663,15 +728,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             icon: Icons.storage_outlined,
             iconColor: AppColors.interception,
             label: 'DISK',
-            value: '0',
-            unit: '/ 0 GB',
-            footer: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: 0,
-                minHeight: 5,
-                backgroundColor: Theme.of(context).dividerColor,
-                valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+            value: totalValue,
+            unit: totalUnit,
+            footer: Text(
+              '$_fsRequestCount requests served',
+              style: monoTextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.interception,
               ),
             ),
           ),
