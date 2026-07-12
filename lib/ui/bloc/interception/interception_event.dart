@@ -80,3 +80,21 @@ class SetInterceptionTimeoutEvent extends InterceptionEvent {
   @override
   List<Object?> get props => [seconds];
 }
+
+class SetInterceptionWhitelistEvent extends InterceptionEvent {
+  final List<String> patterns;
+
+  const SetInterceptionWhitelistEvent(this.patterns);
+
+  @override
+  List<Object?> get props => [patterns];
+}
+
+class SetUrlListModeEvent extends InterceptionEvent {
+  final UrlListMode mode;
+
+  const SetUrlListModeEvent(this.mode);
+
+  @override
+  List<Object?> get props => [mode];
+}

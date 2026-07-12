@@ -32,4 +32,17 @@ abstract class InterceptionRepository {
 
   /// Get current auto-timeout
   int getAutoTimeout();
+
+  /// Restrict interception to URLs matching one of these patterns
+  /// (`*` wildcards supported). An empty list intercepts every URL.
+  Future<void> setWhitelist(List<String> patterns);
+
+  /// Get the current whitelist patterns
+  List<String> getWhitelist();
+
+  /// Whether the patterns are an allow-list or a deny-list
+  Future<void> setUrlListMode(UrlListMode mode);
+
+  /// Get the current allow-list/deny-list mode
+  UrlListMode getUrlListMode();
 }

@@ -8,6 +8,8 @@ class InterceptionManager {
   final Map<String, Completer<InterceptionResponse>> _pendingRequests = {};
   InterceptionMode _mode = InterceptionMode.none;
   int _autoTimeoutSeconds = 30;
+  List<String> _whitelistPatterns = [];
+  UrlListMode _urlListMode = UrlListMode.whitelist;
 
   Stream<InterceptionRequest> get interceptionStream => _controller.stream;
 
@@ -23,11 +25,47 @@ class InterceptionManager {
     _autoTimeoutSeconds = seconds;
   }
 
+  /// URL patterns (supporting `*` wildcards) that interception is limited to.
+  /// An empty list means every URL is eligible for interception.
+  List<String> get whitelist => List.unmodifiable(_whitelistPatterns);
+
+  void setWhitelist(List<String> patterns) {
+    _whitelistPatterns = patterns.where((p) => p.trim().isNotEmpty).toList();
+  }
+
+  /// Whether the patterns above are an allow-list (only intercept matches)
+  /// or a deny-list (intercept everything except matches).
+  UrlListMode get urlListMode => _urlListMode;
+
+  void setUrlListMode(UrlListMode mode) {
+    _urlListMode = mode;
+  }
+
   bool get isEnabled => _mode != InterceptionMode.none;
 
   bool get shouldInterceptRequests => _mode.interceptsRequests;
 
   bool get shouldInterceptResponses => _mode.interceptsResponses;
+
+  bool _passesUrlFilter(String url) {
+    if (_whitelistPatterns.isEmpty) return true;
+    final matched =
+        _whitelistPatterns.any((pattern) => _matchesPattern(url, pattern));
+    return _urlListMode == UrlListMode.blacklist ? !matched : matched;
+  }
+
+  bool _matchesPattern(String url, String pattern) {
+    // Shelf's Request.url has no leading slash (e.g. "v1/users"); restore it
+    // so patterns like "*/v1/users*" match the way users expect.
+    final normalizedUrl = url.startsWith('/') ? url : '/$url';
+    if (pattern.contains('*')) {
+      final regex = RegExp(
+        '^${RegExp.escape(pattern).replaceAll(r'\*', '.*')}\$',
+      );
+      return regex.hasMatch(normalizedUrl);
+    }
+    return normalizedUrl.contains(pattern);
+  }
 
   /// Intercept a request before it's processed
   Future<InterceptionResponse> interceptRequest({
@@ -37,7 +75,7 @@ class InterceptionManager {
     required Map<String, String> headers,
     String? body,
   }) async {
-    if (!shouldInterceptRequests) {
+    if (!shouldInterceptRequests || !_passesUrlFilter(url)) {
       return InterceptionResponse.passThrough();
     }
 
@@ -66,7 +104,7 @@ class InterceptionManager {
     required String responseBody,
     required Map<String, String> responseHeaders,
   }) async {
-    if (!shouldInterceptResponses) {
+    if (!shouldInterceptResponses || !_passesUrlFilter(url)) {
       return InterceptionResponse.passThrough();
     }
 

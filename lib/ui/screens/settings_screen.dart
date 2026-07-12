@@ -20,10 +20,35 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final _whitelistController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     context.read<SettingsBloc>().add(LoadSettingsEvent());
+  }
+
+  @override
+  void dispose() {
+    _whitelistController.dispose();
+    super.dispose();
+  }
+
+  void _addWhitelistPattern(List<String> current) {
+    final pattern = _whitelistController.text.trim();
+    if (pattern.isEmpty || current.contains(pattern)) return;
+    context.read<InterceptionBloc>().add(
+          SetInterceptionWhitelistEvent([...current, pattern]),
+        );
+    _whitelistController.clear();
+  }
+
+  void _removeWhitelistPattern(List<String> current, String pattern) {
+    context.read<InterceptionBloc>().add(
+          SetInterceptionWhitelistEvent(
+            current.where((p) => p != pattern).toList(),
+          ),
+        );
   }
 
   @override
@@ -81,6 +106,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ? interceptionState.mode
                 : InterceptionMode.none);
         final enabled = mode != InterceptionMode.none;
+        final whitelist = interceptionState is InterceptionEnabled
+            ? interceptionState.whitelist
+            : (interceptionState is InterceptionPending
+                ? interceptionState.whitelist
+                : const <String>[]);
+        final urlListMode = interceptionState is InterceptionEnabled
+            ? interceptionState.urlListMode
+            : (interceptionState is InterceptionPending
+                ? interceptionState.urlListMode
+                : UrlListMode.whitelist);
+        final isBlacklist = urlListMode == UrlListMode.blacklist;
 
         return Card(
           elevation: 2,
@@ -209,6 +245,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Text(
+                        'URL Filter',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w500),
+                      ),
+                      const Spacer(),
+                      ChoiceChip(
+                        label: const Text('Whitelist'),
+                        selected: !isBlacklist,
+                        onSelected: (_) => context.read<InterceptionBloc>().add(
+                              const SetUrlListModeEvent(UrlListMode.whitelist),
+                            ),
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('Blacklist'),
+                        selected: isBlacklist,
+                        onSelected: (_) => context.read<InterceptionBloc>().add(
+                              const SetUrlListModeEvent(UrlListMode.blacklist),
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    whitelist.isEmpty
+                        ? (isBlacklist
+                            ? 'All URLs are intercepted. Add a pattern to exclude matching URLs (supports * wildcards).'
+                            : 'All URLs are intercepted. Add a pattern to limit interception to matching URLs (supports * wildcards).')
+                        : (isBlacklist
+                            ? 'URLs matching one of these patterns will NOT be intercepted.'
+                            : 'Only URLs matching one of these patterns will be intercepted.'),
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _whitelistController,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            hintText: 'e.g. */api/users*',
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          ),
+                          onSubmitted: (_) => _addWhitelistPattern(whitelist),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle),
+                        color: Theme.of(context).colorScheme.primary,
+                        onPressed: () => _addWhitelistPattern(whitelist),
+                      ),
+                    ],
+                  ),
+                  if (whitelist.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: whitelist
+                          .map((pattern) => Chip(
+                                label: Text(pattern),
+                                onDeleted: () =>
+                                    _removeWhitelistPattern(whitelist, pattern),
+                              ))
+                          .toList(),
+                    ),
+                  ],
                 ],
               ],
             ),

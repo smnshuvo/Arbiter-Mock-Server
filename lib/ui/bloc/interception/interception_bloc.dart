@@ -16,6 +16,10 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
   final GetInterceptionMode getInterceptionMode;
   final SetInterceptionTimeout setInterceptionTimeout;
   final GetInterceptionTimeout getInterceptionTimeout;
+  final SetInterceptionWhitelist setInterceptionWhitelist;
+  final GetInterceptionWhitelist getInterceptionWhitelist;
+  final SetUrlListMode setUrlListMode;
+  final GetUrlListMode getUrlListMode;
 
   StreamSubscription? _interceptionSubscription;
 
@@ -28,6 +32,10 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
     required this.getInterceptionMode,
     required this.setInterceptionTimeout,
     required this.getInterceptionTimeout,
+    required this.setInterceptionWhitelist,
+    required this.getInterceptionWhitelist,
+    required this.setUrlListMode,
+    required this.getUrlListMode,
   }) : super(InterceptionInitial()) {
     on<StartWatchingInterceptions>(_onStartWatching);
     on<StopWatchingInterceptions>(_onStopWatching);
@@ -38,6 +46,17 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
     on<SetInterceptionModeEvent>(_onSetInterceptionMode);
     on<GetInterceptionModeEvent>(_onGetInterceptionMode);
     on<SetInterceptionTimeoutEvent>(_onSetInterceptionTimeout);
+    on<SetInterceptionWhitelistEvent>(_onSetInterceptionWhitelist);
+    on<SetUrlListModeEvent>(_onSetUrlListMode);
+  }
+
+  InterceptionEnabled _enabledState(InterceptionMode mode, int timeout) {
+    return InterceptionEnabled(
+      mode: mode,
+      timeoutSeconds: timeout,
+      whitelist: getInterceptionWhitelist(),
+      urlListMode: getUrlListMode(),
+    );
   }
 
   Future<void> _onStartWatching(
@@ -53,7 +72,7 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
       if (mode == InterceptionMode.none) {
         emit(InterceptionDisabled());
       } else {
-        emit(InterceptionEnabled(mode: mode, timeoutSeconds: timeout));
+        emit(_enabledState(mode, timeout));
       }
 
       _interceptionSubscription = watchPendingInterceptions().listen(
@@ -88,6 +107,8 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
       interception: event.interception,
       mode: mode,
       timeoutSeconds: timeout,
+      whitelist: getInterceptionWhitelist(),
+      urlListMode: getUrlListMode(),
     ));
   }
 
@@ -112,7 +133,7 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
       // Return to enabled state
       final mode = getInterceptionMode();
       final timeout = getInterceptionTimeout();
-      emit(InterceptionEnabled(mode: mode, timeoutSeconds: timeout));
+      emit(_enabledState(mode, timeout));
     } catch (e) {
       emit(InterceptionError('Failed to modify and continue: $e'));
     }
@@ -132,7 +153,7 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
       // Return to enabled state
       final mode = getInterceptionMode();
       final timeout = getInterceptionTimeout();
-      emit(InterceptionEnabled(mode: mode, timeoutSeconds: timeout));
+      emit(_enabledState(mode, timeout));
     } catch (e) {
       emit(InterceptionError('Failed to continue: $e'));
     }
@@ -152,7 +173,7 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
       // Return to enabled state
       final mode = getInterceptionMode();
       final timeout = getInterceptionTimeout();
-      emit(InterceptionEnabled(mode: mode, timeoutSeconds: timeout));
+      emit(_enabledState(mode, timeout));
     } catch (e) {
       emit(InterceptionError('Failed to cancel: $e'));
     }
@@ -169,7 +190,7 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
         emit(InterceptionDisabled());
       } else {
         final timeout = getInterceptionTimeout();
-        emit(InterceptionEnabled(mode: event.mode, timeoutSeconds: timeout));
+        emit(_enabledState(event.mode, timeout));
       }
     } catch (e) {
       emit(InterceptionError('Failed to set mode: $e'));
@@ -187,7 +208,7 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
       if (mode == InterceptionMode.none) {
         emit(InterceptionDisabled());
       } else {
-        emit(InterceptionEnabled(mode: mode, timeoutSeconds: timeout));
+        emit(_enabledState(mode, timeout));
       }
     } catch (e) {
       emit(InterceptionError('Failed to get mode: $e'));
@@ -203,10 +224,44 @@ class InterceptionBloc extends Bloc<InterceptionEvent, InterceptionState> {
 
       final mode = getInterceptionMode();
       if (mode != InterceptionMode.none) {
-        emit(InterceptionEnabled(mode: mode, timeoutSeconds: event.seconds));
+        emit(_enabledState(mode, event.seconds));
       }
     } catch (e) {
       emit(InterceptionError('Failed to set timeout: $e'));
+    }
+  }
+
+  Future<void> _onSetInterceptionWhitelist(
+      SetInterceptionWhitelistEvent event,
+      Emitter<InterceptionState> emit,
+      ) async {
+    try {
+      await setInterceptionWhitelist(event.patterns);
+
+      final mode = getInterceptionMode();
+      if (mode != InterceptionMode.none) {
+        final timeout = getInterceptionTimeout();
+        emit(_enabledState(mode, timeout));
+      }
+    } catch (e) {
+      emit(InterceptionError('Failed to set whitelist: $e'));
+    }
+  }
+
+  Future<void> _onSetUrlListMode(
+      SetUrlListModeEvent event,
+      Emitter<InterceptionState> emit,
+      ) async {
+    try {
+      await setUrlListMode(event.mode);
+
+      final mode = getInterceptionMode();
+      if (mode != InterceptionMode.none) {
+        final timeout = getInterceptionTimeout();
+        emit(_enabledState(mode, timeout));
+      }
+    } catch (e) {
+      emit(InterceptionError('Failed to set URL list mode: $e'));
     }
   }
 
