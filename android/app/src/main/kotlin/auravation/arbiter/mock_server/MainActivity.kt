@@ -180,6 +180,8 @@ class MainActivity : FlutterActivity() {
                     }
                     FileServer.uploadsEnabled =
                         call.argument<Boolean>("uploadsEnabled") ?: false
+                    FileServer.transcodeAllowed =
+                        call.argument<Boolean>("transcodeAllowed") ?: false
                     FileServer.authUser =
                         call.argument<String>("authUser")?.takeIf { it.isNotBlank() }
                     FileServer.authPass = call.argument<String>("authPass")
@@ -190,6 +192,24 @@ class MainActivity : FlutterActivity() {
                 "setUploadsEnabled" -> {
                     FileServer.uploadsEnabled = call.argument<Boolean>("enabled") ?: false
                     result.success(true)
+                }
+                "setTranscodeAllowed" -> {
+                    FileServer.transcodeAllowed = call.argument<Boolean>("enabled") ?: false
+                    result.success(true)
+                }
+                "getTranscodeLog" -> {
+                    val history = TranscodeController.recentLog().map { e ->
+                        mapOf(
+                            "mediaId" to e.mediaId,
+                            "title" to e.title,
+                            "startedAt" to e.startedAt,
+                            "finishedAt" to e.finishedAt,
+                            "durationMs" to (e.finishedAt - e.startedAt),
+                            "outcome" to e.outcome,
+                            "reason" to e.reason,
+                        )
+                    }
+                    result.success(mapOf("ongoing" to TranscodeController.ongoing(), "history" to history))
                 }
                 "setAuth" -> {
                     FileServer.authUser =

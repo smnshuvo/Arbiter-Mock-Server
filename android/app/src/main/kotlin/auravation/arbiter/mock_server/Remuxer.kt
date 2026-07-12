@@ -239,7 +239,7 @@ object Remuxer {
  * the PCM the decoder actually emits (which can differ from the container metadata,
  * e.g. decoders that downmix).
  */
-private class AudioTranscoder private constructor(private val decoder: MediaCodec) {
+internal class AudioTranscoder private constructor(private val decoder: MediaCodec) {
 
     companion object {
         private const val TAG = "AudioTranscoder"
