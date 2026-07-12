@@ -231,7 +231,13 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "getTrafficStats" ->
-                    result.success(mapOf("totalBytes" to FileServer.totalBytes.get()))
+                    result.success(
+                        mapOf(
+                            "totalBytes" to FileServer.totalBytes.get(),
+                            "sessionStartedAtMs" to FileServer.sessionStartedAtMs,
+                            "sessionEndedAtMs" to FileServer.sessionEndedAtMs,
+                        ),
+                    )
                 "stopServer" -> {
                     FileServerService.stopService(this)
                     result.success(true)
