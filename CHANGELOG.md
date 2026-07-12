@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 3.1.0 (Build 10)
+
+**Interception**
+• URL whitelist/blacklist filtering — scope live interception to matching URL patterns (wildcards supported), or exclude them, instead of pausing on every request
+
+**Home screen**
+• NETWORK and DISK cards now show real Wi-Fi File Server traffic instead of static placeholders: live speed and cumulative bytes while running, falling back to the last session's average speed and total once stopped
+
+**Fixes**
+• Floating overlay's header showed a placeholder "A" badge instead of the app icon
+
+---
+
 ## Version 3.0.1 (Build 9)
 
 The app is now **Arbiter File Server** — renamed across Android, iOS, macOS, Linux, and Windows.
