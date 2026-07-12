@@ -61,4 +61,24 @@ class InterceptionRepositoryImpl implements InterceptionRepository {
   int getAutoTimeout() {
     return manager.autoTimeout;
   }
+
+  @override
+  Future<void> setWhitelist(List<String> patterns) async {
+    manager.setWhitelist(patterns);
+  }
+
+  @override
+  List<String> getWhitelist() {
+    return manager.whitelist;
+  }
+
+  @override
+  Future<void> setUrlListMode(UrlListMode mode) async {
+    manager.setUrlListMode(mode);
+  }
+
+  @override
+  UrlListMode getUrlListMode() {
+    return manager.urlListMode;
+  }
 }

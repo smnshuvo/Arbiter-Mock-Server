@@ -14,14 +14,18 @@ class InterceptionInitial extends InterceptionState {}
 class InterceptionEnabled extends InterceptionState {
   final InterceptionMode mode;
   final int timeoutSeconds;
+  final List<String> whitelist;
+  final UrlListMode urlListMode;
 
   const InterceptionEnabled({
     required this.mode,
     required this.timeoutSeconds,
+    this.whitelist = const [],
+    this.urlListMode = UrlListMode.whitelist,
   });
 
   @override
-  List<Object?> get props => [mode, timeoutSeconds];
+  List<Object?> get props => [mode, timeoutSeconds, whitelist, urlListMode];
 }
 
 class InterceptionDisabled extends InterceptionState {}
@@ -30,15 +34,20 @@ class InterceptionPending extends InterceptionState {
   final InterceptionRequest interception;
   final InterceptionMode mode;
   final int timeoutSeconds;
+  final List<String> whitelist;
+  final UrlListMode urlListMode;
 
   const InterceptionPending({
     required this.interception,
     required this.mode,
     required this.timeoutSeconds,
+    this.whitelist = const [],
+    this.urlListMode = UrlListMode.whitelist,
   });
 
   @override
-  List<Object?> get props => [interception, mode, timeoutSeconds];
+  List<Object?> get props =>
+      [interception, mode, timeoutSeconds, whitelist, urlListMode];
 }
 
 class InterceptionProcessing extends InterceptionState {

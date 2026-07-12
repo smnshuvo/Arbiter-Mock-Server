@@ -12,6 +12,22 @@ enum InterceptionStatus {
   cancelled,      // User cancelled the request
 }
 
+enum UrlListMode {
+  whitelist,  // Only intercept URLs matching a pattern
+  blacklist,  // Intercept everything except URLs matching a pattern
+}
+
+extension UrlListModeExtension on UrlListMode {
+  String get displayName {
+    switch (this) {
+      case UrlListMode.whitelist:
+        return 'Whitelist';
+      case UrlListMode.blacklist:
+        return 'Blacklist';
+    }
+  }
+}
+
 extension InterceptionModeExtension on InterceptionMode {
   String get displayName {
     switch (this) {

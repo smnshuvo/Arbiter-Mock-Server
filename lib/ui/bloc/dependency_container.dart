@@ -100,6 +100,10 @@ Future<void> init() async {
       getInterceptionMode: sl(),
       setInterceptionTimeout: sl(),
       getInterceptionTimeout: sl(),
+      setInterceptionWhitelist: sl(),
+      getInterceptionWhitelist: sl(),
+      setUrlListMode: sl(),
+      getUrlListMode: sl(),
     ),
   );
 
@@ -166,6 +170,10 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetInterceptionMode(sl()));
   sl.registerLazySingleton(() => SetInterceptionTimeout(sl()));
   sl.registerLazySingleton(() => GetInterceptionTimeout(sl()));
+  sl.registerLazySingleton(() => SetInterceptionWhitelist(sl()));
+  sl.registerLazySingleton(() => GetInterceptionWhitelist(sl()));
+  sl.registerLazySingleton(() => SetUrlListMode(sl()));
+  sl.registerLazySingleton(() => GetUrlListMode(sl()));
 
   // Use cases - Profile
   sl.registerLazySingleton(() => GetAllProfiles(sl()));

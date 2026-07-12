@@ -95,3 +95,43 @@ class GetInterceptionTimeout {
     return repository.getAutoTimeout();
   }
 }
+
+class SetInterceptionWhitelist {
+  final InterceptionRepository repository;
+
+  SetInterceptionWhitelist(this.repository);
+
+  Future<void> call(List<String> patterns) async {
+    await repository.setWhitelist(patterns);
+  }
+}
+
+class GetInterceptionWhitelist {
+  final InterceptionRepository repository;
+
+  GetInterceptionWhitelist(this.repository);
+
+  List<String> call() {
+    return repository.getWhitelist();
+  }
+}
+
+class SetUrlListMode {
+  final InterceptionRepository repository;
+
+  SetUrlListMode(this.repository);
+
+  Future<void> call(UrlListMode mode) async {
+    await repository.setUrlListMode(mode);
+  }
+}
+
+class GetUrlListMode {
+  final InterceptionRepository repository;
+
+  GetUrlListMode(this.repository);
+
+  UrlListMode call() {
+    return repository.getUrlListMode();
+  }
+}
