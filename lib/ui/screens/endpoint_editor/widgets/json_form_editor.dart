@@ -25,6 +25,7 @@ class _JsonNode {
   String value;
   List<_JsonNode> children;
   bool collapsed = false;
+  bool keyExpanded = false; // enlarge the (otherwise compact) key field
 
   late final TextEditingController keyController;
   late final TextEditingController valueController;
@@ -267,35 +268,63 @@ class _JsonFormEditorState extends State<JsonFormEditor> {
     final t = ArbTokens.of(context);
     final isRoot = node == _root;
 
-    // Inner content flexes; action icons stay pinned + visible on the right.
-    final inner = Row(
-      children: [
-        if (node.isContainer)
-          _iconBtn(
-            node.collapsed ? Icons.chevron_right : Icons.expand_more,
-            () => setState(() => node.collapsed = !node.collapsed),
-          )
-        else
-          const SizedBox(width: 24),
-        if (!isRoot && isArrayItem)
-          Container(
-            constraints: const BoxConstraints(minWidth: 24),
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Text('$index', style: t.mono(size: 12, color: t.textMuted)),
-          )
-        else if (!isRoot)
-          SizedBox(
-            width: 92,
-            child: _miniField(node.keyController, 'key', (v) {
-              node.key = v;
-              _emit();
-            }),
-          ),
-        const SizedBox(width: 6),
-        _typeButton(node),
-        const SizedBox(width: 6),
-        Expanded(child: _valueEditor(node)),
-      ],
+    const compactKeyW = 104.0;
+    final isObjectKey = !isRoot && !isArrayItem;
+    // Measure the actual key text so the toggle appears whenever it's clipped
+    // (even by a character or two), not on a rough length guess.
+    final keyTextW = isObjectKey ? _keyTextWidth(node.key, t) : 0.0;
+    final clipped = keyTextW > compactKeyW - 22;
+    final showToggle = isObjectKey && (clipped || node.keyExpanded);
+
+    // Inner content sized precisely; action icons stay pinned on the right.
+    final inner = LayoutBuilder(
+      builder: (context, constraints) {
+        // When enlarged, take exactly the width the key needs (capped so the
+        // value stays visible); otherwise stay compact.
+        double keyW = compactKeyW;
+        if (isObjectKey && node.keyExpanded) {
+          final maxKeyW = (constraints.maxWidth - 150).clamp(compactKeyW, constraints.maxWidth);
+          keyW = (keyTextW + 26).clamp(compactKeyW, maxKeyW);
+        }
+        return Row(
+          children: [
+            if (node.isContainer)
+              _iconBtn(
+                node.collapsed ? Icons.chevron_right : Icons.expand_more,
+                () => setState(() => node.collapsed = !node.collapsed),
+              )
+            else
+              const SizedBox(width: 24),
+            if (!isRoot && isArrayItem)
+              Container(
+                constraints: const BoxConstraints(minWidth: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child:
+                    Text('$index', style: t.mono(size: 12, color: t.textMuted)),
+              )
+            else if (!isRoot)
+              SizedBox(
+                width: keyW,
+                child: _miniField(node.keyController, 'key', (v) {
+                  node.key = v;
+                  setState(() {});
+                  _emit();
+                }),
+              ),
+            if (showToggle)
+              _iconBtn(
+                node.keyExpanded ? Icons.chevron_left : Icons.chevron_right,
+                () => setState(() => node.keyExpanded = !node.keyExpanded),
+                color: t.textMuted,
+                tooltip: node.keyExpanded ? 'Shrink field' : 'Show full name',
+              ),
+            const SizedBox(width: 6),
+            _typeButton(node),
+            const SizedBox(width: 6),
+            Expanded(child: _valueEditor(node)),
+          ],
+        );
+      },
     );
 
     return Padding(
@@ -312,6 +341,17 @@ class _JsonFormEditorState extends State<JsonFormEditor> {
         ],
       ),
     );
+  }
+
+  /// Rendered width of the key text in the field's font, used to decide when
+  /// the enlarge toggle is needed and how wide the enlarged field should be.
+  double _keyTextWidth(String text, ArbTokens t) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: t.mono(size: 13)),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    return tp.width;
   }
 
   Widget _valueEditor(_JsonNode node) {

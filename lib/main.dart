@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/services/json_document_service.dart';
 import 'core/theme/theme_cubit.dart';
 import 'ui/bloc/dependency_container.dart' as di;
+import 'ui/screens/json_docs/json_docs_controller.dart';
+import 'ui/screens/json_docs/json_docs_screen.dart';
 import 'ui/bloc/endpoint/endpoint_bloc.dart';
 import 'ui/bloc/interception/interception_bloc.dart';
 import 'ui/bloc/log/log_bloc.dart';
@@ -17,13 +20,47 @@ import 'ui/bloc/settings/settings_bloc.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/welcome_screen.dart';
 
+/// Navigator key so the .json document window can be pushed from outside the
+/// widget tree (launch-time and runtime file-open events).
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
+bool _jsonDocsRouteOpen = false;
+
+void _showJsonDocs() {
+  final nav = rootNavigatorKey.currentState;
+  if (nav == null || _jsonDocsRouteOpen) return;
+  _jsonDocsRouteOpen = true;
+  nav
+      .push(MaterialPageRoute(builder: (_) => const JsonDocsScreen()))
+      .then((_) => _jsonDocsRouteOpen = false);
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await di.init();
   await di.setupRequestNotificationCallback(); // Setup notification callback after all dependencies are ready
   unawaited(di.sl<AdService>().init()); // Initialize the Mobile Ads SDK (no-op on desktop)
+
+  // macOS: open .json files in a tabbed document window (no-op elsewhere).
+  final jsonDocs = JsonDocsController.instance;
+  JsonDocumentService.instance.initialize();
+  for (final path in await JsonDocumentService.instance.getPending()) {
+    await jsonDocs.openPath(path);
+  }
+  JsonDocumentService.instance.onFilesOpened = (paths) async {
+    for (final path in paths) {
+      await jsonDocs.openPath(path);
+    }
+    _showJsonDocs();
+  };
+
   runApp(
       BlocProvider(create: (_) => di.sl<ThemeCubit>(), child: const MyApp()));
+
+  // If the app was launched by opening .json file(s), show the doc window.
+  if (jsonDocs.docs.isNotEmpty) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showJsonDocs());
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -49,6 +86,7 @@ class MyApp extends StatelessWidget {
         builder: (context, themeMode) {
           return MaterialApp(
             title: 'Arbiter File Server',
+            navigatorKey: rootNavigatorKey,
             debugShowCheckedModeBanner: false,
             theme: lightTheme,
             darkTheme: darkTheme,

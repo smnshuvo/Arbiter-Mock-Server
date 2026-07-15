@@ -17,6 +17,11 @@ class MainFlutterWindow: NSWindow {
       messenger: flutterViewController.engine.binaryMessenger
     )
 
+    // Bridge for opening/saving .json documents.
+    JsonDocsBridge.shared.register(
+      messenger: flutterViewController.engine.binaryMessenger
+    )
+
     super.awakeFromNib()
   }
 }

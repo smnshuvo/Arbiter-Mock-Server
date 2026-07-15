@@ -10,4 +10,9 @@ class AppDelegate: FlutterAppDelegate {
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
     return true
   }
+
+  // Finder "Open With" / double-click on a .json routes here.
+  override func application(_ application: NSApplication, open urls: [URL]) {
+    JsonDocsBridge.shared.handleURLs(urls)
+  }
 }
