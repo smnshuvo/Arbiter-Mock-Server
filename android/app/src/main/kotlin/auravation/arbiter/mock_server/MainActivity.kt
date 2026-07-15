@@ -21,6 +21,10 @@ class MainActivity : FlutterActivity() {
     private val OVERLAY_CHANNEL = "auravation.arbiter.mock_server/overlay"
     private val FILE_SERVER_CHANNEL = "auravation.arbiter.mock_server/file_server"
     private val FILE_SERVER_EVENTS = "auravation.arbiter.mock_server/file_server_events"
+    private val JSON_DOCS_CHANNEL = "arbiter/json_docs"
+    private var jsonDocsChannel: MethodChannel? = null
+    private val pendingJsonUris = mutableListOf<String>()
+    private var jsonDartReady = false
     private var methodChannel: MethodChannel? = null
     private var overlayChannel: MethodChannel? = null
     private var fileServerChannel: MethodChannel? = null
@@ -60,6 +64,11 @@ class MainActivity : FlutterActivity() {
                 FileServerEvents.detach()
             }
         })
+
+        jsonDocsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, JSON_DOCS_CHANNEL)
+        jsonDocsChannel?.setMethodCallHandler { call, result -> handleJsonDocs(call, result) }
+        // Deliver the intent that launched us (if it opened a .json).
+        handleJsonIntent(intent)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
@@ -275,6 +284,89 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             result.error("FILE_SERVER_ERROR", e.message, null)
         }
+    }
+
+    /** JSON document channel: read/write .json files opened via VIEW/EDIT intents. */
+    private fun handleJsonDocs(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "getPendingFiles" -> {
+                jsonDartReady = true
+                val list = ArrayList(pendingJsonUris)
+                pendingJsonUris.clear()
+                result.success(list)
+            }
+            "displayName" -> result.success(jsonDisplayName(call.argument<String>("path")))
+            "readFile" -> result.success(jsonRead(call.argument<String>("path")))
+            "writeFile" -> result.success(
+                jsonWrite(call.argument<String>("path"), call.argument<String>("content")),
+            )
+            else -> result.notImplemented()
+        }
+    }
+
+    /** Extracts a .json URI from a VIEW/EDIT intent and forwards it to Flutter. */
+    private fun handleJsonIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action != Intent.ACTION_VIEW && intent.action != Intent.ACTION_EDIT) return
+        val uri = intent.data ?: return
+        // Best-effort: hold onto write access for save-back if the opener granted it.
+        try {
+            val flags = intent.flags and
+                (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            if (flags != 0) contentResolver.takePersistableUriPermission(uri, flags)
+        } catch (_: Exception) {
+        }
+        val uriStr = uri.toString()
+        if (jsonDartReady && jsonDocsChannel != null) {
+            jsonDocsChannel?.invokeMethod("openFiles", listOf(uriStr))
+        } else {
+            pendingJsonUris.add(uriStr)
+        }
+    }
+
+    private fun jsonRead(uriStr: String?): String? {
+        val uri = Uri.parse(uriStr ?: return null)
+        return try {
+            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun jsonWrite(uriStr: String?, content: String?): Boolean {
+        val uri = Uri.parse(uriStr ?: return false)
+        return try {
+            // "wt" = write + truncate, so the file is overwritten rather than appended.
+            contentResolver.openOutputStream(uri, "wt")?.use {
+                it.write((content ?: "").toByteArray(Charsets.UTF_8))
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun jsonDisplayName(uriStr: String?): String {
+        val uri = Uri.parse(uriStr ?: return "untitled.json")
+        var name: String? = null
+        try {
+            contentResolver.query(
+                uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) name = c.getString(idx)
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "untitled.json"
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleJsonIntent(intent)
     }
 
     /**

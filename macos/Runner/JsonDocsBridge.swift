@@ -46,6 +46,12 @@ class JsonDocsBridge {
       let paths = pendingPaths
       pendingPaths.removeAll()
       result(paths)
+    case "displayName":
+      guard let path = (call.arguments as? [String: Any])?["path"] as? String else {
+        result(FlutterError(code: "bad_args", message: "path required", details: nil))
+        return
+      }
+      result(url(for: path).lastPathComponent)
     case "readFile":
       guard let path = (call.arguments as? [String: Any])?["path"] as? String else {
         result(FlutterError(code: "bad_args", message: "path required", details: nil))

@@ -79,10 +79,13 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
           Icon(Icons.description_outlined, size: 16, color: t.textMuted),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              doc.path,
-              overflow: TextOverflow.ellipsis,
-              style: t.mono(size: 12, color: t.textSecondary),
+            child: Tooltip(
+              message: doc.path,
+              child: Text(
+                doc.title,
+                overflow: TextOverflow.ellipsis,
+                style: t.mono(size: 12, color: t.textSecondary),
+              ),
             ),
           ),
           const SizedBox(width: 12),

@@ -10,7 +10,7 @@ class JsonDocumentService {
 
   static const MethodChannel _channel = MethodChannel('arbiter/json_docs');
 
-  static bool get isSupported => Platform.isMacOS;
+  static bool get isSupported => Platform.isMacOS || Platform.isAndroid;
 
   /// Invoked when the OS opens .json file(s) while the app is already running.
   void Function(List<String> paths)? onFilesOpened;
@@ -34,6 +34,15 @@ class JsonDocumentService {
     if (!isSupported) return const [];
     final res = await _channel.invokeMethod<List<dynamic>>('getPendingFiles');
     return (res ?? const []).cast<String>();
+  }
+
+  /// Human-friendly document name (last path component on macOS; the content
+  /// provider's display name on Android).
+  Future<String> displayName(String path) async {
+    if (!isSupported) return path.split('/').last;
+    final name =
+        await _channel.invokeMethod<String>('displayName', {'path': path});
+    return (name == null || name.isEmpty) ? path.split('/').last : name;
   }
 
   Future<String?> read(String path) async {

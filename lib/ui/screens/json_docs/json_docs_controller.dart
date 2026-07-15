@@ -4,16 +4,19 @@ import '../../../core/services/json_document_service.dart';
 
 /// One open .json document (a tab).
 class JsonDoc {
-  JsonDoc({required this.path, required String content})
+  JsonDoc({required this.path, required this.title, required String content})
       : controller = TextEditingController(text: content),
         _saved = content;
 
   final String path;
+
+  /// Friendly document name (content-URI safe); shown on the tab and toolbar.
+  final String title;
   final TextEditingController controller;
   String _saved;
   bool saving = false;
 
-  String get fileName => path.split('/').last;
+  String get fileName => title;
   bool get dirty => controller.text != _saved;
 
   void markSaved() => _saved = controller.text;
@@ -43,7 +46,8 @@ class JsonDocsController extends ChangeNotifier {
       return;
     }
     final content = await _svc.read(path) ?? '';
-    docs.add(JsonDoc(path: path, content: content));
+    final title = await _svc.displayName(path);
+    docs.add(JsonDoc(path: path, title: title, content: content));
     activeIndex = docs.length - 1;
     notifyListeners();
   }
