@@ -24,7 +24,7 @@ class DatabaseHelper {
       final path = join(dbPath, filePath);
       return openDatabase(
         path,
-        version: 4,
+        version: 5,
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
@@ -35,7 +35,7 @@ class DatabaseHelper {
       return databaseFactoryFfi.openDatabase(
         inMemoryDatabasePath,
         options: OpenDatabaseOptions(
-          version: 4,
+          version: 5,
           onCreate: _createDB,
           onUpgrade: _onUpgrade,
         ),
@@ -76,6 +76,7 @@ class DatabaseHelper {
         id TEXT PRIMARY KEY,
         profileId TEXT NOT NULL DEFAULT 'default',
         pattern TEXT NOT NULL,
+        method TEXT,
         matchType TEXT NOT NULL,
         mode TEXT NOT NULL,
         mockResponse TEXT,
@@ -148,6 +149,10 @@ class DatabaseHelper {
     }
     if (oldVersion < 4) {
       await db.execute("ALTER TABLE profiles ADD COLUMN type TEXT NOT NULL DEFAULT 'http'");
+    }
+    if (oldVersion < 5) {
+      // HTTP method scoping; NULL = ANY verb (existing rows match every method).
+      await db.execute('ALTER TABLE endpoints ADD COLUMN method TEXT');
     }
   }
 

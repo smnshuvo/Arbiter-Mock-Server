@@ -166,7 +166,11 @@ class HttpServerService {
       final endpoints = await _getCurrentEndpoints();
 
       // Find matching endpoint
-      final matchedEndpoint = _findMatchingEndpoint(url, endpoints);
+      final matchedEndpoint = _findMatchingEndpoint(
+        url,
+        endpoints,
+        requestMethod: method.toUpperCase(),
+      );
 
       String responseBody;
       int statusCode;
@@ -420,12 +424,23 @@ class HttpServerService {
     }
   }
 
-  Endpoint? _findMatchingEndpoint(String url, List<Endpoint> endpoints) {
+  Endpoint? _findMatchingEndpoint(
+    String url,
+    List<Endpoint> endpoints, {
+    String? requestMethod,
+  }) {
     // Normalize: shelf gives "" for root "/", strip leading slash elsewhere
     final normalizedUrl = url.startsWith('/') ? url.substring(1) : url;
 
     for (final endpoint in endpoints) {
       if (!endpoint.isEnabled) continue;
+
+      // Verb scoping: null method = ANY, otherwise the verb must match.
+      if (endpoint.method != null &&
+          requestMethod != null &&
+          endpoint.method != requestMethod) {
+        continue;
+      }
 
       // Normalize pattern the same way
       final normalizedPattern = endpoint.pattern.startsWith('/')

@@ -9,6 +9,7 @@ class EndpointModel {
   final String id;
   final String profileId;
   final String pattern;
+  final String? method;
   final String matchType;
   final String mode;
   final String? mockResponse;
@@ -25,6 +26,7 @@ class EndpointModel {
     required this.id,
     this.profileId = 'default',
     required this.pattern,
+    this.method,
     required this.matchType,
     required this.mode,
     this.mockResponse,
@@ -48,6 +50,7 @@ class EndpointModel {
       id: endpoint.id,
       profileId: endpoint.profileId,
       pattern: endpoint.pattern,
+      method: endpoint.method,
       matchType: endpoint.matchType.name,
       mode: endpoint.mode.name,
       mockResponse: endpoint.mockResponse,
@@ -81,6 +84,7 @@ class EndpointModel {
       id: id,
       profileId: profileId,
       pattern: pattern,
+      method: method,
       matchType: MatchType.values.firstWhere(
             (e) => e.name == matchType,
         orElse: () => MatchType.exact,
@@ -106,6 +110,7 @@ class EndpointModel {
       'id': id,
       'profileId': profileId,
       'pattern': pattern,
+      'method': method,
       'matchType': matchType,
       'mode': mode,
       'mockResponse': mockResponse,
@@ -125,6 +130,7 @@ class EndpointModel {
       id: map['id'],
       profileId: map['profileId'] ?? 'default',
       pattern: map['pattern'],
+      method: map['method'],
       matchType: map['matchType'],
       mode: map['mode'],
       mockResponse: map['mockResponse'],

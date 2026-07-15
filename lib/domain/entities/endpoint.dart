@@ -6,6 +6,17 @@ enum MatchType { exact, wildcard, regex }
 
 enum ConditionalMatchType { queryParam, bodyField }
 
+/// HTTP methods an endpoint can be scoped to. `ANY` maps to a null
+/// [Endpoint.method] and matches every verb.
+const List<String> kEndpointMethods = [
+  'ANY',
+  'GET',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+];
+
 class ConditionalMock extends Equatable {
   final ConditionalMatchType type;
   final String fieldName;
@@ -50,6 +61,7 @@ class Endpoint extends Equatable {
   final String id;
   final String profileId;
   final String pattern;
+  final String? method;
   final MatchType matchType;
   final EndpointMode mode;
   final String? mockResponse;
@@ -66,6 +78,7 @@ class Endpoint extends Equatable {
     required this.id,
     this.profileId = 'default',
     required this.pattern,
+    this.method,
     required this.matchType,
     required this.mode,
     this.mockResponse,
@@ -83,6 +96,7 @@ class Endpoint extends Equatable {
     String? id,
     String? profileId,
     String? pattern,
+    String? method,
     MatchType? matchType,
     EndpointMode? mode,
     String? mockResponse,
@@ -99,6 +113,7 @@ class Endpoint extends Equatable {
       id: id ?? this.id,
       profileId: profileId ?? this.profileId,
       pattern: pattern ?? this.pattern,
+      method: method ?? this.method,
       matchType: matchType ?? this.matchType,
       mode: mode ?? this.mode,
       mockResponse: mockResponse ?? this.mockResponse,
@@ -118,6 +133,7 @@ class Endpoint extends Equatable {
     id,
     profileId,
     pattern,
+    method,
     matchType,
     mode,
     mockResponse,

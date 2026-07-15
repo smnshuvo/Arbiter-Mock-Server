@@ -10,11 +10,17 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/ads/ad_banner.dart';
 import '../../core/ads/ad_config.dart';
+import '../../core/theme/arbiter_tokens.dart';
 import '../../domain/entities/endpoint.dart';
 import '../../domain/entities/profile.dart';
 import '../bloc/endpoint/endpoint_bloc.dart';
 import '../bloc/profile/profile_bloc.dart';
+import 'endpoint_editor/desktop_endpoint_editor.dart';
 import 'endpoint_form_screen.dart';
+
+/// Above this width the endpoints screen shows the desktop 3-pane workspace
+/// (profile rail | endpoint list | editor pane) instead of the push flow.
+const double _kWideBreakpoint = 900;
 
 class EndpointsScreen extends StatefulWidget {
   const EndpointsScreen({super.key});
@@ -25,6 +31,11 @@ class EndpointsScreen extends StatefulWidget {
 
 class _EndpointsScreenState extends State<EndpointsScreen> {
   String _activeProfileId = 'default';
+
+  // Desktop 3-pane state.
+  Endpoint? _selectedEndpoint; // null + _showEditor => new draft
+  bool _showEditor = false;
+  int _newDraftSeq = 0;
 
   @override
   void initState() {
@@ -81,51 +92,229 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
             ),
           ],
         ),
-        body: BlocConsumer<EndpointBloc, EndpointState>(
-          listener: (context, state) {
-            if (state is EndpointError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(state.message), backgroundColor: Colors.red),
-              );
-            } else if (state is EndpointExported) {
-              _saveAndShareExport(state.jsonData);
-            }
-          },
-          builder: (context, state) {
-            if (state is EndpointLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (state is EndpointLoaded) {
-              return Column(
-                children: [
-                  _buildToggleAllBar(state.endpoints),
-                  Expanded(
-                    child: state.endpoints.isEmpty
-                        ? _buildEmptyState()
-                        : _buildEndpointList(state.endpoints),
-                  ),
-                ],
-              );
-            }
-
-            return const SizedBox();
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth > _kWideBreakpoint;
+            return BlocConsumer<EndpointBloc, EndpointState>(
+              listener: (context, state) {
+                if (state is EndpointError) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(state.message),
+                        backgroundColor: Colors.red),
+                  );
+                } else if (state is EndpointExported) {
+                  _saveAndShareExport(state.jsonData);
+                }
+              },
+              builder: (context, state) {
+                if (state is EndpointLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (state is EndpointLoaded) {
+                  return isWide
+                      ? _buildWideLayout(state.endpoints)
+                      : _buildNarrowLayout(state.endpoints);
+                }
+                return const SizedBox();
+              },
+            );
           },
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => EndpointFormScreen(profileId: _activeProfileId),
-              ),
+        floatingActionButton: LayoutBuilder(
+          builder: (context, _) {
+            // The wide layout has its own "New endpoint" affordance.
+            final isWide =
+                MediaQuery.of(context).size.width > _kWideBreakpoint;
+            if (isWide) return const SizedBox.shrink();
+            return FloatingActionButton(
+              onPressed: _createEndpointNarrow,
+              child: const Icon(Icons.add),
             );
-            context.read<EndpointBloc>().add(LoadEndpointsEvent(_activeProfileId));
           },
-          child: const Icon(Icons.add),
         ),
         bottomNavigationBar: AdBanner(adUnitId: AdConfig.bannerEndpoint),
       ),
+    );
+  }
+
+  Widget _buildNarrowLayout(List<Endpoint> endpoints) {
+    return Column(
+      children: [
+        _buildToggleAllBar(endpoints),
+        Expanded(
+          child: endpoints.isEmpty
+              ? _buildEmptyState()
+              : _buildEndpointList(endpoints),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _createEndpointNarrow() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EndpointFormScreen(profileId: _activeProfileId),
+      ),
+    );
+    if (mounted) {
+      context.read<EndpointBloc>().add(LoadEndpointsEvent(_activeProfileId));
+    }
+  }
+
+  // ===================== Desktop 3-pane workspace =====================
+
+  Widget _buildWideLayout(List<Endpoint> endpoints) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(width: 220, child: _buildProfileRail()),
+        const VerticalDivider(width: 1),
+        SizedBox(width: 340, child: _buildMiddleColumn(endpoints)),
+        const VerticalDivider(width: 1),
+        Expanded(child: _buildEditorPane()),
+      ],
+    );
+  }
+
+  Widget _buildProfileRail() {
+    return BlocBuilder<ProfileBloc, ProfileState>(
+      builder: (context, state) {
+        final profiles =
+            state is ProfileLoaded ? state.profiles : <Profile>[];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('Profiles',
+                  style:
+                      TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                children: [
+                  for (final p in profiles)
+                    ListTile(
+                      dense: true,
+                      selected: p.id == _activeProfileId,
+                      leading: Icon(Icons.folder_outlined,
+                          size: 20,
+                          color: p.id == _activeProfileId
+                              ? Theme.of(context).colorScheme.primary
+                              : null),
+                      title: Text(p.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontWeight: p.id == _activeProfileId
+                                  ? FontWeight.bold
+                                  : FontWeight.normal)),
+                      onTap: () {
+                        context
+                            .read<ProfileBloc>()
+                            .add(SwitchActiveProfileEvent(p.id));
+                        _onProfileChanged(p.id);
+                        setState(() {
+                          _showEditor = false;
+                          _selectedEndpoint = null;
+                        });
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.add, size: 20),
+              title: const Text('New profile'),
+              onTap: _showCreateProfileDialog,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMiddleColumn(List<Endpoint> endpoints) {
+    final t = ArbTokens.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: FilledButton.icon(
+            onPressed: () {
+              setState(() {
+                _selectedEndpoint = null;
+                _showEditor = true;
+                _newDraftSeq++;
+              });
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: t.accent,
+              minimumSize: const Size.fromHeight(40),
+            ),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New endpoint'),
+          ),
+        ),
+        Expanded(
+          child: endpoints.isEmpty
+              ? _buildEmptyState()
+              : ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: endpoints.length,
+                  itemBuilder: (context, index) => _buildEndpointCard(
+                    endpoints[index],
+                    selectable: true,
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEditorPane() {
+    if (!_showEditor) {
+      final t = ArbTokens.of(context);
+      return Container(
+        color: t.canvas,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.electrical_services,
+                  size: 48, color: t.textMuted),
+              const SizedBox(height: 12),
+              Text('Select an endpoint to edit',
+                  style: t.sans(size: 14, color: t.textSecondary)),
+              const SizedBox(height: 14),
+              FilledButton(
+                onPressed: () {
+                  setState(() {
+                    _selectedEndpoint = null;
+                    _showEditor = true;
+                    _newDraftSeq++;
+                  });
+                },
+                style: FilledButton.styleFrom(backgroundColor: t.accent),
+                child: const Text('＋ New endpoint'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return DesktopEndpointEditor(
+      key: ValueKey(_selectedEndpoint?.id ?? 'new-$_newDraftSeq'),
+      endpoint: _selectedEndpoint,
+      profileId: _activeProfileId,
+      onSaved: () {
+        context.read<EndpointBloc>().add(LoadEndpointsEvent(_activeProfileId));
+      },
     );
   }
 
@@ -238,10 +427,15 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
     );
   }
 
-  Widget _buildEndpointCard(Endpoint endpoint) {
+  Widget _buildEndpointCard(Endpoint endpoint, {bool selectable = false}) {
+    final isSelected = selectable && _selectedEndpoint?.id == endpoint.id;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      color: isSelected
+          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.12)
+          : null,
       child: ListTile(
+        selected: isSelected,
         leading: Icon(
           endpoint.mode == EndpointMode.mock ? Icons.code : Icons.swap_horiz,
           color: endpoint.isEnabled ? Colors.blue : Colors.grey,
@@ -261,6 +455,8 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
               spacing: 4.0,
               runSpacing: 4.0,
               children: [
+                if (endpoint.method != null)
+                  _buildChip(endpoint.method!, Colors.indigo),
                 _buildChip(
                   endpoint.mode == EndpointMode.mock ? 'Mock' : 'Pass-through',
                   endpoint.mode == EndpointMode.mock ? Colors.green : Colors.orange,
@@ -285,13 +481,22 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
           },
         ),
         onTap: () async {
+          if (selectable) {
+            setState(() {
+              _selectedEndpoint = endpoint;
+              _showEditor = true;
+            });
+            return;
+          }
           await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => EndpointFormScreen(endpoint: endpoint, profileId: _activeProfileId),
             ),
           );
-          context.read<EndpointBloc>().add(LoadEndpointsEvent(_activeProfileId));
+          if (mounted) {
+            context.read<EndpointBloc>().add(LoadEndpointsEvent(_activeProfileId));
+          }
         },
         onLongPress: () => _showDeleteDialog(endpoint),
       ),
@@ -404,6 +609,7 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
       id: json['id'] ?? const Uuid().v4(),
       profileId: _activeProfileId,
       pattern: json['pattern'],
+      method: json['method'],
       matchType: MatchType.values.firstWhere((e) => e.name == json['matchType'], orElse: () => MatchType.exact),
       mode: EndpointMode.values.firstWhere((e) => e.name == json['mode'], orElse: () => EndpointMode.mock),
       mockResponse: json['mockResponse'],
