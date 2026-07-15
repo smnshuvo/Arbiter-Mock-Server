@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 
@@ -19,11 +20,13 @@ class JsonDocumentView extends StatefulWidget {
     required this.doc,
     required this.onChanged,
     required this.onSave,
+    required this.onSaveAs,
   });
 
   final JsonDoc doc;
   final VoidCallback onChanged;
   final VoidCallback onSave;
+  final VoidCallback onSaveAs;
 
   @override
   State<JsonDocumentView> createState() => _JsonDocumentViewState();
@@ -103,28 +106,91 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
             ),
           ),
           const SizedBox(width: 12),
-          FilledButton(
-            onPressed: (doc.dirty && !doc.saving) ? widget.onSave : null,
-            style: FilledButton.styleFrom(
-              backgroundColor: t.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(t.radiusSm),
-              ),
-            ),
-            child: doc.saving
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  )
-                : Text(doc.dirty ? 'Save' : 'Saved',
-                    style: t.sans(
-                        size: 13, weight: FontWeight.w700, color: Colors.white)),
-          ),
+          _saveControl(t),
         ],
       ),
+    );
+  }
+
+  Widget _saveControl(ArbTokens t) {
+    final doc = widget.doc;
+    final enabled = doc.dirty && !doc.saving;
+
+    Widget label() => doc.saving
+        ? const SizedBox(
+            width: 14,
+            height: 14,
+            child:
+                CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+          )
+        : Text(doc.dirty ? 'Save' : 'Saved',
+            style: t.sans(size: 13, weight: FontWeight.w700, color: Colors.white));
+
+    // macOS: plain Save (in-place always works under the security scope).
+    if (!Platform.isAndroid) {
+      return FilledButton(
+        onPressed: enabled ? widget.onSave : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: t.accent,
+          disabledBackgroundColor: t.accent.withValues(alpha: 0.5),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(t.radiusSm),
+          ),
+        ),
+        child: label(),
+      );
+    }
+
+    // Android: split button — Save (long-press = Save as…) + a caret menu.
+    final r = Radius.circular(t.radiusSm);
+    final bg = enabled || doc.saving ? t.accent : t.accent.withValues(alpha: 0.5);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          color: bg,
+          borderRadius: BorderRadius.horizontal(left: r),
+          child: InkWell(
+            borderRadius: BorderRadius.horizontal(left: r),
+            onTap: enabled ? widget.onSave : null,
+            onLongPress: doc.saving ? null : widget.onSaveAs,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+              child: label(),
+            ),
+          ),
+        ),
+        Container(width: 1, height: 22, color: Colors.white24),
+        Material(
+          color: bg,
+          borderRadius: BorderRadius.horizontal(right: r),
+          child: PopupMenuButton<String>(
+            tooltip: 'Save options',
+            enabled: !doc.saving,
+            position: PopupMenuPosition.under,
+            onSelected: (v) {
+              if (v == 'saveAs') widget.onSaveAs();
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'saveAs',
+                child: Row(
+                  children: [
+                    Icon(Icons.save_as_outlined, size: 18, color: t.textSecondary),
+                    const SizedBox(width: 10),
+                    const Text('Save as…'),
+                  ],
+                ),
+              ),
+            ],
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 11),
+              child: Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

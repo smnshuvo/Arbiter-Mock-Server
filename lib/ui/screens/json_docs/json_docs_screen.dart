@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/arbiter_tokens.dart';
 import 'json_docs_controller.dart';
 import 'json_document_view.dart';
+import 'opening_indicator.dart';
 
 /// A single-window, browser-tabbed JSON document editor. Each open .json is a
 /// tab; the active tab hosts the Form/Code editor with save-in-place.
@@ -33,12 +34,23 @@ class _JsonDocsScreenState extends State<JsonDocsScreen> {
     }
   }
 
+  Future<void> _saveAs(JsonDoc doc) async {
+    await _c.saveAsExplicit(doc); // cancel is a no-op; nothing to report
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = ArbTokens.of(context);
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
+        // Launch-time read in progress and nothing to show yet → full loader.
+        if (_c.opening && _c.isEmpty) {
+          return Scaffold(
+            backgroundColor: t.canvas,
+            body: const SafeArea(child: OpeningIndicator()),
+          );
+        }
         return Scaffold(
           backgroundColor: t.canvas,
           body: SafeArea(
@@ -59,6 +71,7 @@ class _JsonDocsScreenState extends State<JsonDocsScreen> {
                                 doc: doc,
                                 onChanged: _c.touch,
                                 onSave: () => _save(doc),
+                                onSaveAs: () => _saveAs(doc),
                               ),
                           ],
                         ),

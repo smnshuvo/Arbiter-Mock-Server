@@ -41,15 +41,17 @@ void main() async {
   await di.setupRequestNotificationCallback(); // Setup notification callback after all dependencies are ready
   unawaited(di.sl<AdService>().init()); // Initialize the Mobile Ads SDK (no-op on desktop)
 
-  // macOS: open .json files in a tabbed document window (no-op elsewhere).
+  // macOS/Android: open .json files in a tabbed document window (no-op elsewhere).
   final jsonDocs = JsonDocsController.instance;
   JsonDocumentService.instance.initialize();
-  for (final path in await JsonDocumentService.instance.getPending()) {
-    await jsonDocs.openPath(path);
+  final pending = await JsonDocumentService.instance.getPending();
+  // Not awaited: the doc window shows an "Opening file" loader while reading.
+  for (final path in pending) {
+    jsonDocs.openPath(path);
   }
-  JsonDocumentService.instance.onFilesOpened = (paths) async {
+  JsonDocumentService.instance.onFilesOpened = (paths) {
     for (final path in paths) {
-      await jsonDocs.openPath(path);
+      jsonDocs.openPath(path);
     }
     _showJsonDocs();
   };
@@ -58,7 +60,7 @@ void main() async {
       BlocProvider(create: (_) => di.sl<ThemeCubit>(), child: const MyApp()));
 
   // If the app was launched by opening .json file(s), show the doc window.
-  if (jsonDocs.docs.isNotEmpty) {
+  if (pending.isNotEmpty) {
     WidgetsBinding.instance.addPostFrameCallback((_) => _showJsonDocs());
   }
 }

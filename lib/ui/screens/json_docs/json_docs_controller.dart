@@ -33,7 +33,10 @@ class JsonDocsController extends ChangeNotifier {
   final _svc = JsonDocumentService.instance;
   final List<JsonDoc> docs = [];
   int activeIndex = 0;
+  int _opening = 0;
 
+  /// True while one or more files are being read/opened.
+  bool get opening => _opening > 0;
   bool get isEmpty => docs.isEmpty;
   JsonDoc? get active =>
       (activeIndex >= 0 && activeIndex < docs.length) ? docs[activeIndex] : null;
@@ -46,11 +49,17 @@ class JsonDocsController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final content = await _svc.read(path) ?? '';
-    final title = await _svc.displayName(path);
-    docs.add(JsonDoc(path: path, title: title, content: content));
-    activeIndex = docs.length - 1;
+    _opening++;
     notifyListeners();
+    try {
+      final content = await _svc.read(path) ?? '';
+      final title = await _svc.displayName(path);
+      docs.add(JsonDoc(path: path, title: title, content: content));
+      activeIndex = docs.length - 1;
+    } finally {
+      _opening--;
+      notifyListeners();
+    }
   }
 
   void select(int index) {
@@ -82,6 +91,24 @@ class JsonDocsController extends ChangeNotifier {
       }
     }
     if (ok) doc.markSaved();
+    doc.saving = false;
+    notifyListeners();
+    return ok;
+  }
+
+  /// Explicit "Save as…": always prompts for a location (Android). Returns true
+  /// if the document was saved to a new location.
+  Future<bool> saveAsExplicit(JsonDoc doc) async {
+    doc.saving = true;
+    notifyListeners();
+    final newPath = await _svc.saveAs(doc.controller.text, doc.title);
+    var ok = false;
+    if (newPath != null) {
+      doc.path = newPath;
+      doc.title = await _svc.displayName(newPath);
+      doc.markSaved();
+      ok = true;
+    }
     doc.saving = false;
     notifyListeners();
     return ok;
