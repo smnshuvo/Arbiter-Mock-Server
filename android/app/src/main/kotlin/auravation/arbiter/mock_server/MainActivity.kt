@@ -25,6 +25,8 @@ class MainActivity : FlutterActivity() {
     private var jsonDocsChannel: MethodChannel? = null
     private val pendingJsonUris = mutableListOf<String>()
     private var jsonDartReady = false
+    private var pendingSaveAsResult: MethodChannel.Result? = null
+    private var pendingSaveAsContent: String? = null
     private var methodChannel: MethodChannel? = null
     private var overlayChannel: MethodChannel? = null
     private var fileServerChannel: MethodChannel? = null
@@ -35,6 +37,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val REQUEST_PICK_FOLDER = 4201
+        private const val REQUEST_CREATE_JSON = 4202
         private const val FILE_SERVER_PREFS = "file_server_prefs"
         private const val KEY_ROOT_URI = "root_uri"
     }
@@ -300,7 +303,35 @@ class MainActivity : FlutterActivity() {
             "writeFile" -> result.success(
                 jsonWrite(call.argument<String>("path"), call.argument<String>("content")),
             )
+            "saveAs" -> jsonSaveAs(
+                call.argument<String>("content") ?: "",
+                call.argument<String>("name") ?: "document.json",
+                result,
+            )
             else -> result.notImplemented()
+        }
+    }
+
+    /** Opens the SAF "create document" picker so the user can save to a writable
+     *  location. The chosen URI is written in [onActivityResult]. */
+    private fun jsonSaveAs(content: String, name: String, result: MethodChannel.Result) {
+        if (pendingSaveAsResult != null) {
+            result.error("SAVE_BUSY", "A save dialog is already open", null)
+            return
+        }
+        pendingSaveAsResult = result
+        pendingSaveAsContent = content
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, name)
+        }
+        try {
+            startActivityForResult(intent, REQUEST_CREATE_JSON)
+        } catch (e: Exception) {
+            pendingSaveAsResult = null
+            pendingSaveAsContent = null
+            result.error("SAVE_ERROR", e.message, null)
         }
     }
 
@@ -443,6 +474,37 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == REQUEST_CREATE_JSON) {
+            val result = pendingSaveAsResult
+            val content = pendingSaveAsContent
+            pendingSaveAsResult = null
+            pendingSaveAsContent = null
+            if (result == null) return
+            val uri = data?.data
+            if (resultCode != Activity.RESULT_OK || uri == null) {
+                result.success(null) // cancelled
+                return
+            }
+            try {
+                contentResolver.openOutputStream(uri, "wt")?.use {
+                    it.write((content ?: "").toByteArray(Charsets.UTF_8))
+                }
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                } catch (_: Exception) {
+                }
+                result.success(uri.toString())
+            } catch (e: Exception) {
+                result.error("SAVE_WRITE_ERROR", e.message, null)
+            }
+            return
+        }
+
         if (requestCode != REQUEST_PICK_FOLDER) return
         val result = pendingFolderResult
         pendingFolderResult = null

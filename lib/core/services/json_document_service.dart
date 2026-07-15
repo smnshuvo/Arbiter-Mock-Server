@@ -56,4 +56,13 @@ class JsonDocumentService {
         .invokeMethod<bool>('writeFile', {'path': path, 'content': content});
     return ok ?? false;
   }
+
+  /// Fallback when in-place write is denied (Android read-only opens): shows the
+  /// system "create document" picker and writes [content] there. Returns the
+  /// new path/URI, or null if unavailable/cancelled.
+  Future<String?> saveAs(String content, String suggestedName) async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMethod<String>(
+        'saveAs', {'content': content, 'name': suggestedName});
+  }
 }

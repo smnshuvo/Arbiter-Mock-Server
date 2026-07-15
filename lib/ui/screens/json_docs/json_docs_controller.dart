@@ -8,10 +8,11 @@ class JsonDoc {
       : controller = TextEditingController(text: content),
         _saved = content;
 
-  final String path;
+  /// File path (macOS) or content:// URI (Android). May change after a Save-As.
+  String path;
 
   /// Friendly document name (content-URI safe); shown on the tab and toolbar.
-  final String title;
+  String title;
   final TextEditingController controller;
   String _saved;
   bool saving = false;
@@ -69,7 +70,17 @@ class JsonDocsController extends ChangeNotifier {
   Future<bool> save(JsonDoc doc) async {
     doc.saving = true;
     notifyListeners();
-    final ok = await _svc.write(doc.path, doc.controller.text);
+    var ok = await _svc.write(doc.path, doc.controller.text);
+    if (!ok) {
+      // In-place write denied (common with read-only content:// opens on
+      // Android) — let the user choose a writable location instead.
+      final newPath = await _svc.saveAs(doc.controller.text, doc.title);
+      if (newPath != null) {
+        doc.path = newPath;
+        doc.title = await _svc.displayName(newPath);
+        ok = true;
+      }
+    }
     if (ok) doc.markSaved();
     doc.saving = false;
     notifyListeners();
