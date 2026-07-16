@@ -2,21 +2,28 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// One entry in the recent-files list.
+/// A recently opened JSON document, shown on the Android recent-files screen.
 class RecentFile {
-  RecentFile({
+  const RecentFile({
     required this.path,
     required this.name,
+    required this.openedAt,
     this.size,
     this.modified,
-    required this.openedAt,
   });
 
-  final String path; // file path (macOS) or content:// URI (Android)
+  /// File path (macOS) or content:// URI (Android).
+  final String path;
   final String name;
-  final int? size; // bytes
-  final int? modified; // epoch ms
-  final int openedAt; // epoch ms
+
+  /// Size in bytes, when known.
+  final int? size;
+
+  /// Last-modified time (epoch ms), when known.
+  final int? modified;
+
+  /// When this file was last opened in the app (epoch ms).
+  final int openedAt;
 
   Map<String, dynamic> toJson() => {
         'path': path,
@@ -26,16 +33,16 @@ class RecentFile {
         'openedAt': openedAt,
       };
 
-  factory RecentFile.fromJson(Map<String, dynamic> j) => RecentFile(
-        path: j['path'] as String,
-        name: j['name'] as String? ?? '',
-        size: (j['size'] as num?)?.toInt(),
-        modified: (j['modified'] as num?)?.toInt(),
-        openedAt: (j['openedAt'] as num?)?.toInt() ?? 0,
+  factory RecentFile.fromJson(Map<String, dynamic> json) => RecentFile(
+        path: json['path'] as String,
+        name: json['name'] as String? ?? '',
+        size: (json['size'] as num?)?.toInt(),
+        modified: (json['modified'] as num?)?.toInt(),
+        openedAt: (json['openedAt'] as num?)?.toInt() ?? 0,
       );
 }
 
-/// Persists recently opened JSON documents (most-recent first).
+/// Persists the list of recently opened JSON documents (newest first).
 class RecentFilesStore {
   RecentFilesStore._();
   static final RecentFilesStore instance = RecentFilesStore._();
@@ -53,22 +60,25 @@ class RecentFilesStore {
           .map((e) => RecentFile.fromJson(e as Map<String, dynamic>))
           .toList();
     } catch (_) {
-      return [];
+      return []; // corrupt storage — start fresh rather than crash
     }
   }
 
+  /// Adds (or refreshes) an entry, moving it to the front and de-duping by path.
   Future<void> add(RecentFile file) async {
-    final prefs = await SharedPreferences.getInstance();
     final items = await list()..removeWhere((e) => e.path == file.path);
     items.insert(0, file);
     if (items.length > _max) items.removeRange(_max, items.length);
-    await prefs.setString(
-        _key, jsonEncode(items.map((e) => e.toJson()).toList()));
+    await _save(items);
   }
 
   Future<void> remove(String path) async {
-    final prefs = await SharedPreferences.getInstance();
     final items = await list()..removeWhere((e) => e.path == path);
+    await _save(items);
+  }
+
+  Future<void> _save(List<RecentFile> items) async {
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         _key, jsonEncode(items.map((e) => e.toJson()).toList()));
   }
