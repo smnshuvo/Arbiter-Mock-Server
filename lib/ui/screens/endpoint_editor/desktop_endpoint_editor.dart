@@ -26,22 +26,93 @@ class _DesktopEndpointEditorState
     final t = ArbTokens.of(context);
     return Container(
       color: t.canvas,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(22, 18, 22, 26),
+      child: CustomScrollView(slivers: _slivers()),
+    );
+  }
+
+  SliverToBoxAdapter _box(List<Widget> children) => SliverToBoxAdapter(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _header(t),
-            const SizedBox(height: 18),
-            buildMethodPathRow(),
-            const SizedBox(height: 16),
-            _matchAndMode(),
-            const SizedBox(height: 16),
-            if (isMock) ..._mockSections() else buildPassThrough(),
-          ],
+          children: children,
         ),
+      );
+
+  List<Widget> _slivers() {
+    final t = ArbTokens.of(context);
+    const hPad = EdgeInsets.symmetric(horizontal: 22);
+    final top = <Widget>[
+      _header(t),
+      const SizedBox(height: 18),
+      buildMethodPathRow(),
+      const SizedBox(height: 16),
+      _matchAndMode(),
+      const SizedBox(height: 16),
+    ];
+
+    if (!isMock) {
+      return [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(22, 18, 22, 26),
+          sliver: _box([...top, buildPassThrough()]),
+        ),
+      ];
+    }
+
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(22, 18, 22, 0),
+        sliver: _box([
+          ...top,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ArbSectionLabel('Status'),
+                    buildStatusField(),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ArbSectionLabel('Delay'),
+                    buildDelayStepper(),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: buildConditionalToggle(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          buildResponseBodyHeader(),
+          const SizedBox(height: 10),
+        ]),
       ),
-    );
+      SliverPadding(padding: hPad, sliver: buildResponseBodySliver()),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(22, 0, 22, 26),
+        sliver: _box([
+          if (useConditionalMock) ...[
+            const SizedBox(height: 14),
+            buildConditionalSummary(),
+          ],
+        ]),
+      ),
+    ];
   }
 
   Widget _header(ArbTokens t) {
@@ -97,50 +168,4 @@ class _DesktopEndpointEditorState
     );
   }
 
-  List<Widget> _mockSections() {
-    return [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const ArbSectionLabel('Status'),
-                buildStatusField(),
-              ],
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const ArbSectionLabel('Delay'),
-                buildDelayStepper(),
-              ],
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: buildConditionalToggle(),
-              ),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 18),
-      buildResponseBodyHeader(),
-      const SizedBox(height: 10),
-      buildResponseBody(),
-      if (useConditionalMock) ...[
-        const SizedBox(height: 14),
-        buildConditionalSummary(),
-      ],
-    ];
-  }
 }

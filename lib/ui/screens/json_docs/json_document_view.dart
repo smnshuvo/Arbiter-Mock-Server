@@ -7,6 +7,7 @@ import '../../../core/theme/arbiter_tokens.dart';
 import '../endpoint_editor/widgets/arb_segmented.dart';
 import '../endpoint_editor/widgets/json_code_editor.dart';
 import '../endpoint_editor/widgets/json_form_editor.dart';
+import '../endpoint_editor/widgets/json_tree_controller.dart';
 import 'json_docs_controller.dart';
 
 enum _BodyTab { form, code }
@@ -34,12 +35,31 @@ class JsonDocumentView extends StatefulWidget {
 
 class _JsonDocumentViewState extends State<JsonDocumentView> {
   late _BodyTab _tab;
-  int _formEpoch = 0;
+  final JsonTreeController _tree = JsonTreeController();
+  bool _treeReady = false;
+
+  /// Text the tree was last serialized to when leaving the Form tab. If the Code
+  /// tab didn't change it, we keep the existing tree (and its expand/collapse +
+  /// scroll) instead of re-parsing.
+  String? _codeSnapshot;
 
   @override
   void initState() {
     super.initState();
     _tab = _isJson(widget.doc.controller.text) ? _BodyTab.form : _BodyTab.code;
+    // Fires once per clean→dirty transition, so the Save button and tab dot
+    // update without rebuilding anything on every keystroke.
+    _tree.onDirty = () {
+      widget.doc.treeDirty = true;
+      widget.onChanged();
+    };
+    if (_tab == _BodyTab.form) _loadTree();
+  }
+
+  @override
+  void dispose() {
+    _tree.dispose();
+    super.dispose();
   }
 
   bool _isJson(String raw) {
@@ -53,6 +73,48 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
     }
   }
 
+  Future<void> _loadTree() async {
+    setState(() => _treeReady = false);
+    await _tree.parse(widget.doc.controller.text);
+    if (mounted) setState(() => _treeReady = true);
+  }
+
+  /// Serializes the tree back into the document text. Called only when the text
+  /// is actually needed — on save and when leaving the Form tab.
+  Future<void> _syncTreeToText() async {
+    if (_tab != _BodyTab.form || !_tree.isDirty) return;
+    widget.doc.controller.text = await _tree.toJson();
+    _tree.markSaved();
+    widget.doc.treeDirty = false; // the text now carries the edit
+  }
+
+  Future<void> _handleSave() async {
+    await _syncTreeToText();
+    widget.onSave();
+  }
+
+  Future<void> _handleSaveAs() async {
+    await _syncTreeToText();
+    widget.onSaveAs();
+  }
+
+  Future<void> _switchTab(_BodyTab next) async {
+    if (next == _tab) return;
+    if (next == _BodyTab.code) {
+      await _syncTreeToText();
+      _codeSnapshot = widget.doc.controller.text;
+      if (!mounted) return;
+      setState(() => _tab = next);
+    } else {
+      setState(() => _tab = next);
+      // Only re-parse if the Code tab actually changed the text; otherwise keep
+      // the tree so expand/collapse and scroll position survive the round-trip.
+      if (widget.doc.controller.text != _codeSnapshot) {
+        await _loadTree();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = ArbTokens.of(context);
@@ -63,8 +125,8 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
         children: [
           _toolbar(t),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
               child: _body(t),
             ),
           ),
@@ -98,11 +160,7 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
               compact: true,
               segments: const [ArbSegment('▦ Form'), ArbSegment('</> Code')],
               selectedIndex: _tab.index,
-              onChanged: (i) => setState(() {
-                final next = _BodyTab.values[i];
-                if (next == _BodyTab.form) _formEpoch++;
-                _tab = next;
-              }),
+              onChanged: (i) => _switchTab(_BodyTab.values[i]),
             ),
           ),
           const SizedBox(width: 12),
@@ -129,7 +187,7 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
     // macOS: plain Save (in-place always works under the security scope).
     if (!Platform.isAndroid) {
       return FilledButton(
-        onPressed: enabled ? widget.onSave : null,
+        onPressed: enabled ? _handleSave : null,
         style: FilledButton.styleFrom(
           backgroundColor: t.accent,
           disabledBackgroundColor: t.accent.withValues(alpha: 0.5),
@@ -153,8 +211,8 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
           borderRadius: BorderRadius.horizontal(left: r),
           child: InkWell(
             borderRadius: BorderRadius.horizontal(left: r),
-            onTap: enabled ? widget.onSave : null,
-            onLongPress: doc.saving ? null : widget.onSaveAs,
+            onTap: enabled ? _handleSave : null,
+            onLongPress: doc.saving ? null : _handleSaveAs,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
               child: label(),
@@ -170,7 +228,7 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
             enabled: !doc.saving,
             position: PopupMenuPosition.under,
             onSelected: (v) {
-              if (v == 'saveAs') widget.onSaveAs();
+              if (v == 'saveAs') _handleSaveAs();
             },
             itemBuilder: (_) => [
               PopupMenuItem(
@@ -197,21 +255,21 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
   Widget _body(ArbTokens t) {
     final doc = widget.doc;
     if (_tab == _BodyTab.code) {
-      return JsonCodeEditor(
-        controller: doc.controller,
-        minLines: 18,
-        onChanged: (_) => widget.onChanged(),
+      // One TextField — cheap to scroll conventionally.
+      return SingleChildScrollView(
+        child: JsonCodeEditor(
+          controller: doc.controller,
+          minLines: 18,
+          onChanged: (_) => widget.onChanged(),
+        ),
       );
     }
     if (_isJson(doc.controller.text)) {
-      return JsonFormEditor(
-        key: ValueKey(_formEpoch),
-        initialJson: doc.controller.text,
-        onChanged: (json) {
-          doc.controller.text = json;
-          widget.onChanged();
-        },
-      );
+      if (!_treeReady) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      // Fills the Expanded and lazily builds only the visible rows.
+      return JsonFormEditor(controller: _tree);
     }
     return Container(
       padding: const EdgeInsets.all(14),

@@ -14,6 +14,7 @@ import 'widgets/delay_stepper.dart';
 import 'widgets/json_brace_controller.dart';
 import 'widgets/json_code_editor.dart';
 import 'widgets/json_form_editor.dart';
+import 'widgets/json_tree_controller.dart';
 import 'widgets/status_field.dart';
 
 enum _BodyTab { form, code }
@@ -54,7 +55,12 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
   late List<ConditionalMock> conditionalMocks;
 
   _BodyTab _bodyTab = _BodyTab.form;
-  int _formEpoch = 0; // bumped so the form re-reads the controller after Code edits
+
+  /// Source of truth for the Form tab; serialized back into
+  /// [mockResponseController] only on save or when leaving the tab.
+  final JsonTreeController jsonTree = JsonTreeController();
+  bool _treeReady = false;
+  String? _codeSnapshot;
   bool _pendingCreate = false;
 
   bool get isEditing => widget.endpoint == null ? false : true;
@@ -82,10 +88,26 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
     conditionalMocks = List.from(e?.conditionalMocks ?? const []);
     // Start on the Code tab if the stored body can't be parsed into a tree.
     if (!_isJson(mockResponseController.text)) _bodyTab = _BodyTab.code;
+    if (_bodyTab == _BodyTab.form) _loadTree();
+  }
+
+  Future<void> _loadTree() async {
+    setState(() => _treeReady = false);
+    await jsonTree.parse(mockResponseController.text);
+    if (mounted) setState(() => _treeReady = true);
+  }
+
+  /// Serializes the tree back into [mockResponseController]. Called only when
+  /// the text is needed — on save and when leaving the Form tab.
+  void syncTreeToText() {
+    if (_bodyTab != _BodyTab.form || !jsonTree.isDirty) return;
+    mockResponseController.text = jsonTree.toJsonSync();
+    jsonTree.markSaved();
   }
 
   @override
   void dispose() {
+    jsonTree.dispose();
     patternController.dispose();
     mockResponseController.dispose();
     targetUrlController.dispose();
@@ -130,6 +152,7 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
 
   // ---- Save flow ----
   Endpoint buildEndpoint() {
+    syncTreeToText(); // pull the tree's edits into the text before persisting
     final now = DateTime.now();
     return Endpoint(
       id: widget.endpoint?.id ?? now.millisecondsSinceEpoch.toString(),
@@ -475,17 +498,39 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
             ],
             selectedIndex: _bodyTab.index,
             onChanged: (i) {
-              setState(() {
-                final next = _BodyTab.values[i];
-                // Re-read the controller into a fresh tree when returning to Form.
-                if (next == _BodyTab.form) _formEpoch++;
-                _bodyTab = next;
-              });
+              final next = _BodyTab.values[i];
+              if (next == _bodyTab) return;
+              if (next == _BodyTab.code) {
+                syncTreeToText();
+                _codeSnapshot = mockResponseController.text;
+                setState(() => _bodyTab = next);
+              } else {
+                setState(() => _bodyTab = next);
+                // Preserve the tree (expand/collapse) unless Code changed the text.
+                if (mockResponseController.text != _codeSnapshot) _loadTree();
+              }
             },
           ),
         ),
       ],
     );
+  }
+
+  /// Sliver form of the response body, so the page scrolls as one surface while
+  /// the JSON rows still build lazily.
+  Widget buildResponseBodySliver() {
+    if (_bodyTab == _BodyTab.form && _isJson(mockResponseController.text)) {
+      if (!_treeReady) {
+        return const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        );
+      }
+      return JsonFormEditorSliver(controller: jsonTree);
+    }
+    return SliverToBoxAdapter(child: buildResponseBody());
   }
 
   Widget buildResponseBody() {
@@ -500,10 +545,15 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
 
     // Form tab.
     if (_isJson(mockResponseController.text)) {
-      return JsonFormEditor(
-        key: ValueKey(_formEpoch),
-        initialJson: mockResponseController.text,
-        onChanged: (json) => mockResponseController.text = json,
+      if (!_treeReady) {
+        return const Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: CircularProgressIndicator()),
+        );
+      }
+      return SizedBox(
+        height: 360,
+        child: JsonFormEditor(controller: jsonTree),
       );
     }
 

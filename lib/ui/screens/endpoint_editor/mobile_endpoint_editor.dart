@@ -29,20 +29,19 @@ class _MobileEndpointEditorState
         child: Column(
           children: [
             _header(t),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: _sections(),
-                ),
-              ),
-            ),
+            Expanded(child: CustomScrollView(slivers: _slivers())),
           ],
         ),
       ),
     );
   }
+
+  SliverToBoxAdapter _box(List<Widget> children) => SliverToBoxAdapter(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      );
 
   Widget _header(ArbTokens t) {
     return Container(
@@ -76,8 +75,9 @@ class _MobileEndpointEditorState
     );
   }
 
-  List<Widget> _sections() {
-    return [
+  List<Widget> _slivers() {
+    const hPad = EdgeInsets.symmetric(horizontal: 16);
+    final top = <Widget>[
       buildMethodPathRow(),
       const SizedBox(height: 18),
       const ArbSectionLabel('Match type'),
@@ -86,46 +86,62 @@ class _MobileEndpointEditorState
       const ArbSectionLabel('Mode'),
       buildModeSelector(),
       const SizedBox(height: 18),
-      if (isMock) ..._mockSections() else buildPassThrough(),
     ];
-  }
 
-  List<Widget> _mockSections() {
+    if (!isMock) {
+      return [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+          sliver: _box([...top, buildPassThrough()]),
+        ),
+      ];
+    }
+
     return [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const ArbSectionLabel('Status'),
-                buildStatusField(),
-              ],
-            ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+        sliver: _box([
+          ...top,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ArbSectionLabel('Status'),
+                    buildStatusField(),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ArbSectionLabel('Delay'),
+                    buildDelayStepper(),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const ArbSectionLabel('Delay'),
-                buildDelayStepper(),
-              ],
-            ),
-          ),
-        ],
+          const SizedBox(height: 18),
+          buildResponseBodyHeader(),
+          const SizedBox(height: 10),
+        ]),
       ),
-      const SizedBox(height: 18),
-      buildResponseBodyHeader(),
-      const SizedBox(height: 10),
-      buildResponseBody(),
-      const SizedBox(height: 20),
-      buildConditionalCard(),
-      if (useConditionalMock) ...[
-        const SizedBox(height: 9),
-        buildConditionalSummary(),
-      ],
+      SliverPadding(padding: hPad, sliver: buildResponseBodySliver()),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+        sliver: _box([
+          buildConditionalCard(),
+          if (useConditionalMock) ...[
+            const SizedBox(height: 9),
+            buildConditionalSummary(),
+          ],
+        ]),
+      ),
     ];
   }
 

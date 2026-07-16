@@ -19,10 +19,18 @@ class JsonDoc {
   String _saved;
   bool saving = false;
 
-  String get fileName => title;
-  bool get dirty => controller.text != _saved;
+  /// Set when the Form tab's tree has edits that haven't been serialized back
+  /// into [controller] yet — the tree is the source of truth while editing, so
+  /// text alone can't tell us we're dirty.
+  bool treeDirty = false;
 
-  void markSaved() => _saved = controller.text;
+  String get fileName => title;
+  bool get dirty => treeDirty || controller.text != _saved;
+
+  void markSaved() {
+    _saved = controller.text;
+    treeDirty = false;
+  }
   void dispose() => controller.dispose();
 }
 

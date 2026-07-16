@@ -7,15 +7,22 @@ import '../../../../core/theme/arbiter_tokens.dart';
 class JsonBraceController extends TextEditingController {
   JsonBraceController({super.text});
 
+  /// Above this size, rescanning the whole string on every keystroke costs more
+  /// than the highlight is worth — fall back to a plain span.
+  static const int _maxHighlightChars = 100 * 1024;
+
   @override
   TextSpan buildTextSpan({
     required BuildContext context,
     TextStyle? style,
     required bool withComposing,
   }) {
-    final t = ArbTokens.of(context);
     final base = style ?? const TextStyle();
     final source = text;
+    if (source.length > _maxHighlightChars) {
+      return TextSpan(text: source, style: base);
+    }
+    final t = ArbTokens.of(context);
     final spans = <TextSpan>[];
     final buffer = StringBuffer();
     var depth = 0;
