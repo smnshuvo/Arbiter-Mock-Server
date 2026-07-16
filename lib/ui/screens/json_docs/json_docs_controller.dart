@@ -1,12 +1,13 @@
 import 'package:flutter/widgets.dart';
 
 import '../../../core/services/json_document_service.dart';
+import '../endpoint_editor/widgets/json_brace_controller.dart';
 import 'recent_files_store.dart';
 
 /// One open .json document (a tab).
 class JsonDoc {
   JsonDoc({required this.path, required this.title, required String content})
-      : controller = TextEditingController(text: content),
+      : controller = JsonBraceController(text: content),
         _saved = content;
 
   /// File path (macOS) or content:// URI (Android). May change after a Save-As.

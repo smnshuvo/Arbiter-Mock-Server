@@ -89,6 +89,19 @@ class ArbTokens {
         color: color ?? textPrimary,
       );
 
+  /// Nesting-depth palette for JSON tree guide lines and rainbow braces.
+  /// Cycles so arbitrarily deep structures stay readable.
+  static const List<Color> _depthPalette = [
+    Color(0xFF7C3AED), // purple
+    Color(0xFF2563EB), // blue
+    Color(0xFF0D9488), // teal
+    Color(0xFFD97706), // amber
+    Color(0xFFDB2777), // pink
+  ];
+
+  Color depthColor(int depth) =>
+      _depthPalette[depth % _depthPalette.length];
+
   /// Returns a status-code color (2xx green, 4xx amber, 5xx red).
   Color statusColor(int code) {
     if (code >= 200 && code < 300) return green;

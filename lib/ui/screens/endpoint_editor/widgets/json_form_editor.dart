@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../../../../core/theme/arbiter_tokens.dart';
@@ -243,13 +244,19 @@ class _JsonFormEditorState extends State<JsonFormEditor> {
           isArrayItem: isArray, index: i, depth: depth));
       if (child.isContainer && !child.collapsed) {
         rows.addAll(_renderChildren(child, depth + 1));
-        rows.add(Padding(
-          padding: EdgeInsets.only(left: 14.0 * (depth + 1) + 22, top: 2, bottom: 2),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: _inlineAdd(
-              child.type == JsonType.array ? 'Add item' : 'Add field',
-              () => _addChild(child),
+        final t = ArbTokens.of(context);
+        rows.add(CustomPaint(
+          painter:
+              _GuidesPainter(depth: depth + 1, colorFor: (i) => t.depthColor(i)),
+          child: Padding(
+            padding:
+                EdgeInsets.only(left: 14.0 * (depth + 1) + 8, top: 2, bottom: 2),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _inlineAdd(
+                child.type == JsonType.array ? 'Add item' : 'Add field',
+                () => _addChild(child),
+              ),
             ),
           ),
         ));
@@ -327,18 +334,21 @@ class _JsonFormEditorState extends State<JsonFormEditor> {
       },
     );
 
-    return Padding(
-      padding: EdgeInsets.only(left: 14.0 * depth, top: 3, bottom: 3),
-      child: Row(
-        children: [
-          Expanded(child: inner),
-          if (!isRoot) ...[
-            _iconBtn(Icons.copy_all_outlined, () => _duplicate(parent, node),
-                color: t.textMuted, tooltip: 'Duplicate'),
-            _iconBtn(Icons.delete_outline, () => _remove(parent, node),
-                color: t.textMuted, tooltip: 'Delete'),
+    return CustomPaint(
+      painter: _GuidesPainter(depth: depth, colorFor: (i) => t.depthColor(i)),
+      child: Padding(
+        padding: EdgeInsets.only(left: 14.0 * depth, top: 3, bottom: 3),
+        child: Row(
+          children: [
+            Expanded(child: inner),
+            if (!isRoot) ...[
+              _iconBtn(Icons.copy_all_outlined, () => _duplicate(parent, node),
+                  color: t.textMuted, tooltip: 'Duplicate'),
+              _iconBtn(Icons.delete_outline, () => _remove(parent, node),
+                  color: t.textMuted, tooltip: 'Delete'),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -529,4 +539,38 @@ class _JsonFormEditorState extends State<JsonFormEditor> {
       ),
     );
   }
+}
+
+/// Paints dashed vertical nesting-guide lines down the left indent of a row,
+/// one per ancestor depth, colored by [ArbTokens.depthColor]. Consecutive rows
+/// stack so the dashes read as continuous tree lines.
+class _GuidesPainter extends CustomPainter {
+  _GuidesPainter({required this.depth, required this.colorFor});
+
+  final int depth;
+  final Color Function(int) colorFor;
+
+  static const double _step = 14;
+  static const double _dash = 3;
+  static const double _gap = 3.5;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var i = 0; i < depth; i++) {
+      final paint = Paint()
+        ..color = colorFor(i).withValues(alpha: 0.5)
+        ..strokeWidth = 1.2
+        ..strokeCap = StrokeCap.round;
+      final x = _step * i + 7;
+      var y = 0.0;
+      while (y < size.height) {
+        canvas.drawLine(
+            Offset(x, y), Offset(x, math.min(y + _dash, size.height)), paint);
+        y += _dash + _gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GuidesPainter old) => old.depth != depth;
 }

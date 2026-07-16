@@ -11,6 +11,7 @@ import 'widgets/arb_mode_card.dart';
 import 'widgets/arb_section_label.dart';
 import 'widgets/arb_segmented.dart';
 import 'widgets/delay_stepper.dart';
+import 'widgets/json_brace_controller.dart';
 import 'widgets/json_code_editor.dart';
 import 'widgets/json_form_editor.dart';
 import 'widgets/status_field.dart';
@@ -69,7 +70,7 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
     final e = widget.endpoint;
     patternController = TextEditingController(text: e?.pattern ?? '');
     mockResponseController =
-        TextEditingController(text: e?.mockResponse ?? '{}');
+        JsonBraceController(text: e?.mockResponse ?? '{}');
     targetUrlController = TextEditingController(text: e?.targetUrl ?? '');
     statusController =
         TextEditingController(text: (e?.statusCode ?? 200).toString());
