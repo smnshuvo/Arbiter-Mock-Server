@@ -45,6 +45,22 @@ class JsonDocumentService {
     return (name == null || name.isEmpty) ? path.split('/').last : name;
   }
 
+  /// Name + size (bytes) + last-modified (epoch ms) for the recent-files list.
+  Future<({String name, int? size, int? modified})> fileInfo(String path) async {
+    final fallback = path.split('/').last;
+    if (!isSupported) return (name: fallback, size: null, modified: null);
+    final m = await _channel
+        .invokeMapMethod<String, dynamic>('fileInfo', {'path': path});
+    if (m == null) return (name: fallback, size: null, modified: null);
+    return (
+      name: (m['name'] as String?)?.isNotEmpty == true
+          ? m['name'] as String
+          : fallback,
+      size: (m['size'] as num?)?.toInt(),
+      modified: (m['modified'] as num?)?.toInt(),
+    );
+  }
+
   Future<String?> read(String path) async {
     if (!isSupported) return null;
     return _channel.invokeMethod<String>('readFile', {'path': path});
@@ -64,5 +80,12 @@ class JsonDocumentService {
     if (!Platform.isAndroid) return null;
     return _channel.invokeMethod<String>(
         'saveAs', {'content': content, 'name': suggestedName});
+  }
+
+  /// Android: pick a .json via the system document picker (persistable grant, so
+  /// it reopens from recents). Returns the URI, or null if cancelled.
+  Future<String?> pickJson() async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMethod<String>('pickJson');
   }
 }

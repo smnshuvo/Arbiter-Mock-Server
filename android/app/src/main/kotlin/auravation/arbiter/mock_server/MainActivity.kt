@@ -27,6 +27,7 @@ class MainActivity : FlutterActivity() {
     private var jsonDartReady = false
     private var pendingSaveAsResult: MethodChannel.Result? = null
     private var pendingSaveAsContent: String? = null
+    private var pendingOpenResult: MethodChannel.Result? = null
     private var methodChannel: MethodChannel? = null
     private var overlayChannel: MethodChannel? = null
     private var fileServerChannel: MethodChannel? = null
@@ -38,6 +39,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val REQUEST_PICK_FOLDER = 4201
         private const val REQUEST_CREATE_JSON = 4202
+        private const val REQUEST_OPEN_JSON = 4203
         private const val FILE_SERVER_PREFS = "file_server_prefs"
         private const val KEY_ROOT_URI = "root_uri"
     }
@@ -299,6 +301,7 @@ class MainActivity : FlutterActivity() {
                 result.success(list)
             }
             "displayName" -> result.success(jsonDisplayName(call.argument<String>("path")))
+            "fileInfo" -> result.success(jsonFileInfo(call.argument<String>("path")))
             "readFile" -> result.success(jsonRead(call.argument<String>("path")))
             "writeFile" -> result.success(
                 jsonWrite(call.argument<String>("path"), call.argument<String>("content")),
@@ -308,7 +311,33 @@ class MainActivity : FlutterActivity() {
                 call.argument<String>("name") ?: "document.json",
                 result,
             )
+            "pickJson" -> jsonPick(result)
             else -> result.notImplemented()
+        }
+    }
+
+    /** Opens the SAF document picker for a .json file, taking a persistable read
+     *  grant so it can be reopened later from the recent-files list. */
+    private fun jsonPick(result: MethodChannel.Result) {
+        if (pendingOpenResult != null) {
+            result.error("PICK_BUSY", "A file picker is already open", null)
+            return
+        }
+        pendingOpenResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/json"))
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+            )
+        }
+        try {
+            startActivityForResult(intent, REQUEST_OPEN_JSON)
+        } catch (e: Exception) {
+            pendingOpenResult = null
+            result.error("PICK_ERROR", e.message, null)
         }
     }
 
@@ -375,6 +404,34 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    /** {name, size (bytes), modified (epoch ms)} for the recent-files list. */
+    private fun jsonFileInfo(uriStr: String?): Map<String, Any?> {
+        val uri = Uri.parse(uriStr ?: return mapOf("name" to "untitled.json"))
+        var name: String? = null
+        var size: Long? = null
+        var modified: Long? = null
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    val nameIdx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIdx >= 0 && !c.isNull(nameIdx)) name = c.getString(nameIdx)
+                    val sizeIdx = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (sizeIdx >= 0 && !c.isNull(sizeIdx)) size = c.getLong(sizeIdx)
+                    val modIdx = c.getColumnIndex(
+                        android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                    )
+                    if (modIdx >= 0 && !c.isNull(modIdx)) modified = c.getLong(modIdx)
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return mapOf(
+            "name" to (name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "untitled.json"),
+            "size" to size,
+            "modified" to modified,
+        )
     }
 
     private fun jsonDisplayName(uriStr: String?): String {
@@ -502,6 +559,25 @@ class MainActivity : FlutterActivity() {
             } catch (e: Exception) {
                 result.error("SAVE_WRITE_ERROR", e.message, null)
             }
+            return
+        }
+
+        if (requestCode == REQUEST_OPEN_JSON) {
+            val result = pendingOpenResult
+            pendingOpenResult = null
+            if (result == null) return
+            val uri = data?.data
+            if (resultCode != Activity.RESULT_OK || uri == null) {
+                result.success(null) // cancelled
+                return
+            }
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: Exception) {
+            }
+            result.success(uri.toString())
             return
         }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:arbiter_mock_server/core/ads/ad_service.dart';
 import 'package:arbiter_mock_server/core/theme/app_theme_data.dart';
@@ -9,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/services/json_document_service.dart';
 import 'core/theme/theme_cubit.dart';
 import 'ui/bloc/dependency_container.dart' as di;
+import 'ui/screens/json_docs/android_json_editor_screen.dart';
 import 'ui/screens/json_docs/json_docs_controller.dart';
 import 'ui/screens/json_docs/json_docs_screen.dart';
 import 'ui/bloc/endpoint/endpoint_bloc.dart';
@@ -30,8 +32,12 @@ void _showJsonDocs() {
   final nav = rootNavigatorKey.currentState;
   if (nav == null || _jsonDocsRouteOpen) return;
   _jsonDocsRouteOpen = true;
+  // Android uses a slim single-document editor (RAM-light); macOS a tabbed window.
+  final Widget screen = Platform.isAndroid
+      ? const AndroidJsonEditorScreen()
+      : const JsonDocsScreen();
   nav
-      .push(MaterialPageRoute(builder: (_) => const JsonDocsScreen()))
+      .push(MaterialPageRoute(builder: (_) => screen))
       .then((_) => _jsonDocsRouteOpen = false);
 }
 
@@ -43,6 +49,7 @@ void main() async {
 
   // macOS/Android: open .json files in a tabbed document window (no-op elsewhere).
   final jsonDocs = JsonDocsController.instance;
+  jsonDocs.singleDocument = Platform.isAndroid;
   JsonDocumentService.instance.initialize();
   final pending = await JsonDocumentService.instance.getPending();
   // Not awaited: the doc window shows an "Opening file" loader while reading.

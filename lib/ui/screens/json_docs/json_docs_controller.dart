@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../../core/services/json_document_service.dart';
+import 'recent_files_store.dart';
 
 /// One open .json document (a tab).
 class JsonDoc {
@@ -35,27 +36,52 @@ class JsonDocsController extends ChangeNotifier {
   int activeIndex = 0;
   int _opening = 0;
 
+  /// Android keeps a single document in memory (RAM-friendly) and records a
+  /// recent-files list instead of a multi-tab window.
+  bool singleDocument = false;
+
   /// True while one or more files are being read/opened.
   bool get opening => _opening > 0;
   bool get isEmpty => docs.isEmpty;
   JsonDoc? get active =>
       (activeIndex >= 0 && activeIndex < docs.length) ? docs[activeIndex] : null;
 
-  /// Opens a file into a new tab (or activates it if already open).
-  Future<void> openPath(String path) async {
+  /// Opens a file into a tab (or activates it if already open). Returns false
+  /// when the content can't be read (e.g. an expired Android URI grant).
+  Future<bool> openPath(String path) async {
     final existing = docs.indexWhere((d) => d.path == path);
     if (existing >= 0) {
       activeIndex = existing;
       notifyListeners();
-      return;
+      return true;
     }
     _opening++;
     notifyListeners();
     try {
-      final content = await _svc.read(path) ?? '';
+      // Android: only one document in memory at a time.
+      if (singleDocument) {
+        for (final d in docs) {
+          d.dispose();
+        }
+        docs.clear();
+      }
+      final raw = await _svc.read(path);
+      // Android read failure (lost grant) — don't create an empty document.
+      if (raw == null && singleDocument) return false;
       final title = await _svc.displayName(path);
-      docs.add(JsonDoc(path: path, title: title, content: content));
+      docs.add(JsonDoc(path: path, title: title, content: raw ?? ''));
       activeIndex = docs.length - 1;
+      if (singleDocument) {
+        final info = await _svc.fileInfo(path);
+        await RecentFilesStore.instance.add(RecentFile(
+          path: path,
+          name: info.name,
+          size: info.size,
+          modified: info.modified,
+          openedAt: DateTime.now().millisecondsSinceEpoch,
+        ));
+      }
+      return true;
     } finally {
       _opening--;
       notifyListeners();
