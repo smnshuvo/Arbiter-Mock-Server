@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/arbiter_tokens.dart';
 import '../../../domain/entities/endpoint.dart';
+import '../../../domain/entities/network_condition.dart';
 import '../../bloc/endpoint/endpoint_bloc.dart';
 import '../conditional_mock_screen.dart';
 import 'widgets/arb_mode_card.dart';
@@ -15,6 +16,7 @@ import 'widgets/json_brace_controller.dart';
 import 'widgets/json_code_editor.dart';
 import 'widgets/json_form_editor.dart';
 import 'widgets/json_tree_controller.dart';
+import 'widgets/network_condition_field.dart';
 import 'widgets/status_field.dart';
 
 enum _BodyTab { form, code }
@@ -53,8 +55,9 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
   int delayMs = 0;
   bool useConditionalMock = false;
   late List<ConditionalMock> conditionalMocks;
+  NetworkCondition networkCondition = NetworkCondition.none;
 
-  _BodyTab _bodyTab = _BodyTab.form;
+  _BodyTab _bodyTab = _BodyTab.code;
 
   /// Source of truth for the Form tab; serialized back into
   /// [mockResponseController] only on save or when leaving the tab.
@@ -84,11 +87,9 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
     matchType = e?.matchType ?? MatchType.exact;
     mode = e?.mode ?? EndpointMode.mock;
     delayMs = e?.delayMs ?? 0;
+    networkCondition = e?.networkCondition ?? NetworkCondition.none;
     useConditionalMock = e?.useConditionalMock ?? false;
     conditionalMocks = List.from(e?.conditionalMocks ?? const []);
-    // Start on the Code tab if the stored body can't be parsed into a tree.
-    if (!_isJson(mockResponseController.text)) _bodyTab = _BodyTab.code;
-    if (_bodyTab == _BodyTab.form) _loadTree();
   }
 
   Future<void> _loadTree() async {
@@ -173,6 +174,8 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
       createdAt: widget.endpoint?.createdAt ?? now,
       updatedAt: now,
       isEnabled: widget.endpoint?.isEnabled ?? true,
+      // Throttling is a property of the link, so it applies in both modes.
+      networkCondition: networkCondition,
       useConditionalMock: isMock ? useConditionalMock : false,
       conditionalMocks:
           isMock && useConditionalMock ? conditionalMocks : const [],
@@ -396,6 +399,39 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
         valueMs: delayMs,
         onChanged: (v) => setState(() => delayMs = v),
       );
+
+  Widget buildNetworkConditionField() => NetworkConditionField(
+        value: networkCondition,
+        onChanged: (v) => setState(() => networkCondition = v),
+      );
+
+  /// Explains what the picked condition does to this endpoint's responses.
+  /// Hidden when there's nothing to explain (no throttling).
+  Widget buildNetworkConditionNote() {
+    if (!networkCondition.isThrottled) return const SizedBox.shrink();
+    final t = ArbTokens.of(context);
+    final spec = networkCondition.spec;
+    final unstable = spec.isUnstable;
+    final accent = unstable ? const Color(0xFFDC2626) : t.textSecondary;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: unstable ? const Color(0x14DC2626) : t.surfaceMuted,
+        borderRadius: BorderRadius.circular(t.radius - 1),
+      ),
+      child: Text(
+        unstable
+            ? 'Responses are delayed by ${spec.latencyMs} ms + payload transfer '
+                'at ${spec.kbps} kbps, and roughly '
+                '${(spec.timeoutProbability * 100).round()}% of requests hang for '
+                '${spec.timeoutAfterMs ~/ 1000}s and fail with 504.'
+            : 'Responses are delayed by ${spec.latencyMs} ms plus the time to '
+                'transfer the body at ${spec.kbps} kbps — larger bodies take '
+                'proportionally longer. Stacks on top of the fixed delay.',
+        style: t.sans(size: 12, color: accent),
+      ),
+    );
+  }
 
   /// Compact conditional toggle (label + switch) — used inline on desktop.
   Widget buildConditionalToggle() {
