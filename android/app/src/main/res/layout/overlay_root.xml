@@ -3,6 +3,24 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content">
 
+    <!-- ============ MINIMIZED BUBBLE (ICON ONLY) ============ -->
+    <FrameLayout
+        android:id="@+id/ov_bubble_minimized"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:background="@drawable/ov_bubble"
+        android:elevation="8dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop"
+            android:src="@mipmap/ic_launcher" />
+    </FrameLayout>
+
     <!-- ============ COLLAPSED BUBBLE ============ -->
     <LinearLayout
         android:id="@+id/ov_bubble"
@@ -18,6 +36,7 @@
         android:paddingBottom="10dp">
 
         <ImageView
+            android:id="@+id/ov_bubble_dot"
             android:layout_width="8dp"
             android:layout_height="8dp"
             android:contentDescription="@null"
@@ -223,7 +242,7 @@
             android:orientation="horizontal"
             android:layout_marginTop="8dp">
 
-            <TextView android:id="@+id/ov_action_pause" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:padding="9dp" android:text="PAUSE" android:textColor="@color/ar_blue" android:textSize="13sp" />
+            <TextView android:id="@+id/ov_action_bubble_minimize" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:padding="9dp" android:text="MINIMIZE" android:textColor="@color/ar_blue" android:textSize="13sp" />
             <TextView android:id="@+id/ov_action_stop" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:padding="9dp" android:text="STOP" android:textColor="@color/ar_red" android:textSize="13sp" />
             <TextView android:id="@+id/ov_action_logs" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:padding="9dp" android:text="LOGS" android:textColor="@color/ar_path" android:textSize="13sp" />
         </LinearLayout>

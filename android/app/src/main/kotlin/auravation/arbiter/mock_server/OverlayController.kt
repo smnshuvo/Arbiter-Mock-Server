@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
@@ -17,6 +18,7 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.Animation
 import android.view.animation.TranslateAnimation
 import android.widget.Chronometer
+import android.widget.ImageView
 import android.widget.Switch
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -60,9 +62,12 @@ object OverlayController {
     private var errorCount = 0
     private var feedPaused = false
     private var expanded = false
+    private var minimized = false
     private val recentLogs = ArrayDeque<LogEntry>()
     private var intercept: Intercept? = null
     private var lastSweepId: String? = null
+    private var lastStatusCode: Int? = null
+    private var lastErrorTime: Long = 0
 
     // What the collapsed bubble shows (configurable in Settings).
     private var showMethod = true
@@ -141,7 +146,11 @@ object OverlayController {
 
     fun pushLog(method: String, path: String, statusCode: Int, responseTimeMs: Int) {
         totalReqs++
-        if (statusCode >= 400) errorCount++
+        lastStatusCode = statusCode
+        if (statusCode >= 400) {
+            errorCount++
+            lastErrorTime = SystemClock.elapsedRealtime()
+        }
         if (!feedPaused) {
             recentLogs.addFirst(LogEntry(method, path, statusCode, responseTimeMs))
             while (recentLogs.size > MAX_ROWS) recentLogs.removeLast()
@@ -180,17 +189,20 @@ object OverlayController {
     private fun bindInteractions(ctx: Context, view: View) {
         view.findViewById<View>(R.id.ov_bubble)
             .setOnTouchListener(dragListener(ctx) { expanded = true; render() })
+        view.findViewById<View>(R.id.ov_bubble_minimized)
+            .setOnTouchListener(dragListener(ctx) { minimized = false; render() })
         view.findViewById<View>(R.id.ov_feed_header)
             .setOnTouchListener(dragListener(ctx) { expanded = false; render() })
         view.findViewById<View>(R.id.ov_int_header)
             .setOnTouchListener(dragListener(ctx) {})
 
         view.findViewById<View>(R.id.ov_feed_collapse).setOnClickListener { expanded = false; render() }
+        view.findViewById<View>(R.id.ov_action_bubble_minimize).setOnClickListener { expanded = false; minimized = true; render() }
+        view.findViewById<View>(R.id.ov_bubble_minimized).setOnClickListener { minimized = false; render() }
         view.findViewById<Switch>(R.id.ov_interception_switch).setOnCheckedChangeListener { _, isChecked ->
             if (updatingSwitch) return@setOnCheckedChangeListener
             channel?.invokeMethod("toggleInterception", mapOf("enabled" to isChecked))
         }
-        view.findViewById<View>(R.id.ov_action_pause).setOnClickListener { feedPaused = !feedPaused; render() }
         view.findViewById<View>(R.id.ov_action_stop).setOnClickListener { channel?.invokeMethod("stopServer", null) }
         view.findViewById<View>(R.id.ov_action_logs).setOnClickListener {
             openApp(ctx)
@@ -251,19 +263,21 @@ object OverlayController {
 
     private fun render() {
         val view = rootView ?: return
-        view.post {
-            val held = intercept
-            view.findViewById<View>(R.id.ov_bubble).visibility =
-                if (held == null && !expanded) View.VISIBLE else View.GONE
-            view.findViewById<View>(R.id.ov_feed).visibility =
-                if (held == null && expanded) View.VISIBLE else View.GONE
-            view.findViewById<View>(R.id.ov_intercept).visibility =
-                if (held != null) View.VISIBLE else View.GONE
+        val held = intercept
+        val bubbleVis = if (held == null && !expanded && !minimized) View.VISIBLE else View.GONE
+        val minVis = if (held == null && !expanded && minimized) View.VISIBLE else View.GONE
+        val feedVis = if (held == null && expanded) View.VISIBLE else View.GONE
+        val intVis = if (held != null) View.VISIBLE else View.GONE
 
-            if (held != null) renderIntercept(view, held) else if (expanded) renderFeed(view) else renderBubble(view)
+        view.findViewById<View>(R.id.ov_bubble).visibility = bubbleVis
+        view.findViewById<View>(R.id.ov_bubble_minimized).visibility = minVis
+        view.findViewById<View>(R.id.ov_feed).visibility = feedVis
+        view.findViewById<View>(R.id.ov_intercept).visibility = intVis
 
-            params?.let { lp -> windowManager?.updateViewLayout(view, lp) }
-        }
+        // Only render details if views are visible
+        if (held != null) renderIntercept(view, held) else if (feedVis == View.VISIBLE) renderFeed(view) else if (bubbleVis == View.VISIBLE) renderBubble(view)
+
+        params?.let { lp -> windowManager?.updateViewLayout(view, lp) }
     }
 
     private fun renderBubble(view: View) {
@@ -273,6 +287,9 @@ object OverlayController {
         val status = view.findViewById<TextView>(R.id.ov_bubble_status)
         val time = view.findViewById<TextView>(R.id.ov_bubble_time)
         val idle = view.findViewById<TextView>(R.id.ov_bubble_idle)
+        val bubble = view.findViewById<View>(R.id.ov_bubble)
+        val minimizedBubble = view.findViewById<View>(R.id.ov_bubble_minimized)
+        val dot = view.findViewById<ImageView>(R.id.ov_bubble_dot)
 
         val showMethodNow = last != null && showMethod
         val showEndpointNow = last != null && showEndpoint
@@ -286,6 +303,15 @@ object OverlayController {
         time.visibility = if (showTimeNow) View.VISIBLE else View.GONE
         idle.visibility = if (anything) View.GONE else View.VISIBLE
 
+        val statusCodeToUse = determineBubbleStatusCode()
+        bubble.background = createBubbleDrawable(view.context, statusCodeToUse)
+        minimizedBubble.background = createBubbleDrawable(view.context, statusCodeToUse)
+
+        // Color the dot based on status code
+        if (statusCodeToUse != null) {
+            dot.setColorFilter(statusColor(statusCodeToUse), PorterDuff.Mode.SRC_IN)
+        }
+
         if (last != null) {
             method.text = last.method
             method.setTextColor(methodColor(last.method))
@@ -298,7 +324,6 @@ object OverlayController {
 
     private fun renderFeed(view: View) {
         view.findViewById<TextView>(R.id.ov_feed_sub).text = "$endpoint · $totalReqs reqs · $errorCount errors"
-        (view.findViewById<TextView>(R.id.ov_action_pause)).text = if (feedPaused) "RESUME" else "PAUSE"
 
         val sw = view.findViewById<Switch>(R.id.ov_interception_switch)
         if (sw.isChecked != interceptionEnabled) {
@@ -408,4 +433,33 @@ object OverlayController {
     )
 
     private fun dp(ctx: Context, value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
+
+    private fun determineBubbleStatusCode(): Int? {
+        val now = SystemClock.elapsedRealtime()
+        val timeSinceError = now - lastErrorTime
+        return if (timeSinceError < 3000) {
+            // Within 3 seconds of an error, show red regardless of actual status
+            499
+        } else {
+            lastStatusCode
+        }
+    }
+
+    private fun createBubbleDrawable(ctx: Context, statusCode: Int?): android.graphics.drawable.GradientDrawable {
+        val drawable = android.graphics.drawable.GradientDrawable()
+        drawable.shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+        drawable.setCornerRadius(dp(ctx, 22).toFloat())
+        drawable.setColor(ContextCompat.getColor(ctx, R.color.ar_card))
+
+        val outlineColor = if (statusCode != null) {
+            val fullColor = statusColor(statusCode)
+            val rgbPart = fullColor and 0x00FFFFFF
+            0x55000000 or rgbPart  // 55/255 opacity (about 33%)
+        } else {
+            0x22FFFFFF
+        }
+        drawable.setStroke(dp(ctx, 1), outlineColor)
+
+        return drawable
+    }
 }
