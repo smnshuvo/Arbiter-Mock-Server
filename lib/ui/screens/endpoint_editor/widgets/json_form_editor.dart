@@ -7,8 +7,12 @@ import 'json_tree_controller.dart';
 /// Builds one visible line of the tree. Shared by the box and sliver renderers
 /// so both stay in lockstep.
 Widget _buildRow(
-    BuildContext context, JsonTreeController controller, JsonRow row) {
+    BuildContext context, JsonTreeController controller, JsonRow row,
+    {bool readOnly = false}) {
   final t = ArbTokens.of(context);
+  if (readOnly && row.kind != JsonRowKind.node) {
+    return const SizedBox.shrink();
+  }
   switch (row.kind) {
     case JsonRowKind.node:
       return JsonRowTile(
@@ -16,6 +20,7 @@ Widget _buildRow(
         row: row,
         controller: controller,
         isRoot: row.node == controller.root,
+        readOnly: readOnly,
       );
     case JsonRowKind.addChild:
       return Padding(
@@ -83,9 +88,10 @@ BoxDecoration _frame(ArbTokens t) => BoxDecoration(
 /// cost. Expects a bounded height — put it in an `Expanded`. Inside a
 /// `CustomScrollView`, use [JsonFormEditorSliver] instead.
 class JsonFormEditor extends StatelessWidget {
-  const JsonFormEditor({super.key, required this.controller});
+  const JsonFormEditor({super.key, required this.controller, this.readOnly = false});
 
   final JsonTreeController controller;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +106,8 @@ class JsonFormEditor extends StatelessWidget {
           child: ListView.builder(
             padding: EdgeInsets.zero,
             itemCount: rows.length,
-            itemBuilder: (context, i) => _buildRow(context, controller, rows[i]),
+            itemBuilder: (context, i) =>
+                _buildRow(context, controller, rows[i], readOnly: readOnly),
           ),
         );
       },

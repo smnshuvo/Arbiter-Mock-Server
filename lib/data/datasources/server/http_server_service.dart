@@ -5,11 +5,13 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:http/http.dart' as http;
 import '../../../domain/entities/endpoint.dart';
+import '../../../domain/entities/network_condition.dart';
 import '../../../domain/entities/request_log.dart';
 import '../../models/request_log_model.dart';
 import '../local/log_local_datasource.dart';
 import '../../../core/utils/network_utils.dart';
 import 'interception_manager.dart';
+import 'prompt_interception_manager.dart';
 
 class HttpServerService {
   HttpServer? _server;
@@ -22,12 +24,14 @@ class HttpServerService {
   final LogLocalDataSource logDataSource;
   final Function() onEndpointsNeeded;
   final InterceptionManager interceptionManager;
+  final PromptInterceptionManager promptInterceptionManager;
   Function(String method, String path, String timestamp)? onRequestReceived;
 
   HttpServerService({
     required this.logDataSource,
     required this.onEndpointsNeeded,
     required this.interceptionManager,
+    required this.promptInterceptionManager,
     this.profileId = 'default',
     this.onRequestReceived,
   });
@@ -187,6 +191,17 @@ class HttpServerService {
           int statusCodeToUse = matchedEndpoint.statusCode;
 
           if (matchedEndpoint.useConditionalMock &&
+              matchedEndpoint.conditionalMode == ConditionalMode.prompt) {
+            final choice = await promptInterceptionManager.requestChoice(
+              id: requestId,
+              endpointId: matchedEndpoint.id,
+              method: method,
+              path: url,
+              candidates: matchedEndpoint.promptCandidates,
+            );
+            mockResponseToUse = choice.body;
+            statusCodeToUse = choice.statusCode;
+          } else if (matchedEndpoint.useConditionalMock &&
               matchedEndpoint.conditionalMocks.isNotEmpty) {
             final conditionalResult = _findConditionalMock(
               request,
@@ -238,6 +253,29 @@ class HttpServerService {
         statusCode = 404;
         responseHeaders = {'Content-Type': 'application/json'};
         logType = LogType.mock;
+      }
+
+      // Simulate the endpoint's link speed. Runs once the body exists so the
+      // transfer term can be derived from its real size, and stacks on top of
+      // the endpoint's manual delayMs.
+      if (matchedEndpoint != null &&
+          matchedEndpoint.isEnabled &&
+          matchedEndpoint.networkCondition.isThrottled) {
+        final spec = matchedEndpoint.networkCondition.spec;
+        if (spec.rollTimeout()) {
+          // Unstable link: hang, then fail the way a dead connection does.
+          await Future.delayed(Duration(milliseconds: spec.timeoutAfterMs));
+          responseBody = jsonEncode({
+            'error': 'Connection timed out',
+            'simulated': true,
+            'networkCondition': matchedEndpoint.networkCondition.name,
+          });
+          statusCode = 504;
+          responseHeaders = {'Content-Type': 'application/json'};
+        } else {
+          await Future.delayed(
+              spec.delayFor(utf8.encode(responseBody).length));
+        }
       }
 
       // 2. Check if response interception is enabled
@@ -550,6 +588,8 @@ class HttpServerService {
       String? matchedEndpointId,
       ) async {
     try {
+      final connectionInfo =
+          request.context['shelf.io.connection_info'] as HttpConnectionInfo?;
       final log = RequestLog(
         id: id,
         profileId: profileId,
@@ -563,6 +603,7 @@ class HttpServerService {
         responseTimeMs: responseTimeMs,
         logType: logType,
         matchedEndpointId: matchedEndpointId,
+        ip: connectionInfo?.remoteAddress.address,
       );
 
       final logModel = RequestLogModel.fromEntity(log);

@@ -48,6 +48,22 @@ object OverlayController {
         val heldBase: Long,
     )
 
+    /** One selectable response for a live "Prompt" conditional-mode hold. */
+    private data class PromptCandidate(val id: String, val label: String, val statusCode: Int, val body: String)
+
+    /**
+     * A live "Prompt" hold — the developer picks one of N candidate responses
+     * directly from the overlay, unlike [Intercept] which has a single held
+     * request/response and a Continue/Edit/Drop action set.
+     */
+    private data class PendingPromptPick(
+        val id: String,
+        val method: String,
+        val url: String,
+        val candidates: List<PromptCandidate>,
+        val heldBase: Long,
+    )
+
     private const val MAX_ROWS = 4
 
     private var windowManager: WindowManager? = null
@@ -65,6 +81,7 @@ object OverlayController {
     private var minimized = false
     private val recentLogs = ArrayDeque<LogEntry>()
     private var intercept: Intercept? = null
+    private var prompt: PendingPromptPick? = null
     private var lastSweepId: String? = null
     private var lastStatusCode: Int? = null
     private var lastErrorTime: Long = 0
@@ -183,6 +200,29 @@ object OverlayController {
         render()
     }
 
+    fun setPrompt(id: String, method: String, url: String, candidates: List<Map<String, Any?>>) {
+        prompt = PendingPromptPick(
+            id = id,
+            method = method,
+            url = url,
+            candidates = candidates.map {
+                PromptCandidate(
+                    id = it["id"] as? String ?: "",
+                    label = it["label"] as? String ?: "",
+                    statusCode = (it["statusCode"] as? Number)?.toInt() ?: 200,
+                    body = it["body"] as? String ?: "",
+                )
+            },
+            heldBase = SystemClock.elapsedRealtime(),
+        )
+        render()
+    }
+
+    fun clearPrompt() {
+        prompt = null
+        render()
+    }
+
     // ── Interactions ───────────────────────────────────────────────────────────
 
     @SuppressLint("ClickableViewAccessibility")
@@ -194,6 +234,8 @@ object OverlayController {
         view.findViewById<View>(R.id.ov_feed_header)
             .setOnTouchListener(dragListener(ctx) { expanded = false; render() })
         view.findViewById<View>(R.id.ov_int_header)
+            .setOnTouchListener(dragListener(ctx) {})
+        view.findViewById<View>(R.id.ov_prompt_header)
             .setOnTouchListener(dragListener(ctx) {})
 
         view.findViewById<View>(R.id.ov_feed_collapse).setOnClickListener { expanded = false; render() }
@@ -263,21 +305,82 @@ object OverlayController {
 
     private fun render() {
         val view = rootView ?: return
+        val activePrompt = prompt
         val held = intercept
-        val bubbleVis = if (held == null && !expanded && !minimized) View.VISIBLE else View.GONE
-        val minVis = if (held == null && !expanded && minimized) View.VISIBLE else View.GONE
-        val feedVis = if (held == null && expanded) View.VISIBLE else View.GONE
-        val intVis = if (held != null) View.VISIBLE else View.GONE
+        val bubbleVis = if (activePrompt == null && held == null && !expanded && !minimized) View.VISIBLE else View.GONE
+        val minVis = if (activePrompt == null && held == null && !expanded && minimized) View.VISIBLE else View.GONE
+        val feedVis = if (activePrompt == null && held == null && expanded) View.VISIBLE else View.GONE
+        val intVis = if (activePrompt == null && held != null) View.VISIBLE else View.GONE
+        val promptVis = if (activePrompt != null) View.VISIBLE else View.GONE
 
         view.findViewById<View>(R.id.ov_bubble).visibility = bubbleVis
         view.findViewById<View>(R.id.ov_bubble_minimized).visibility = minVis
         view.findViewById<View>(R.id.ov_feed).visibility = feedVis
         view.findViewById<View>(R.id.ov_intercept).visibility = intVis
+        view.findViewById<View>(R.id.ov_prompt).visibility = promptVis
 
         // Only render details if views are visible
-        if (held != null) renderIntercept(view, held) else if (feedVis == View.VISIBLE) renderFeed(view) else if (bubbleVis == View.VISIBLE) renderBubble(view)
+        if (activePrompt != null) renderPrompt(view, activePrompt)
+        else if (held != null) renderIntercept(view, held)
+        else if (feedVis == View.VISIBLE) renderFeed(view)
+        else if (bubbleVis == View.VISIBLE) renderBubble(view)
 
         params?.let { lp -> windowManager?.updateViewLayout(view, lp) }
+    }
+
+    private fun renderPrompt(view: View, held: PendingPromptPick) {
+        view.findViewById<Chronometer>(R.id.ov_prompt_timer).apply {
+            base = held.heldBase
+            format = "held %s"
+            start()
+        }
+        view.findViewById<TextView>(R.id.ov_prompt_method).apply {
+            text = held.method
+            setTextColor(methodColor(held.method))
+        }
+        view.findViewById<TextView>(R.id.ov_prompt_path).text = held.url
+
+        val list = view.findViewById<android.widget.LinearLayout>(R.id.ov_prompt_list)
+        list.removeAllViews()
+        val ctx = view.context
+        val rowPad = dp(ctx, 12)
+        for (candidate in held.candidates) {
+            val row = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundResource(R.drawable.ov_btn_subtle)
+                setPadding(rowPad, rowPad, rowPad, rowPad)
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(ctx, 8) }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    channel?.invokeMethod(
+                        "promptUseCandidate", mapOf("id" to held.id, "candidateId" to candidate.id))
+                }
+            }
+            row.addView(TextView(ctx).apply {
+                text = candidate.statusCode.toString()
+                setTextColor(statusColor(candidate.statusCode))
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(ctx, 34), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+            })
+            row.addView(TextView(ctx).apply {
+                text = candidate.label
+                setTextColor(ContextCompat.getColor(ctx, R.color.ar_text))
+                textSize = 13f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f,
+                ).apply { marginStart = dp(ctx, 10) }
+            })
+            list.addView(row)
+        }
     }
 
     private fun renderBubble(view: View) {

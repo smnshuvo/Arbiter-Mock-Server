@@ -26,6 +26,9 @@ class OverlayService {
   /// Called when the user flips the interception switch in the overlay.
   static void Function(bool enabled)? onToggleInterception;
 
+  /// Called when the user picks a candidate response for a live "Prompt" hold.
+  static void Function(String promptId, String candidateId)? onPromptCandidateSelected;
+
   static bool get _supported => Platform.isAndroid;
 
   /// Registers the handler for actions coming from the overlay. Call once at startup.
@@ -48,6 +51,9 @@ class OverlayService {
           return true;
         case 'toggleInterception':
           onToggleInterception?.call(args['enabled'] as bool? ?? false);
+          return true;
+        case 'promptUseCandidate':
+          onPromptCandidateSelected?.call(id, args['candidateId'] as String? ?? '');
           return true;
         default:
           return false;
@@ -127,6 +133,24 @@ class OverlayService {
 
   /// Returns the overlay to the live feed.
   Future<void> clearIntercepted() => _invoke('clearIntercepted');
+
+  /// Flips the overlay to a live "Prompt" candidate picker — [candidates] are
+  /// maps of `{id, label, statusCode, body}`, one per selectable response.
+  Future<void> setPrompt({
+    required String id,
+    required String method,
+    required String url,
+    required List<Map<String, dynamic>> candidates,
+  }) =>
+      _invoke('setPrompt', {
+        'id': id,
+        'method': method,
+        'url': url,
+        'candidates': candidates,
+      });
+
+  /// Returns the overlay to the live feed.
+  Future<void> clearPrompt() => _invoke('clearPrompt');
 
   /// Reflects the current interception on/off state in the overlay switch.
   Future<void> setInterceptionEnabled(bool enabled) =>

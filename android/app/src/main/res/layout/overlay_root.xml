@@ -391,4 +391,90 @@
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
+
+    <!-- ============ PROMPT CANDIDATE PICKER ============ -->
+    <!-- Live "Prompt" conditional-mode hold: pick one of N candidate
+         responses directly, unlike ov_intercept's single Continue/Edit/Drop
+         action set. ov_prompt_list is populated/cleared programmatically in
+         OverlayController.renderPrompt(). -->
+    <LinearLayout
+        android:id="@+id/ov_prompt"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/ov_card"
+        android:clipToOutline="true"
+        android:elevation="10dp"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="5dp"
+            android:background="@color/ar_blue" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:id="@+id/ov_prompt_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="13dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="●"
+                    android:textColor="@color/ar_blue"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="9dp"
+                    android:text="Choose a response"
+                    android:textColor="@color/ar_blue"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <Chronometer
+                    android:id="@+id/ov_prompt_timer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:fontFamily="monospace"
+                    android:text="held 0:00"
+                    android:textColor="@color/ar_muted"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/ov_inner"
+                android:paddingStart="13dp"
+                android:paddingEnd="13dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp">
+
+                <TextView android:id="@+id/ov_prompt_method" android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="monospace" android:text="GET" android:textColor="@color/ar_blue" android:textSize="11sp" android:textStyle="bold" />
+                <TextView android:id="@+id/ov_prompt_path" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:ellipsize="end" android:singleLine="true" android:fontFamily="monospace" android:text="/v1/orders" android:textColor="@color/ar_text" android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/ov_prompt_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="10dp" />
+        </LinearLayout>
+    </LinearLayout>
 </FrameLayout>

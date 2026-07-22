@@ -11,16 +11,18 @@ import 'package:uuid/uuid.dart';
 import '../../core/ads/ad_banner.dart';
 import '../../core/ads/ad_config.dart';
 import '../../core/theme/arbiter_tokens.dart';
+import '../core/breakpoints.dart';
 import '../../domain/entities/endpoint.dart';
+import '../../domain/entities/network_condition.dart';
 import '../../domain/entities/profile.dart';
 import '../bloc/endpoint/endpoint_bloc.dart';
 import '../bloc/profile/profile_bloc.dart';
 import 'endpoint_editor/desktop_endpoint_editor.dart';
 import 'endpoint_form_screen.dart';
 
-/// Above this width the endpoints screen shows the desktop 3-pane workspace
-/// (profile rail | endpoint list | editor pane) instead of the push flow.
-const double _kWideBreakpoint = 900;
+/// What to do with the JSON once [ExportEndpointsEvent] comes back — the
+/// export round-trips through the bloc, so the intent has to be remembered.
+enum _ExportAction { save, share }
 
 class EndpointsScreen extends StatefulWidget {
   const EndpointsScreen({super.key});
@@ -36,6 +38,8 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
   Endpoint? _selectedEndpoint; // null + _showEditor => new draft
   bool _showEditor = false;
   int _newDraftSeq = 0;
+
+  _ExportAction _pendingExportAction = _ExportAction.share;
 
   @override
   void initState() {
@@ -85,16 +89,36 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
               onPressed: _importEndpoints,
               tooltip: 'Import',
             ),
-            IconButton(
-              icon: const Icon(Icons.share),
-              onPressed: _exportEndpoints,
+            PopupMenuButton<_ExportAction>(
+              icon: const Icon(Icons.ios_share),
               tooltip: 'Export',
+              onSelected: _exportEndpoints,
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: _ExportAction.save,
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.save_alt),
+                    title: Text('Save to device'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _ExportAction.share,
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.share),
+                    title: Text('Share…'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         body: LayoutBuilder(
           builder: (context, constraints) {
-            final isWide = constraints.maxWidth > _kWideBreakpoint;
+            final isWide = constraints.maxWidth > kWideLayoutBreakpoint;
             return BlocConsumer<EndpointBloc, EndpointState>(
               listener: (context, state) {
                 if (state is EndpointError) {
@@ -104,7 +128,12 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
                         backgroundColor: Colors.red),
                   );
                 } else if (state is EndpointExported) {
-                  _saveAndShareExport(state.jsonData);
+                  switch (_pendingExportAction) {
+                    case _ExportAction.save:
+                      _saveExportToDevice(state.jsonData);
+                    case _ExportAction.share:
+                      _saveAndShareExport(state.jsonData);
+                  }
                 }
               },
               builder: (context, state) {
@@ -125,7 +154,7 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
           builder: (context, _) {
             // The wide layout has its own "New endpoint" affordance.
             final isWide =
-                MediaQuery.of(context).size.width > _kWideBreakpoint;
+                MediaQuery.of(context).size.width > kWideLayoutBreakpoint;
             if (isWide) return const SizedBox.shrink();
             return FloatingActionButton(
               onPressed: _createEndpointNarrow,
@@ -211,6 +240,33 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
                               fontWeight: p.id == _activeProfileId
                                   ? FontWeight.bold
                                   : FontWeight.normal)),
+                      trailing: PopupMenuButton<String>(
+                        tooltip: 'Profile actions',
+                        icon: const Icon(Icons.more_horiz, size: 18),
+                        onSelected: (action) {
+                          if (action == 'rename') {
+                            _showRenameProfileDialog(p);
+                          } else if (action == 'delete') {
+                            context
+                                .read<ProfileBloc>()
+                                .add(DeleteProfileEvent(p.id));
+                            if (p.id == _activeProfileId) {
+                              _onProfileChanged('default');
+                            }
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                              value: 'rename', child: Text('Rename')),
+                          // Default is the fallback on delete — rename only.
+                          if (p.id != 'default')
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Delete',
+                                  style: TextStyle(color: Colors.red)),
+                            ),
+                        ],
+                      ),
                       onTap: () {
                         context
                             .read<ProfileBloc>()
@@ -363,6 +419,10 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
           Navigator.pop(ctx);
           _showCreateProfileDialog();
         },
+        onRenameProfile: (profile) {
+          Navigator.pop(ctx);
+          _showRenameProfileDialog(profile);
+        },
         onDeleteProfile: (profileId) {
           Navigator.pop(ctx);
           context.read<ProfileBloc>().add(DeleteProfileEvent(profileId));
@@ -372,6 +432,44 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
         },
       ),
     );
+  }
+
+  /// Renames a profile. Available for every profile including `default` —
+  /// that one can't be deleted, but its name is the user's to choose.
+  void _showRenameProfileDialog(Profile profile) {
+    final controller = TextEditingController(text: profile.name);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename Profile'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Profile name'),
+          autofocus: true,
+          onSubmitted: (_) => _submitRename(ctx, profile, controller.text),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => _submitRename(ctx, profile, controller.text),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _submitRename(BuildContext dialogContext, Profile profile, String raw) {
+    final name = raw.trim();
+    if (name.isEmpty || name == profile.name) {
+      Navigator.pop(dialogContext);
+      return;
+    }
+    context.read<ProfileBloc>().add(UpdateProfileEvent(
+          profile.copyWith(name: name, updatedAt: DateTime.now()),
+        ));
+    Navigator.pop(dialogContext);
   }
 
   void _showCreateProfileDialog() {
@@ -466,6 +564,13 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
                   _buildChip(_getStatusCodeText(endpoint.statusCode), _getStatusCodeColor(endpoint.statusCode)),
                 if (endpoint.delayMs > 0)
                   _buildChip('${endpoint.delayMs}ms', Colors.purple),
+                if (endpoint.networkCondition.isThrottled)
+                  _buildChip(
+                    endpoint.networkCondition.label,
+                    endpoint.networkCondition.spec.isUnstable
+                        ? Colors.red
+                        : Colors.amber.shade800,
+                  ),
                 if (endpoint.useConditionalMock && endpoint.conditionalMocks.isNotEmpty)
                   _buildChip('${endpoint.conditionalMocks.length} Conditions', Colors.teal),
               ],
@@ -575,8 +680,55 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
     }
   }
 
-  Future<void> _exportEndpoints() async {
+  void _exportEndpoints(_ExportAction action) {
+    _pendingExportAction = action;
     context.read<EndpointBloc>().add(ExportEndpointsEvent(_activeProfileId));
+  }
+
+  /// Writes the export through the OS save dialog, so the user picks the
+  /// destination (Downloads, Files, a SAF folder on Android…).
+  Future<void> _saveExportToDevice(String jsonData) async {
+    try {
+      final profileName = _currentProfileName();
+      final stamp = DateTime.now()
+          .toIso8601String()
+          .split('.')
+          .first
+          .replaceAll(RegExp(r'[:T]'), '-');
+      // saveFile writes the bytes itself on both mobile and desktop.
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save endpoints',
+        fileName: '${profileName}_endpoints_$stamp.json',
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        bytes: utf8.encode(jsonData),
+      );
+
+      if (!mounted) return;
+      if (path == null) return; // user cancelled
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved to $path')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Save failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// Filename-safe name of the active profile, for the default export name.
+  String _currentProfileName() {
+    final state = context.read<ProfileBloc>().state;
+    if (state is! ProfileLoaded) return 'arbiter';
+    final profile = state.profiles.firstWhere(
+      (p) => p.id == _activeProfileId,
+      orElse: () => state.profiles.first,
+    );
+    final safe = profile.name.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    return safe.isEmpty ? 'arbiter' : safe;
   }
 
   Future<void> _saveAndShareExport(String jsonData) async {
@@ -619,6 +771,8 @@ class _EndpointsScreenState extends State<EndpointsScreen> {
       createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
       updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : DateTime.now(),
       isEnabled: json['isEnabled'] == 1 || json['isEnabled'] == true,
+      // Absent in exports made before network simulation existed → none.
+      networkCondition: NetworkConditionX.fromName(json['networkCondition']),
     );
   }
 }
@@ -628,6 +782,7 @@ class _ProfileSelectorSheet extends StatelessWidget {
   final String activeProfileId;
   final void Function(String) onSelect;
   final VoidCallback onCreateProfile;
+  final void Function(Profile) onRenameProfile;
   final void Function(String) onDeleteProfile;
 
   const _ProfileSelectorSheet({
@@ -635,6 +790,7 @@ class _ProfileSelectorSheet extends StatelessWidget {
     required this.activeProfileId,
     required this.onSelect,
     required this.onCreateProfile,
+    required this.onRenameProfile,
     required this.onDeleteProfile,
   });
 
@@ -672,6 +828,13 @@ class _ProfileSelectorSheet extends StatelessWidget {
               children: [
                 if (profile.id == activeProfileId)
                   Icon(Icons.check, color: Theme.of(context).colorScheme.primary),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => onRenameProfile(profile),
+                  tooltip: 'Rename profile',
+                ),
+                // The default profile is the fallback target on delete, so it
+                // has to stay — but it can still be renamed.
                 if (profile.id != 'default')
                   IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),

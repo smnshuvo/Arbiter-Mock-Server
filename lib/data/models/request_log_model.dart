@@ -18,6 +18,7 @@ class RequestLogModel {
   final int responseTimeMs;
   final String logType;
   final String? matchedEndpointId;
+  final String? ip;
 
   RequestLogModel({
     required this.id,
@@ -32,6 +33,7 @@ class RequestLogModel {
     required this.responseTimeMs,
     required this.logType,
     this.matchedEndpointId,
+    this.ip,
   });
 
   factory RequestLogModel.fromJson(Map<String, dynamic> json) =>
@@ -53,6 +55,7 @@ class RequestLogModel {
       responseTimeMs: log.responseTimeMs,
       logType: log.logType.name,
       matchedEndpointId: log.matchedEndpointId,
+      ip: log.ip,
     );
   }
 
@@ -73,6 +76,7 @@ class RequestLogModel {
         orElse: () => LogType.mock,
       ),
       matchedEndpointId: matchedEndpointId,
+      ip: ip,
     );
   }
 
@@ -90,6 +94,7 @@ class RequestLogModel {
       'responseTimeMs': responseTimeMs,
       'logType': logType,
       'matchedEndpointId': matchedEndpointId,
+      'ip': ip,
     };
   }
 
@@ -107,6 +112,7 @@ class RequestLogModel {
       responseTimeMs: map['responseTimeMs'],
       logType: map['logType'],
       matchedEndpointId: map['matchedEndpointId'],
+      ip: map['ip'],
     );
   }
 }

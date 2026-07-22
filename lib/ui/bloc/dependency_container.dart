@@ -12,9 +12,11 @@ import '../../data/datasources/local/endpoint_local_datasource.dart';
 import '../../data/datasources/local/log_local_datasource.dart';
 import '../../data/datasources/local/profile_local_datasource.dart';
 import '../../data/datasources/server/interception_manager.dart';
+import '../../data/datasources/server/prompt_interception_manager.dart';
 import '../../data/repositories/endpoint_repository.dart';
 import '../../data/repositories/log_respository.dart';
 import '../../data/repositories/interception_repository_impl.dart';
+import '../../data/repositories/prompt_repository_impl.dart';
 import '../../data/repositories/profile_repository_impl.dart';
 import '../../data/repositories/server_repository_impl.dart';
 import '../../data/repositories/settings_repository_impl.dart';
@@ -23,6 +25,7 @@ import '../../domain/repositories/log_repository.dart';
 import '../../domain/repositories/profile_repository.dart';
 import '../../domain/repositories/server_repository.dart';
 import '../../domain/repositories/interception_repository.dart';
+import '../../domain/repositories/prompt_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../../domain/entities/endpoint.dart';
 import '../../domain/entities/request_log.dart';
@@ -31,12 +34,14 @@ import '../../domain/usecases/log_usecases.dart';
 import '../../domain/usecases/profile_usecases.dart';
 import '../../domain/usecases/server_usecases.dart';
 import '../../domain/usecases/interception_usecases.dart';
+import '../../domain/usecases/prompt_usecases.dart';
 import '../../domain/usecases/foreground_service_usecases.dart';
 import 'endpoint/endpoint_bloc.dart';
 import 'log/log_bloc.dart';
 import 'profile/profile_bloc.dart';
 import 'server/server_bloc.dart';
 import 'interception/interception_bloc.dart';
+import 'prompt/prompt_bloc.dart';
 import 'settings/settings_bloc.dart';
 
 final sl = GetIt.instance;
@@ -108,6 +113,14 @@ Future<void> init() async {
     ),
   );
 
+  sl.registerFactory(
+        () => PromptBloc(
+      watchActivePrompt: sl(),
+      resolvePrompt: sl(),
+      resolvePromptEdited: sl(),
+    ),
+  );
+
   sl.registerFactory(() => SettingsBloc(sl()));
 
   sl.registerFactory(
@@ -176,6 +189,11 @@ Future<void> init() async {
   sl.registerLazySingleton(() => SetUrlListMode(sl()));
   sl.registerLazySingleton(() => GetUrlListMode(sl()));
 
+  // Use cases - Prompt
+  sl.registerLazySingleton(() => WatchActivePrompt(sl()));
+  sl.registerLazySingleton(() => ResolvePrompt(sl()));
+  sl.registerLazySingleton(() => ResolvePromptEdited(sl()));
+
   // Use cases - Profile
   sl.registerLazySingleton(() => GetAllProfiles(sl()));
   sl.registerLazySingleton(() => GetProfileById(sl()));
@@ -200,6 +218,10 @@ Future<void> init() async {
 
   sl.registerLazySingleton<InterceptionRepository>(
         () => InterceptionRepositoryImpl(sl()),
+  );
+
+  sl.registerLazySingleton<PromptRepository>(
+        () => PromptRepositoryImpl(sl()),
   );
 
   sl.registerLazySingleton<SettingsRepository>(
@@ -228,9 +250,14 @@ Future<void> init() async {
   );
 
   sl.registerLazySingleton(
+        () => PromptInterceptionManager(),
+  );
+
+  sl.registerLazySingleton(
         () => ServerManager(
       logDataSource: sl(),
       interceptionManager: sl(),
+      promptInterceptionManager: sl(),
       onEndpointsNeeded: (profileId) async {
         final endpoints = await sl<GetAllEndpoints>()(profileId: profileId);
         return endpoints;

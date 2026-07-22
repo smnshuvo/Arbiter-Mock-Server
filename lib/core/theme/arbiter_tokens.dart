@@ -109,4 +109,24 @@ class ArbTokens {
     if (code >= 500) return const Color(0xFFDC2626);
     return textMuted;
   }
+
+  /// Per-HTTP-method accent, shared by the endpoint editor, the logs feed,
+  /// and the request/response detail pane so method chips read consistently
+  /// everywhere in the app.
+  Color methodColor(String method) {
+    switch (method.toUpperCase()) {
+      case 'GET':
+        return green;
+      case 'POST':
+        return const Color(0xFF2563EB);
+      case 'PUT':
+        return const Color(0xFFF59E0B);
+      case 'PATCH':
+        return purple;
+      case 'DELETE':
+        return const Color(0xFFDC2626);
+      default:
+        return textSecondary;
+    }
+  }
 }

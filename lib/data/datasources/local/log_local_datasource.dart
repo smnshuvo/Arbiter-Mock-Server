@@ -74,6 +74,11 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
         whereArgs.add(searchPattern);
       }
 
+      if (filter.ip != null && filter.ip!.isNotEmpty) {
+        conditions.add('ip = ?');
+        whereArgs.add(filter.ip);
+      }
+
       if (conditions.isNotEmpty) {
         whereClause = conditions.join(' AND ');
       }
@@ -166,6 +171,11 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
       final searchPattern = '%${filter.searchQuery}%';
       whereArgs.add(searchPattern);
       whereArgs.add(searchPattern);
+    }
+
+    if (filter.ip != null && filter.ip!.isNotEmpty) {
+      conditions.add('ip = ?');
+      whereArgs.add(filter.ip);
     }
 
     if (conditions.isNotEmpty) {

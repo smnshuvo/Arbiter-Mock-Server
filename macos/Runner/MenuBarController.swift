@@ -42,6 +42,16 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         self?.popover?.performClose(nil)
         self?.channel.invokeMethod("interceptionEdit", arguments: ["id": id])
+      },
+      onUseCandidate: { [weak self] promptId, candidateId in
+        // Close right away rather than waiting on the round trip back through
+        // Dart — clearPrompt() only swaps the panel's content back to the
+        // feed, it doesn't collapse the popover on its own. If another
+        // prompt is already queued behind this one, the next setPrompt call
+        // pops the panel back open.
+        self?.popover?.performClose(nil)
+        self?.channel.invokeMethod(
+          "promptUseCandidate", arguments: ["id": promptId, "candidateId": candidateId])
       }
     )
   }
@@ -81,6 +91,28 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     case "clearIntercepted":
       viewModel.clearIntercepted()
       refreshStatusTitle()
+    case "setPrompt":
+      let candidateArgs = args["candidates"] as? [[String: Any]] ?? []
+      viewModel.setPrompt(
+        id: args["id"] as? String ?? "",
+        method: args["method"] as? String ?? "GET",
+        url: args["url"] as? String ?? "/",
+        candidates: candidateArgs.map { c in
+          PromptCandidate(
+            id: c["id"] as? String ?? "",
+            label: c["label"] as? String ?? "",
+            statusCode: c["statusCode"] as? Int ?? 200,
+            body: c["body"] as? String ?? ""
+          )
+        }
+      )
+      refreshStatusTitle()
+      // Pop the panel open on its own — picking a response shouldn't require
+      // clicking the menu bar icon first.
+      showPopover()
+    case "clearPrompt":
+      viewModel.clearPrompt()
+      refreshStatusTitle()
     default:
       result(FlutterMethodNotImplemented)
       return
@@ -118,13 +150,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
   }
 
   @objc private func togglePopover(_ sender: Any?) {
-    guard let button = statusItem?.button, let popover = popover else { return }
+    guard let popover = popover else { return }
     if popover.isShown {
       popover.performClose(sender)
     } else {
-      popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-      popover.contentViewController?.view.window?.makeKey()
+      showPopover()
     }
+  }
+
+  private func showPopover() {
+    guard let button = statusItem?.button, let popover = popover, !popover.isShown else { return }
+    popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    popover.contentViewController?.view.window?.makeKey()
   }
 
   /// The folded form: last endpoint + status, or the paused call-to-action.
@@ -141,6 +178,7 @@ struct MenuBarActions {
   var onContinue: (String) -> Void = { _ in }
   var onDrop: (String) -> Void = { _ in }
   var onEdit: (String) -> Void = { _ in }
+  var onUseCandidate: (String, String) -> Void = { _, _ in }
 }
 
 struct LogRow: Identifiable {
@@ -160,6 +198,24 @@ struct InterceptedState {
   let body: String?
 }
 
+/// One selectable response for a live "Prompt" conditional-mode hold.
+struct PromptCandidate: Identifiable {
+  let id: String
+  let label: String
+  let statusCode: Int
+  let body: String
+}
+
+/// A live "Prompt" hold — the developer picks one of N candidate responses
+/// directly from the panel, unlike [InterceptedState] which has a single
+/// held request/response and a Continue/Edit/Drop action set.
+struct PendingPromptState {
+  let id: String
+  let method: String
+  let url: String
+  let candidates: [PromptCandidate]
+}
+
 final class MenuBarViewModel: ObservableObject {
   @Published var running = false
   @Published var address = "localhost"
@@ -170,9 +226,12 @@ final class MenuBarViewModel: ObservableObject {
   @Published var feedPaused = false
   @Published var intercepted: InterceptedState?
   @Published var heldSeconds = 0
+  @Published var pendingPrompt: PendingPromptState?
+  @Published var promptHeldSeconds = 0
 
   var actions = MenuBarActions()
   private var heldTimer: Timer?
+  private var promptHeldTimer: Timer?
 
   private static let maxRows = 5
 
@@ -210,10 +269,37 @@ final class MenuBarViewModel: ObservableObject {
     String(format: "held %d:%02d", heldSeconds / 60, heldSeconds % 60)
   }
 
+  func setPrompt(id: String, method: String, url: String, candidates: [PromptCandidate]) {
+    pendingPrompt = PendingPromptState(id: id, method: method, url: url, candidates: candidates)
+    promptHeldSeconds = 0
+    promptHeldTimer?.invalidate()
+    promptHeldTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+      self?.promptHeldSeconds += 1
+    }
+  }
+
+  func clearPrompt() {
+    pendingPrompt = nil
+    promptHeldTimer?.invalidate()
+    promptHeldTimer = nil
+  }
+
+  var promptHeldLabel: String {
+    String(format: "held %d:%02d", promptHeldSeconds / 60, promptHeldSeconds % 60)
+  }
+
   /// Attributed title shown directly in the menu bar.
   func statusBarTitle() -> NSAttributedString {
     let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
     let result = NSMutableAttributedString()
+
+    if let prompt = pendingPrompt {
+      result.append(NSAttributedString(string: "● ", attributes: [.foregroundColor: Palette.blue, .font: mono]))
+      result.append(NSAttributedString(
+        string: "Choose a response (\(prompt.candidates.count))",
+        attributes: [.foregroundColor: Palette.blue, .font: mono]))
+      return result
+    }
 
     if let held = intercepted {
       let color = held.isResponse ? Palette.blue : Palette.amber

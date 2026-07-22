@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:json_annotation/json_annotation.dart';
 import '../../domain/entities/endpoint.dart';
+import '../../domain/entities/network_condition.dart';
 
 part 'endpoint_model.g.dart';
 
@@ -22,6 +23,15 @@ class EndpointModel {
   final String? conditionalMocksJson;
   final int useConditionalMock;
 
+  /// [NetworkCondition] name. Nullable so pre-v6 rows and older exports (which
+  /// have no such column/key) round-trip as [NetworkCondition.none].
+  final String? networkCondition;
+
+  /// [ConditionalMode] name. Nullable so pre-v7 rows/exports round-trip as
+  /// [ConditionalMode.query].
+  final String? conditionalMode;
+  final String? promptCandidatesJson;
+
   EndpointModel({
     required this.id,
     this.profileId = 'default',
@@ -38,6 +48,9 @@ class EndpointModel {
     required this.isEnabled,
     this.conditionalMocksJson,
     required this.useConditionalMock,
+    this.networkCondition,
+    this.conditionalMode,
+    this.promptCandidatesJson,
   });
 
   factory EndpointModel.fromJson(Map<String, dynamic> json) =>
@@ -64,6 +77,11 @@ class EndpointModel {
           ? null
           : jsonEncode(endpoint.conditionalMocks.map((m) => m.toJson()).toList()),
       useConditionalMock: endpoint.useConditionalMock ? 1 : 0,
+      networkCondition: endpoint.networkCondition.name,
+      conditionalMode: endpoint.conditionalMode.name,
+      promptCandidatesJson: endpoint.promptCandidates.isEmpty
+          ? null
+          : jsonEncode(endpoint.promptCandidates.map((c) => c.toJson()).toList()),
     );
   }
 
@@ -77,6 +95,19 @@ class EndpointModel {
             .toList();
       } catch (e) {
         print('Error parsing conditional mocks: $e');
+      }
+    }
+
+    List<PromptCandidateResponse> promptCandidates = [];
+    if (promptCandidatesJson != null && promptCandidatesJson!.isNotEmpty) {
+      try {
+        final List<dynamic> jsonList = jsonDecode(promptCandidatesJson!);
+        promptCandidates = jsonList
+            .map((json) =>
+                PromptCandidateResponse.fromJson(json as Map<String, dynamic>))
+            .toList();
+      } catch (e) {
+        print('Error parsing prompt candidates: $e');
       }
     }
 
@@ -102,6 +133,12 @@ class EndpointModel {
       isEnabled: isEnabled == 1,
       conditionalMocks: conditionalMocks,
       useConditionalMock: useConditionalMock == 1,
+      networkCondition: NetworkConditionX.fromName(networkCondition),
+      conditionalMode: ConditionalMode.values.firstWhere(
+            (e) => e.name == conditionalMode,
+        orElse: () => ConditionalMode.query,
+      ),
+      promptCandidates: promptCandidates,
     );
   }
 
@@ -122,6 +159,9 @@ class EndpointModel {
       'isEnabled': isEnabled,
       'conditionalMocksJson': conditionalMocksJson,
       'useConditionalMock': useConditionalMock,
+      'networkCondition': networkCondition,
+      'conditionalMode': conditionalMode,
+      'promptCandidatesJson': promptCandidatesJson,
     };
   }
 
@@ -142,6 +182,9 @@ class EndpointModel {
       isEnabled: map['isEnabled'],
       conditionalMocksJson: map['conditionalMocksJson'],
       useConditionalMock: map['useConditionalMock'] ?? 0,
+      networkCondition: map['networkCondition'],
+      conditionalMode: map['conditionalMode'],
+      promptCandidatesJson: map['promptCandidatesJson'],
     );
   }
 }

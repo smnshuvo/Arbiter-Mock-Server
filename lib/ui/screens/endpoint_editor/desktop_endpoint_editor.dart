@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/arbiter_tokens.dart';
+import '../../../domain/entities/endpoint.dart';
+import '../../../domain/entities/network_condition.dart';
 import 'endpoint_editor_base.dart';
 import 'widgets/arb_section_label.dart';
 
@@ -46,6 +48,13 @@ class _DesktopEndpointEditorState
       buildMethodPathRow(),
       const SizedBox(height: 16),
       _matchAndMode(),
+      const SizedBox(height: 16),
+      const ArbSectionLabel('Network'),
+      buildNetworkConditionField(),
+      if (networkCondition.isThrottled) ...[
+        const SizedBox(height: 8),
+        buildNetworkConditionNote(),
+      ],
       const SizedBox(height: 16),
     ];
 
@@ -108,7 +117,13 @@ class _DesktopEndpointEditorState
         sliver: _box([
           if (useConditionalMock) ...[
             const SizedBox(height: 14),
-            buildConditionalSummary(),
+            const ArbSectionLabel('Conditional mode'),
+            buildConditionalModeSelector(),
+            const SizedBox(height: 14),
+            if (conditionalMode == ConditionalMode.query)
+              buildConditionalSummary()
+            else
+              buildPromptCandidatesSummary(),
           ],
         ]),
       ),

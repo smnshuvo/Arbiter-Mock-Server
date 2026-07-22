@@ -17,11 +17,16 @@ class JsonRowTile extends StatefulWidget {
     required this.row,
     required this.controller,
     required this.isRoot,
+    this.readOnly = false,
   });
 
   final JsonRow row;
   final JsonTreeController controller;
   final bool isRoot;
+
+  /// View-only: hides add/duplicate/delete/type-change controls and renders
+  /// keys/values as plain text instead of editable fields.
+  final bool readOnly;
 
   @override
   State<JsonRowTile> createState() => _JsonRowTileState();
@@ -100,10 +105,14 @@ class _JsonRowTileState extends State<JsonRowTile> {
             else if (!isRoot)
               SizedBox(
                 width: keyW,
-                child: _miniField(_keyCtrl, 'key', (v) {
-                  c.setKey(_node, v);
-                  setState(() {}); // this row only — chevron may appear/vanish
-                }),
+                child: widget.readOnly
+                    ? Text(_node.key,
+                        overflow: TextOverflow.ellipsis,
+                        style: t.mono(size: 13, color: t.textSecondary))
+                    : _miniField(_keyCtrl, 'key', (v) {
+                        c.setKey(_node, v);
+                        setState(() {}); // this row only — chevron may appear/vanish
+                      }),
               ),
             if (showToggle)
               _iconBtn(
@@ -129,7 +138,7 @@ class _JsonRowTileState extends State<JsonRowTile> {
         child: Row(
           children: [
             Expanded(child: inner),
-            if (!isRoot) _rowActions(t, c, row),
+            if (!isRoot && !widget.readOnly) _rowActions(t, c, row),
           ],
         ),
       ),
@@ -193,6 +202,16 @@ class _JsonRowTileState extends State<JsonRowTile> {
         return Text('null', style: t.mono(size: 13, color: t.textMuted));
       case JsonType.boolean:
         final isTrue = _node.value.toLowerCase() == 'true';
+        if (widget.readOnly) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Text(_node.value,
+                style: t.mono(
+                    size: 12,
+                    weight: FontWeight.w600,
+                    color: isTrue ? t.green : t.textSecondary)),
+          );
+        }
         return Align(
           alignment: Alignment.centerLeft,
           child: OutlinedButton(
@@ -216,10 +235,19 @@ class _JsonRowTileState extends State<JsonRowTile> {
           ),
         );
       case JsonType.number:
+        if (widget.readOnly) {
+          return Text(_node.value, style: t.mono(size: 13, color: t.textPrimary));
+        }
         return _miniField(_valueCtrl, '0',
             (v) => widget.controller.setValue(_node, v),
             mono: true);
       case JsonType.string:
+        if (widget.readOnly) {
+          return Text(_node.value,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 3,
+              style: t.mono(size: 13, color: t.textPrimary));
+        }
         return _miniField(_valueCtrl, 'value',
             (v) => widget.controller.setValue(_node, v),
             mono: true);
@@ -227,6 +255,18 @@ class _JsonRowTileState extends State<JsonRowTile> {
   }
 
   Widget _typeButton(ArbTokens t) {
+    if (widget.readOnly) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: t.surfaceMuted,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(typeLabel(_node.type),
+            style:
+                t.mono(size: 10, weight: FontWeight.w700, color: t.textSecondary)),
+      );
+    }
     return PopupMenuButton<JsonType>(
       tooltip: 'Change type',
       padding: EdgeInsets.zero,

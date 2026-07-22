@@ -15,6 +15,7 @@ import 'ui/screens/json_docs/json_docs_controller.dart';
 import 'ui/screens/json_docs/json_docs_screen.dart';
 import 'ui/bloc/endpoint/endpoint_bloc.dart';
 import 'ui/bloc/interception/interception_bloc.dart';
+import 'ui/bloc/prompt/prompt_bloc.dart';
 import 'ui/bloc/log/log_bloc.dart';
 import 'ui/bloc/profile/profile_bloc.dart';
 import 'ui/bloc/server/server_bloc.dart';
@@ -88,6 +89,7 @@ class MyApp extends StatelessWidget {
         BlocProvider(create: (_) => di.sl<EndpointBloc>()),
         BlocProvider(create: (_) => di.sl<LogBloc>()),
         BlocProvider(create: (_) => di.sl<InterceptionBloc>()),
+        BlocProvider(create: (_) => di.sl<PromptBloc>()),
         BlocProvider(create: (_) => di.sl<SettingsBloc>()),
         BlocProvider(create: (_) => di.sl<ProfileBloc>()..add(LoadProfilesEvent())),
       ],

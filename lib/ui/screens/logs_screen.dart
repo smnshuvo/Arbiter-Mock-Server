@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import '../../domain/repositories/log_repository.dart';
 import '../bloc/endpoint/endpoint_bloc.dart';
 import '../bloc/log/log_bloc.dart';
 import '../bloc/profile/profile_bloc.dart';
+import '../dialog/new_collection_dialog.dart';
 import '../widgets/json_viewer_widget.dart';
 import 'endpoint_form_screen.dart';
 import 'log_filter_screen.dart';
@@ -28,7 +30,7 @@ class _LogsScreenState extends State<LogsScreen> {
   final TextEditingController _searchController = TextEditingController();
   LogFilter? _currentFilter;
   RequestLog? _selectedLog;
-  bool _isHeaderExpanded = true;
+  bool _isHeaderExpanded = false;
   String? _selectedProfileId;
 
   // Selection mode
@@ -121,13 +123,6 @@ class _LogsScreenState extends State<LogsScreen> {
             ),
           ],
         ),
-        floatingActionButton: _isSelectionMode && _selectedLogIds.isNotEmpty
-            ? FloatingActionButton.extended(
-                onPressed: _showBatchCreateDialog,
-                icon: const Icon(Icons.add_circle_outline),
-                label: Text('Create ${_selectedLogIds.length} Endpoint${_selectedLogIds.length == 1 ? '' : 's'}'),
-              )
-            : null,
       ),
     );
   }
@@ -248,6 +243,31 @@ class _LogsScreenState extends State<LogsScreen> {
             );
           },
         ),
+        TextButton(
+          onPressed: _exitSelectionMode,
+          child: const Text('Clear', style: TextStyle(color: Colors.white)),
+        ),
+        if (_selectedLogIds.isNotEmpty) ...[
+          IconButton(
+            tooltip: 'New collection',
+            icon: const Icon(Icons.create_new_folder_outlined),
+            onPressed: _createCollectionFromSelection,
+          ),
+          BlocBuilder<ProfileBloc, ProfileState>(
+            builder: (context, profileState) {
+              final profiles =
+                  profileState is ProfileLoaded ? profileState.profiles : <Profile>[];
+              return PopupMenuButton<String>(
+                tooltip: 'Add to collection',
+                icon: const Icon(Icons.playlist_add),
+                onSelected: _addSelectionToProfile,
+                itemBuilder: (context) => profiles
+                    .map((p) => PopupMenuItem(value: p.id, child: Text(p.name)))
+                    .toList(),
+              );
+            },
+          ),
+        ],
       ],
     );
   }
@@ -781,25 +801,57 @@ class _LogsScreenState extends State<LogsScreen> {
     });
   }
 
-  void _showBatchCreateDialog() {
+  List<RequestLog> _selectedLogs() {
     final state = context.read<LogBloc>().state;
-    if (state is! LogLoaded) return;
-    final selectedLogs = state.logs.where((l) => _selectedLogIds.contains(l.id)).toList();
+    if (state is! LogLoaded) return const [];
+    return state.logs.where((l) => _selectedLogIds.contains(l.id)).toList();
+  }
 
-    showDialog(
+  Future<void> _createCollectionFromSelection() async {
+    final selectedLogs = _selectedLogs();
+    if (selectedLogs.isEmpty) return;
+
+    final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => _BatchCreateDialog(
-        selectedCount: selectedLogs.length,
-        onConfirm: (profileId, delayMs) {
-          Navigator.pop(ctx);
-          context.read<EndpointBloc>().add(BatchCreateEndpointsFromLogsEvent(
-            logs: selectedLogs,
-            profileId: profileId,
-            delayMs: delayMs,
-          ));
-        },
-      ),
+      builder: (ctx) => NewCollectionDialog(count: selectedLogs.length),
     );
+    final trimmed = name?.trim();
+    if (trimmed == null || trimmed.isEmpty) return;
+
+    final profileBloc = context.read<ProfileBloc>();
+    final endpointBloc = context.read<EndpointBloc>();
+    final priorIds = profileBloc.state is ProfileLoaded
+        ? (profileBloc.state as ProfileLoaded).profiles.map((p) => p.id).toSet()
+        : <String>{};
+
+    late final StreamSubscription subscription;
+    subscription = profileBloc.stream.listen((state) {
+      if (state is ProfileLoaded) {
+        final created = state.profiles.firstWhere(
+          (p) => !priorIds.contains(p.id) && p.name == trimmed,
+          orElse: () => state.profiles.last,
+        );
+        endpointBloc.add(BatchCreateEndpointsFromLogsEvent(
+          logs: selectedLogs,
+          profileId: created.id,
+          delayMs: 0,
+        ));
+        subscription.cancel();
+      }
+    });
+    profileBloc.add(CreateProfileEvent(name: trimmed));
+    _exitSelectionMode();
+  }
+
+  void _addSelectionToProfile(String profileId) {
+    final selectedLogs = _selectedLogs();
+    if (selectedLogs.isEmpty) return;
+    context.read<EndpointBloc>().add(BatchCreateEndpointsFromLogsEvent(
+          logs: selectedLogs,
+          profileId: profileId,
+          delayMs: 0,
+        ));
+    _exitSelectionMode();
   }
 
   Widget _buildDetailRow(String label, String value) {
@@ -858,10 +910,16 @@ class _LogsScreenState extends State<LogsScreen> {
 
   Future<void> _showFilterDialog() async {
     final logBloc = context.read<LogBloc>();
+    final currentState = logBloc.state;
+    final availableIps = currentState is LogLoaded
+        ? (currentState.logs.map((l) => l.ip).whereType<String>().toSet().toList()
+          ..sort())
+        : <String>[];
     final result = await Navigator.push<LogFilter>(
       context,
       MaterialPageRoute(
-          builder: (context) => LogFilterScreen(currentFilter: _currentFilter)),
+          builder: (context) => LogFilterScreen(
+              currentFilter: _currentFilter, availableIps: availableIps)),
     );
     if (result != null) {
       setState(() => _currentFilter = result);
@@ -1078,125 +1136,3 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 }
 
-// ── Batch Create Dialog ──────────────────────────────────────────────────────
-
-class _BatchCreateDialog extends StatefulWidget {
-  final int selectedCount;
-  final void Function(String profileId, int delayMs) onConfirm;
-
-  const _BatchCreateDialog({required this.selectedCount, required this.onConfirm});
-
-  @override
-  State<_BatchCreateDialog> createState() => _BatchCreateDialogState();
-}
-
-class _BatchCreateDialogState extends State<_BatchCreateDialog> {
-  String? _selectedProfileId;
-  final _delayController = TextEditingController(text: '0');
-
-  @override
-  void initState() {
-    super.initState();
-    final profileState = context.read<ProfileBloc>().state;
-    if (profileState is ProfileLoaded) {
-      _selectedProfileId = profileState.activeProfileId;
-    }
-  }
-
-  @override
-  void dispose() {
-    _delayController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<ProfileBloc, ProfileState>(
-      builder: (context, profileState) {
-        final profiles = profileState is ProfileLoaded ? profileState.profiles : <Profile>[];
-
-        return AlertDialog(
-          title: Text('Create ${widget.selectedCount} Endpoint${widget.selectedCount == 1 ? '' : 's'}'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DropdownButtonFormField<String>(
-                  decoration: const InputDecoration(
-                    labelText: 'Target Profile',
-                    border: OutlineInputBorder(),
-                  ),
-                  value: _selectedProfileId,
-                  items: profiles
-                      .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
-                      .toList(),
-                  onChanged: (val) => setState(() => _selectedProfileId = val),
-                ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Create new profile'),
-                  onPressed: () => _showCreateProfileDialog(context),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _delayController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Default delay (ms)',
-                    border: OutlineInputBorder(),
-                    helperText: 'Applied to all created endpoints',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: _selectedProfileId == null
-                  ? null
-                  : () {
-                      final delay = int.tryParse(_delayController.text) ?? 0;
-                      widget.onConfirm(_selectedProfileId!, delay);
-                    },
-              child: Text('Create ${widget.selectedCount} Endpoint${widget.selectedCount == 1 ? '' : 's'}'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showCreateProfileDialog(BuildContext parentContext) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New Profile'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Profile name'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) {
-                parentContext.read<ProfileBloc>().add(CreateProfileEvent(name: name));
-                Navigator.pop(ctx);
-                // After creation, ProfileBloc will emit ProfileLoaded with new profile
-                // The dropdown will update automatically via BlocBuilder
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-  }
-}

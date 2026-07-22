@@ -24,7 +24,7 @@ class DatabaseHelper {
       final path = join(dbPath, filePath);
       return openDatabase(
         path,
-        version: 5,
+        version: 7,
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
@@ -35,7 +35,7 @@ class DatabaseHelper {
       return databaseFactoryFfi.openDatabase(
         inMemoryDatabasePath,
         options: OpenDatabaseOptions(
-          version: 5,
+          version: 7,
           onCreate: _createDB,
           onUpgrade: _onUpgrade,
         ),
@@ -87,7 +87,10 @@ class DatabaseHelper {
         updatedAt TEXT NOT NULL,
         isEnabled INTEGER NOT NULL,
         conditionalMocksJson TEXT,
-        useConditionalMock INTEGER NOT NULL DEFAULT 0
+        useConditionalMock INTEGER NOT NULL DEFAULT 0,
+        networkCondition TEXT NOT NULL DEFAULT 'none',
+        conditionalMode TEXT NOT NULL DEFAULT 'query',
+        promptCandidatesJson TEXT
       )
     ''');
 
@@ -104,7 +107,8 @@ class DatabaseHelper {
         responseBody TEXT,
         responseTimeMs INTEGER NOT NULL,
         logType TEXT NOT NULL,
-        matchedEndpointId TEXT
+        matchedEndpointId TEXT,
+        ip TEXT
       )
     ''');
 
@@ -115,9 +119,33 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_endpoints_profile ON endpoints(profileId)');
   }
 
+  /// Column names currently present on [table].
+  Future<Set<String>> _columnsOf(Database db, String table) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows.map((r) => r['name'] as String).toSet();
+  }
+
+  /// Adds a column only if it isn't already there.
+  ///
+  /// Migrations have to be idempotent because `user_version` can lag the real
+  /// schema: editing `_createDB` without bumping the version leaves databases
+  /// that already have a newer column but report an older version, and a plain
+  /// `ALTER TABLE ... ADD COLUMN` then fails with "duplicate column name" and
+  /// aborts the whole open — bricking the app rather than just that column.
+  Future<void> _addColumnIfMissing(
+    Database db,
+    String table,
+    String column,
+    String definition,
+  ) async {
+    if ((await _columnsOf(db, table)).contains(column)) return;
+    await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+  }
+
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE endpoints ADD COLUMN statusCode INTEGER NOT NULL DEFAULT 200');
+      await _addColumnIfMissing(
+          db, 'endpoints', 'statusCode', 'INTEGER NOT NULL DEFAULT 200');
     }
     if (oldVersion < 3) {
       final now = DateTime.now().toIso8601String();
@@ -142,17 +170,33 @@ class DatabaseHelper {
         'updatedAt': now,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
-      await db.execute("ALTER TABLE endpoints ADD COLUMN profileId TEXT NOT NULL DEFAULT 'default'");
-      await db.execute("ALTER TABLE request_logs ADD COLUMN profileId TEXT NOT NULL DEFAULT 'default'");
+      await _addColumnIfMissing(
+          db, 'endpoints', 'profileId', "TEXT NOT NULL DEFAULT 'default'");
+      await _addColumnIfMissing(
+          db, 'request_logs', 'profileId', "TEXT NOT NULL DEFAULT 'default'");
       await db.execute('CREATE INDEX IF NOT EXISTS idx_logs_profile ON request_logs(profileId)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_endpoints_profile ON endpoints(profileId)');
     }
     if (oldVersion < 4) {
-      await db.execute("ALTER TABLE profiles ADD COLUMN type TEXT NOT NULL DEFAULT 'http'");
+      await _addColumnIfMissing(
+          db, 'profiles', 'type', "TEXT NOT NULL DEFAULT 'http'");
     }
     if (oldVersion < 5) {
       // HTTP method scoping; NULL = ANY verb (existing rows match every method).
-      await db.execute('ALTER TABLE endpoints ADD COLUMN method TEXT');
+      await _addColumnIfMissing(db, 'endpoints', 'method', 'TEXT');
+    }
+    if (oldVersion < 6) {
+      // Simulated link speed; existing rows keep serving unthrottled.
+      await _addColumnIfMissing(
+          db, 'endpoints', 'networkCondition', "TEXT NOT NULL DEFAULT 'none'");
+    }
+    if (oldVersion < 7) {
+      // Conditional "Prompt" mode: live pick-a-response instead of query rules.
+      await _addColumnIfMissing(
+          db, 'endpoints', 'conditionalMode', "TEXT NOT NULL DEFAULT 'query'");
+      await _addColumnIfMissing(db, 'endpoints', 'promptCandidatesJson', 'TEXT');
+      // Client IP captured per request for log filtering.
+      await _addColumnIfMissing(db, 'request_logs', 'ip', 'TEXT');
     }
   }
 

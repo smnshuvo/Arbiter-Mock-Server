@@ -10,6 +10,7 @@ class LogFilter {
   final DateTime? endDate;
   final String? searchQuery;
   final String? profileId;
+  final String? ip;
 
   const LogFilter({
     this.methods,
@@ -19,6 +20,7 @@ class LogFilter {
     this.endDate,
     this.searchQuery,
     this.profileId,
+    this.ip,
   });
 
   LogFilter copyWith({
@@ -29,6 +31,7 @@ class LogFilter {
     DateTime? endDate,
     String? searchQuery,
     String? profileId,
+    String? ip,
   }) {
     return LogFilter(
       methods: methods ?? this.methods,
@@ -38,6 +41,7 @@ class LogFilter {
       endDate: endDate ?? this.endDate,
       searchQuery: searchQuery ?? this.searchQuery,
       profileId: profileId ?? this.profileId,
+      ip: ip ?? this.ip,
     );
   }
 }

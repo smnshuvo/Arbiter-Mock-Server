@@ -20,6 +20,7 @@ RequestLogModel _$RequestLogModelFromJson(Map<String, dynamic> json) =>
       responseTimeMs: (json['responseTimeMs'] as num).toInt(),
       logType: json['logType'] as String,
       matchedEndpointId: json['matchedEndpointId'] as String?,
+      ip: json['ip'] as String?,
     );
 
 Map<String, dynamic> _$RequestLogModelToJson(RequestLogModel instance) =>
@@ -36,4 +37,5 @@ Map<String, dynamic> _$RequestLogModelToJson(RequestLogModel instance) =>
       'responseTimeMs': instance.responseTimeMs,
       'logType': instance.logType,
       'matchedEndpointId': instance.matchedEndpointId,
+      'ip': instance.ip,
     };

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/arbiter_tokens.dart';
+import '../../../domain/entities/network_condition.dart';
 import 'endpoint_editor_base.dart';
 import 'widgets/arb_section_label.dart';
 
@@ -85,6 +86,13 @@ class _MobileEndpointEditorState
       const SizedBox(height: 18),
       const ArbSectionLabel('Mode'),
       buildModeSelector(),
+      const SizedBox(height: 18),
+      const ArbSectionLabel('Network'),
+      buildNetworkConditionField(),
+      if (networkCondition.isThrottled) ...[
+        const SizedBox(height: 8),
+        buildNetworkConditionNote(),
+      ],
       const SizedBox(height: 18),
     ];
 

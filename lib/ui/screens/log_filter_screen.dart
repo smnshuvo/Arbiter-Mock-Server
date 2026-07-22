@@ -4,8 +4,13 @@ import '../../domain/repositories/log_repository.dart';
 
 class LogFilterScreen extends StatefulWidget {
   final LogFilter? currentFilter;
+  final List<String> availableIps;
 
-  const LogFilterScreen({Key? key, this.currentFilter}) : super(key: key);
+  const LogFilterScreen({
+    Key? key,
+    this.currentFilter,
+    this.availableIps = const [],
+  }) : super(key: key);
 
   @override
   State<LogFilterScreen> createState() => _LogFilterScreenState();
@@ -17,6 +22,7 @@ class _LogFilterScreenState extends State<LogFilterScreen> {
   late Set<LogType> _selectedLogTypes;
   DateTime? _startDate;
   DateTime? _endDate;
+  String? _selectedIp;
 
   @override
   void initState() {
@@ -26,6 +32,7 @@ class _LogFilterScreenState extends State<LogFilterScreen> {
     _selectedLogTypes = widget.currentFilter?.logTypes?.toSet() ?? {};
     _startDate = widget.currentFilter?.startDate;
     _endDate = widget.currentFilter?.endDate;
+    _selectedIp = widget.currentFilter?.ip;
   }
 
   @override
@@ -53,9 +60,47 @@ class _LogFilterScreenState extends State<LogFilterScreen> {
           const SizedBox(height: 24),
           _buildLogTypesSection(),
           const SizedBox(height: 24),
+          if (widget.availableIps.isNotEmpty) ...[
+            _buildIpSection(),
+            const SizedBox(height: 24),
+          ],
           _buildDateRangeSection(),
         ],
       ),
+    );
+  }
+
+  Widget _buildIpSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Client IP',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilterChip(
+              label: const Text('All'),
+              selected: _selectedIp == null,
+              onSelected: (_) => setState(() => _selectedIp = null),
+            ),
+            ...widget.availableIps.map((ip) {
+              final isSelected = _selectedIp == ip;
+              return FilterChip(
+                label: Text(ip),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() => _selectedIp = selected ? ip : null);
+                },
+              );
+            }),
+          ],
+        ),
+      ],
     );
   }
 
@@ -252,6 +297,7 @@ class _LogFilterScreenState extends State<LogFilterScreen> {
       _selectedLogTypes.clear();
       _startDate = null;
       _endDate = null;
+      _selectedIp = null;
     });
   }
 
@@ -262,6 +308,7 @@ class _LogFilterScreenState extends State<LogFilterScreen> {
       logTypes: _selectedLogTypes.isEmpty ? null : _selectedLogTypes.toList(),
       startDate: _startDate,
       endDate: _endDate,
+      ip: _selectedIp,
     );
 
     Navigator.pop(context, filter);

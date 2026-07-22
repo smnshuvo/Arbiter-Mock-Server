@@ -6,8 +6,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/theme/arbiter_tokens.dart';
 import '../../../domain/entities/endpoint.dart';
 import '../../../domain/entities/network_condition.dart';
+import '../../../domain/entities/prompt.dart';
 import '../../bloc/endpoint/endpoint_bloc.dart';
+import '../../dialog/prompt_resolution_dialog.dart';
 import '../conditional_mock_screen.dart';
+import '../prompt_candidates_screen.dart';
 import 'widgets/arb_mode_card.dart';
 import 'widgets/arb_section_label.dart';
 import 'widgets/arb_segmented.dart';
@@ -55,6 +58,8 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
   int delayMs = 0;
   bool useConditionalMock = false;
   late List<ConditionalMock> conditionalMocks;
+  late ConditionalMode conditionalMode;
+  late List<PromptCandidateResponse> promptCandidates;
   NetworkCondition networkCondition = NetworkCondition.none;
 
   _BodyTab _bodyTab = _BodyTab.code;
@@ -90,6 +95,8 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
     networkCondition = e?.networkCondition ?? NetworkCondition.none;
     useConditionalMock = e?.useConditionalMock ?? false;
     conditionalMocks = List.from(e?.conditionalMocks ?? const []);
+    conditionalMode = e?.conditionalMode ?? ConditionalMode.query;
+    promptCandidates = List.from(e?.promptCandidates ?? const []);
   }
 
   Future<void> _loadTree() async {
@@ -177,8 +184,13 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
       // Throttling is a property of the link, so it applies in both modes.
       networkCondition: networkCondition,
       useConditionalMock: isMock ? useConditionalMock : false,
-      conditionalMocks:
-          isMock && useConditionalMock ? conditionalMocks : const [],
+      conditionalMocks: isMock && useConditionalMock && conditionalMode == ConditionalMode.query
+          ? conditionalMocks
+          : const [],
+      conditionalMode: conditionalMode,
+      promptCandidates: isMock && useConditionalMock && conditionalMode == ConditionalMode.prompt
+          ? promptCandidates
+          : const [],
     );
   }
 
@@ -264,6 +276,39 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
     }
   }
 
+  Future<void> _openPromptCandidatesScreen() async {
+    final result = await Navigator.push<List<PromptCandidateResponse>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PromptCandidatesScreen(candidates: promptCandidates),
+      ),
+    );
+    if (result != null) {
+      setState(() => promptCandidates = result);
+    }
+  }
+
+  void _previewPrompt() {
+    if (promptCandidates.isEmpty) {
+      _snack('Add at least one response to preview the prompt');
+      return;
+    }
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PromptResolutionDialog(
+        prompt: PendingPrompt(
+          id: 'preview-${DateTime.now().millisecondsSinceEpoch}',
+          endpointId: widget.endpoint?.id ?? 'preview',
+          method: method ?? 'ANY',
+          path: patternController.text.trim(),
+          candidates: promptCandidates,
+          timestamp: DateTime.now(),
+        ),
+      ),
+    );
+  }
+
   // =====================================================================
   // Shared section builders — composed differently by each layout.
   // =====================================================================
@@ -299,7 +344,7 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
 
   Widget _methodButton(ArbTokens t) {
     final label = method ?? 'ANY';
-    final color = _methodColor(t, label);
+    final color = t.methodColor(label);
     return PopupMenuButton<String>(
       tooltip: 'HTTP method',
       onSelected: (v) => setState(() => method = v == 'ANY' ? null : v),
@@ -326,23 +371,6 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
         ),
       ),
     );
-  }
-
-  Color _methodColor(ArbTokens t, String method) {
-    switch (method) {
-      case 'GET':
-        return t.green;
-      case 'POST':
-        return const Color(0xFF2563EB);
-      case 'PUT':
-        return const Color(0xFFF59E0B);
-      case 'PATCH':
-        return t.purple;
-      case 'DELETE':
-        return const Color(0xFFDC2626);
-      default:
-        return t.textSecondary;
-    }
   }
 
   Widget buildMatchType() {
@@ -516,6 +544,64 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
           ),
         ),
       ),
+    );
+  }
+
+  /// Query rules vs. a live "Prompt" picker — only offered on the wide-layout
+  /// (desktop) editor for this pass; the mobile editor stays query-only.
+  Widget buildConditionalModeSelector() {
+    return ArbSegmented(
+      segments: const [
+        ArbSegment('Query parameters'),
+        ArbSegment('Prompt'),
+      ],
+      selectedIndex: conditionalMode.index,
+      onChanged: (i) => setState(() => conditionalMode = ConditionalMode.values[i]),
+    );
+  }
+
+  /// Opener row for the prompt-candidates screen, plus a "Preview prompt"
+  /// action that opens the exact same picker dialog a live request would see.
+  Widget buildPromptCandidatesSummary() {
+    final t = ArbTokens.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(t.radius),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(t.radius),
+            onTap: _openPromptCandidatesScreen,
+            child: Container(
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                border: Border.all(color: t.border),
+                borderRadius: BorderRadius.circular(t.radius),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.forum_outlined, size: 18, color: t.accent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${promptCandidates.length} response'
+                      '${promptCandidates.length == 1 ? '' : 's'} · tap to manage',
+                      style: t.sans(size: 13, weight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 18, color: t.textMuted),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton(
+          onPressed: _previewPrompt,
+          child: const Text('Preview prompt'),
+        ),
+      ],
     );
   }
 

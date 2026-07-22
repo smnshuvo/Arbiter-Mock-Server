@@ -15,15 +15,22 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme_data.dart';
 import '../../domain/entities/interception_mode.dart';
 import '../../domain/entities/profile.dart';
+import '../../domain/entities/prompt.dart';
 import '../../domain/repositories/endpoint_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../bloc/dependency_container.dart';
 import '../bloc/interception/interception_bloc.dart';
 import '../bloc/interception/interception_event.dart';
 import '../bloc/interception/interception_state.dart';
+import '../bloc/prompt/prompt_bloc.dart';
+import '../bloc/prompt/prompt_event.dart';
+import '../bloc/prompt/prompt_state.dart';
 import '../bloc/profile/profile_bloc.dart';
 import '../bloc/server/server_bloc.dart';
+import '../core/breakpoints.dart';
 import '../dialog/interception_dialog.dart';
+import '../dialog/prompt_resolution_dialog.dart';
+import 'desktop/desktop_workspace_screen.dart';
 import '../widgets/glowing_icon_widget.dart';
 import '../widgets/grey_out_icon_widget.dart';
 import 'endpoint_screen.dart';
@@ -129,6 +136,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     OverlayService.onInterceptionDrop = dropInterception;
     MenuBarActivityService.onInterceptionDrop = dropInterception;
 
+    OverlayService.onPromptCandidateSelected = _useCandidateFromNative;
+    MenuBarActivityService.onPromptCandidateSelected = _useCandidateFromNative;
+
     // Android overlay extras: open logs and toggle interception directly.
     OverlayService.onOpenLogs = () {
       if (mounted) {
@@ -156,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     context.read<ServerBloc>().add(CheckServerStatusEvent());
     print('HomeScreen: Starting interception watcher');
     context.read<InterceptionBloc>().add(StartWatchingInterceptions());
+    context.read<PromptBloc>().add(StartWatchingPrompts());
     print('HomeScreen: ============================================');
 
     // Profiles are loaded app-wide at startup; if they are already available,
@@ -197,6 +208,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final OverlayService _overlay = OverlayService();
   bool _isForeground = true;
   bool _interceptionDialogOpen = false;
+  bool _promptDialogOpen = false;
 
   /// Shows or hides the floating overlay. The overlay floats over OTHER apps, so
   /// it is shown only when Arbiter is backgrounded (and the Settings toggle is
@@ -274,6 +286,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ).then((_) => _interceptionDialogOpen = false);
   }
 
+  void _showPromptDialog(PromptActive state) {
+    _promptDialogOpen = true;
+    final dismissedId = state.prompt.id;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => BlocProvider.value(
+        value: context.read<PromptBloc>(),
+        child: PromptResolutionDialog(prompt: state.prompt),
+      ),
+    ).then((_) {
+      _promptDialogOpen = false;
+      if (!mounted) return;
+      // A different prompt may already be active by the time this dialog
+      // finishes closing (it was queued behind the one just dismissed) — but
+      // right after resolving, the bloc often hasn't processed that resolve
+      // event yet, so `state` here can still be the SAME prompt we just
+      // answered. Only re-show if the id actually differs, or an
+      // already-resolved prompt reopens itself right after being answered.
+      final current = context.read<PromptBloc>().state;
+      if (current is PromptActive &&
+          current.prompt.id != dismissedId &&
+          _isForeground) {
+        _showPromptDialog(current);
+      }
+    });
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -293,6 +333,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final interceptionState = context.read<InterceptionBloc>().state;
       if (interceptionState is InterceptionPending && !_interceptionDialogOpen) {
         _showInterceptionDialog(interceptionState);
+      }
+      final promptState = context.read<PromptBloc>().state;
+      if (promptState is PromptActive && !_promptDialogOpen) {
+        _showPromptDialog(promptState);
       }
     } else if (state == AppLifecycleState.paused) {
       _isForeground = false;
@@ -339,6 +383,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     } else {
       _menuBar.clearIntercepted();
+    }
+  }
+
+  List<Map<String, dynamic>> _candidateArgs(PendingPrompt prompt) => [
+        for (final c in prompt.candidates)
+          {'id': c.id, 'label': c.label, 'statusCode': c.statusCode, 'body': c.body},
+      ];
+
+  /// Flips the floating overlay to/from a live "Prompt" candidate picker, so
+  /// a response can be chosen right from the overlay when Arbiter isn't the
+  /// focused window — not just a generic "waiting" indicator.
+  void _syncOverlayPrompt(PromptState state) {
+    if (state is PromptActive) {
+      final p = state.prompt;
+      _overlay.setPrompt(
+        id: p.id,
+        method: p.method,
+        url: p.path,
+        candidates: _candidateArgs(p),
+      );
+    } else {
+      _overlay.clearPrompt();
+    }
+  }
+
+  /// Menu bar counterpart of [_syncOverlayPrompt].
+  void _syncMenuBarPrompt(PromptState state) {
+    if (state is PromptActive) {
+      final p = state.prompt;
+      _menuBar.setPrompt(
+        id: p.id,
+        method: p.method,
+        url: p.path,
+        candidates: _candidateArgs(p),
+      );
+    } else {
+      _menuBar.clearPrompt();
+    }
+  }
+
+  /// A candidate was picked directly from the overlay/menu bar picker.
+  void _useCandidateFromNative(String promptId, String candidateId) {
+    if (!mounted) return;
+    final state = context.read<PromptBloc>().state;
+    if (state is! PromptActive || state.prompt.id != promptId) return;
+    for (final candidate in state.prompt.candidates) {
+      if (candidate.id == candidateId) {
+        context.read<PromptBloc>().add(UsePromptCandidateEvent(promptId, candidate));
+        return;
+      }
     }
   }
 
@@ -511,6 +605,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     }
                   },
                 ),
+                BlocListener<PromptBloc, PromptState>(
+                  listener: (context, promptState) {
+                    _syncOverlayPrompt(promptState);
+                    _syncMenuBarPrompt(promptState);
+                    if (promptState is PromptActive &&
+                        _isForeground &&
+                        !_promptDialogOpen) {
+                      _showPromptDialog(promptState);
+                    }
+                  },
+                ),
                 BlocListener<ProfileBloc, ProfileState>(
                   listener: (context, profileState) {
                     if (profileState is ProfileLoaded) {
@@ -519,7 +624,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   },
                 ),
               ],
-              child: _buildContent(state),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth > kWideLayoutBreakpoint) {
+                    return DesktopWorkspaceScreen(
+                      serverState: state,
+                      endpointCounts: _endpointCounts,
+                    );
+                  }
+                  return _buildContent(state);
+                },
+              ),
             );
           },
         ),

@@ -12,11 +12,15 @@ class JsonCodeEditor extends StatelessWidget {
     required this.controller,
     this.onChanged,
     this.minLines = 8,
+    this.readOnly = false,
   });
 
   final TextEditingController controller;
   final ValueChanged<String>? onChanged;
   final int minLines;
+
+  /// View-only: hides the Format button and disables editing.
+  final bool readOnly;
 
   bool _isValid(String raw) {
     final trimmed = raw.trim();
@@ -88,28 +92,31 @@ class JsonCodeEditor extends StatelessWidget {
                     );
                   },
                 ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => _format(context),
-                  style: TextButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    backgroundColor: const Color(0x1A79C0FF),
+                if (!readOnly) ...[
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => _format(context),
+                    style: TextButton.styleFrom(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      backgroundColor: const Color(0x1A79C0FF),
+                    ),
+                    child: Text('Format',
+                        style: t.mono(
+                            size: 11,
+                            weight: FontWeight.w700,
+                            color: const Color(0xFF79C0FF))),
                   ),
-                  child: Text('Format',
-                      style: t.mono(
-                          size: 11,
-                          weight: FontWeight.w700,
-                          color: const Color(0xFF79C0FF))),
-                ),
+                ],
               ],
             ),
           ),
           TextField(
             controller: controller,
             onChanged: onChanged,
+            readOnly: readOnly,
             minLines: minLines,
             maxLines: null,
             keyboardType: TextInputType.multiline,

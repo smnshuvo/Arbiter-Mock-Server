@@ -166,6 +166,34 @@ class JsonTreeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// View-only; expands every container in the tree.
+  void expandAll() {
+    void walk(JsonNode n) {
+      n.collapsed = false;
+      for (final c in n.children) {
+        walk(c);
+      }
+    }
+
+    walk(_root);
+    _rebuildRows();
+    notifyListeners();
+  }
+
+  /// View-only; collapses every container below the root.
+  void collapseAll() {
+    void walk(JsonNode n, int depth) {
+      if (n.isContainer && depth >= 1) n.collapsed = true;
+      for (final c in n.children) {
+        walk(c, depth + 1);
+      }
+    }
+
+    walk(_root, 0);
+    _rebuildRows();
+    notifyListeners();
+  }
+
   void addChild(JsonNode parent) {
     parent.collapsed = false;
     parent.children

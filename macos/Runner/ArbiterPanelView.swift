@@ -10,7 +10,9 @@ struct ArbiterPanelView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      if let held = viewModel.intercepted {
+      if let prompt = viewModel.pendingPrompt {
+        PromptPickerView(viewModel: viewModel, prompt: prompt)
+      } else if let held = viewModel.intercepted {
         InterceptedView(viewModel: viewModel, held: held)
       } else {
         feed
@@ -180,6 +182,83 @@ struct InterceptedView: View {
       }
       .padding(16)
     }
+  }
+}
+
+// MARK: - Prompt candidate picker
+
+/// Live "Prompt" call-to-action: pick one of N candidate responses directly
+/// from the panel — unlike [InterceptedView] there's no single Continue/Edit/
+/// Drop action set, just a list of response titles to tap.
+struct PromptPickerView: View {
+  @ObservedObject var viewModel: MenuBarViewModel
+  let prompt: PendingPromptState
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      SweepBar(color: Color(Palette.blue))
+      VStack(alignment: .leading, spacing: 13) {
+        HStack(spacing: 9) {
+          Circle().fill(Color(Palette.blue)).frame(width: 9, height: 9)
+          Text("Choose a response")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(Color(Palette.blue))
+          Spacer()
+          Text(viewModel.promptHeldLabel)
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundColor(Color(Palette.muted))
+        }
+
+        HStack(spacing: 10) {
+          Text(prompt.method)
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundColor(Color(Palette.method(prompt.method)))
+          Text(prompt.url)
+            .font(.system(size: 13, design: .monospaced))
+            .foregroundColor(Color(Palette.text))
+            .lineLimit(1).truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 11)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.04)))
+
+        VStack(spacing: 8) {
+          ForEach(prompt.candidates) { candidate in
+            PromptCandidateRow(candidate: candidate) {
+              viewModel.actions.onUseCandidate(prompt.id, candidate.id)
+            }
+          }
+        }
+      }
+      .padding(16)
+    }
+  }
+}
+
+struct PromptCandidateRow: View {
+  let candidate: PromptCandidate
+  let onTap: () -> Void
+
+  var body: some View {
+    Button(action: onTap) {
+      HStack(spacing: 10) {
+        Text("\(candidate.statusCode)")
+          .font(.system(size: 11, weight: .bold, design: .monospaced))
+          .foregroundColor(Color(Palette.status(candidate.statusCode)))
+          .frame(width: 32, alignment: .leading)
+        Text(candidate.label)
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundColor(Color(Palette.text))
+          .lineLimit(1).truncationMode(.tail)
+        Spacer()
+        Text("›")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundColor(Color(Palette.muted))
+      }
+      .padding(.horizontal, 12).padding(.vertical, 10)
+      .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.05)))
+    }
+    .buttonStyle(.plain)
   }
 }
 

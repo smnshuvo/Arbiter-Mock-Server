@@ -1,10 +1,17 @@
 import 'package:equatable/equatable.dart';
 
+import 'network_condition.dart';
+
 enum EndpointMode { mock, passThrough }
 
 enum MatchType { exact, wildcard, regex }
 
 enum ConditionalMatchType { queryParam, bodyField }
+
+/// How a conditional match is resolved: deterministically against
+/// [ConditionalMock] rules, or by prompting the developer live with a set of
+/// [PromptCandidateResponse] options to pick from.
+enum ConditionalMode { query, prompt }
 
 /// HTTP methods an endpoint can be scoped to. `ANY` maps to a null
 /// [Endpoint.method] and matches every verb.
@@ -57,6 +64,41 @@ class ConditionalMock extends Equatable {
   }
 }
 
+/// One named response option offered to the developer when a "Prompt"
+/// conditional match fires — they pick or edit one to serve live.
+class PromptCandidateResponse extends Equatable {
+  final String id;
+  final String label;
+  final int statusCode;
+  final String body;
+
+  const PromptCandidateResponse({
+    required this.id,
+    required this.label,
+    this.statusCode = 200,
+    required this.body,
+  });
+
+  @override
+  List<Object?> get props => [id, label, statusCode, body];
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'label': label,
+    'statusCode': statusCode,
+    'body': body,
+  };
+
+  factory PromptCandidateResponse.fromJson(Map<String, dynamic> json) {
+    return PromptCandidateResponse(
+      id: json['id'],
+      label: json['label'],
+      statusCode: json['statusCode'] ?? 200,
+      body: json['body'],
+    );
+  }
+}
+
 class Endpoint extends Equatable {
   final String id;
   final String profileId;
@@ -74,6 +116,14 @@ class Endpoint extends Equatable {
   final List<ConditionalMock> conditionalMocks;
   final bool useConditionalMock;
 
+  /// Simulated link speed for this endpoint. Applies on top of [delayMs].
+  final NetworkCondition networkCondition;
+
+  /// Whether conditional matches resolve against [conditionalMocks] rules or
+  /// prompt the developer live with [promptCandidates].
+  final ConditionalMode conditionalMode;
+  final List<PromptCandidateResponse> promptCandidates;
+
   const Endpoint({
     required this.id,
     this.profileId = 'default',
@@ -90,6 +140,9 @@ class Endpoint extends Equatable {
     this.isEnabled = true,
     this.conditionalMocks = const [],
     this.useConditionalMock = false,
+    this.networkCondition = NetworkCondition.none,
+    this.conditionalMode = ConditionalMode.query,
+    this.promptCandidates = const [],
   });
 
   Endpoint copyWith({
@@ -108,6 +161,9 @@ class Endpoint extends Equatable {
     bool? isEnabled,
     List<ConditionalMock>? conditionalMocks,
     bool? useConditionalMock,
+    NetworkCondition? networkCondition,
+    ConditionalMode? conditionalMode,
+    List<PromptCandidateResponse>? promptCandidates,
   }) {
     return Endpoint(
       id: id ?? this.id,
@@ -125,6 +181,9 @@ class Endpoint extends Equatable {
       isEnabled: isEnabled ?? this.isEnabled,
       conditionalMocks: conditionalMocks ?? this.conditionalMocks,
       useConditionalMock: useConditionalMock ?? this.useConditionalMock,
+      networkCondition: networkCondition ?? this.networkCondition,
+      conditionalMode: conditionalMode ?? this.conditionalMode,
+      promptCandidates: promptCandidates ?? this.promptCandidates,
     );
   }
 
@@ -145,6 +204,9 @@ class Endpoint extends Equatable {
     isEnabled,
     conditionalMocks,
     useConditionalMock,
+    networkCondition,
+    conditionalMode,
+    promptCandidates,
   ];
 }
 

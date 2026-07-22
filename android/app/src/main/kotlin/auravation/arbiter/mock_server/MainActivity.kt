@@ -174,6 +174,18 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "clearIntercepted" -> { OverlayController.clearIntercepted(); result.success(true) }
+                "setPrompt" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val candidates = call.argument<List<Map<String, Any?>>>("candidates") ?: emptyList()
+                    OverlayController.setPrompt(
+                        call.argument<String>("id") ?: "",
+                        call.argument<String>("method") ?: "GET",
+                        call.argument<String>("url") ?: "/",
+                        candidates,
+                    )
+                    result.success(true)
+                }
+                "clearPrompt" -> { OverlayController.clearPrompt(); result.success(true) }
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {

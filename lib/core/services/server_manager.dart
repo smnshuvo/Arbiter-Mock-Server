@@ -1,6 +1,7 @@
 import '../../data/datasources/local/log_local_datasource.dart';
 import '../../data/datasources/server/http_server_service.dart';
 import '../../data/datasources/server/interception_manager.dart';
+import '../../data/datasources/server/prompt_interception_manager.dart';
 import '../../domain/entities/endpoint.dart';
 
 class RunningServerInfo {
@@ -20,6 +21,7 @@ class RunningServerInfo {
 class ServerManager {
   final LogLocalDataSource logDataSource;
   final InterceptionManager interceptionManager;
+  final PromptInterceptionManager promptInterceptionManager;
   final Future<List<Endpoint>> Function(String profileId) onEndpointsNeeded;
   Function(String profileId, String method, String path, String timestamp)? onRequestReceived;
 
@@ -29,6 +31,7 @@ class ServerManager {
   ServerManager({
     required this.logDataSource,
     required this.interceptionManager,
+    required this.promptInterceptionManager,
     required this.onEndpointsNeeded,
     this.onRequestReceived,
   });
@@ -63,6 +66,7 @@ class ServerManager {
     final service = HttpServerService(
       logDataSource: logDataSource,
       interceptionManager: interceptionManager,
+      promptInterceptionManager: promptInterceptionManager,
       profileId: profileId,
       onEndpointsNeeded: () async {
         final endpoints = await onEndpointsNeeded(profileId);

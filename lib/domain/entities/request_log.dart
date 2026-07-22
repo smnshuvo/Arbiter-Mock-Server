@@ -17,6 +17,7 @@ class RequestLog extends Equatable {
   final int responseTimeMs;
   final LogType logType;
   final String? matchedEndpointId;
+  final String? ip;
 
   const RequestLog({
     required this.id,
@@ -31,6 +32,7 @@ class RequestLog extends Equatable {
     required this.responseTimeMs,
     required this.logType,
     this.matchedEndpointId,
+    this.ip,
   });
 
   @override
@@ -47,6 +49,7 @@ class RequestLog extends Equatable {
     responseTimeMs,
     logType,
     matchedEndpointId,
+    ip,
   ];
 }
 

@@ -23,6 +23,9 @@ EndpointModel _$EndpointModelFromJson(Map<String, dynamic> json) =>
       isEnabled: (json['isEnabled'] as num).toInt(),
       conditionalMocksJson: json['conditionalMocksJson'] as String?,
       useConditionalMock: (json['useConditionalMock'] as num).toInt(),
+      networkCondition: json['networkCondition'] as String?,
+      conditionalMode: json['conditionalMode'] as String?,
+      promptCandidatesJson: json['promptCandidatesJson'] as String?,
     );
 
 Map<String, dynamic> _$EndpointModelToJson(EndpointModel instance) =>
@@ -42,4 +45,7 @@ Map<String, dynamic> _$EndpointModelToJson(EndpointModel instance) =>
       'isEnabled': instance.isEnabled,
       'conditionalMocksJson': instance.conditionalMocksJson,
       'useConditionalMock': instance.useConditionalMock,
+      'networkCondition': instance.networkCondition,
+      'conditionalMode': instance.conditionalMode,
+      'promptCandidatesJson': instance.promptCandidatesJson,
     };

@@ -23,6 +23,9 @@ class MenuBarActivityService {
   /// Called when the user chooses to edit a held request/response ("Edit").
   static void Function(String id)? onInterceptionEdit;
 
+  /// Called when the user picks a candidate response for a live "Prompt" hold.
+  static void Function(String promptId, String candidateId)? onPromptCandidateSelected;
+
   static bool get _supported => Platform.isMacOS;
 
   /// Registers the handler for actions coming from the native panel.
@@ -43,6 +46,9 @@ class MenuBarActivityService {
           return true;
         case 'interceptionEdit':
           onInterceptionEdit?.call(id);
+          return true;
+        case 'promptUseCandidate':
+          onPromptCandidateSelected?.call(id, args['candidateId'] as String? ?? '');
           return true;
         default:
           return false;
@@ -103,6 +109,24 @@ class MenuBarActivityService {
 
   /// Returns the panel to the live feed.
   Future<void> clearIntercepted() => _invoke('clearIntercepted');
+
+  /// Flips the panel to a live "Prompt" candidate picker — [candidates] are
+  /// maps of `{id, label, statusCode, body}`, one per selectable response.
+  Future<void> setPrompt({
+    required String id,
+    required String method,
+    required String url,
+    required List<Map<String, dynamic>> candidates,
+  }) =>
+      _invoke('setPrompt', {
+        'id': id,
+        'method': method,
+        'url': url,
+        'candidates': candidates,
+      });
+
+  /// Returns the panel to the live feed.
+  Future<void> clearPrompt() => _invoke('clearPrompt');
 
   Future<void> _invoke(String method, [Map<String, dynamic>? args]) async {
     if (!_supported) return;
