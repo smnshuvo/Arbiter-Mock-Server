@@ -1,5 +1,6 @@
 import '../repositories/server_repository.dart';
 import '../entities/interception_mode.dart';
+import '../entities/network_condition.dart';
 import '../../core/services/server_manager.dart';
 
 class StartServer {
@@ -173,6 +174,7 @@ class StartProfile {
     bool useDeviceIp = false,
     String? passThroughUrl,
     bool autoPassThrough = false,
+    NetworkCondition networkCondition = NetworkCondition.none,
   }) async {
     await repository.startProfile(
       profileId: profileId,
@@ -181,7 +183,17 @@ class StartProfile {
       useDeviceIp: useDeviceIp,
       passThroughUrl: passThroughUrl,
       autoPassThrough: autoPassThrough,
+      networkCondition: networkCondition,
     );
+  }
+}
+
+class SetProfileNetworkCondition {
+  final ServerRepository repository;
+  SetProfileNetworkCondition(this.repository);
+
+  void call(String profileId, NetworkCondition condition) {
+    repository.setProfileNetworkCondition(profileId, condition);
   }
 }
 

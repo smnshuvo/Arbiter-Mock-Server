@@ -3,6 +3,7 @@ import '../../data/datasources/server/http_server_service.dart';
 import '../../data/datasources/server/interception_manager.dart';
 import '../../data/datasources/server/prompt_interception_manager.dart';
 import '../../domain/entities/endpoint.dart';
+import '../../domain/entities/network_condition.dart';
 
 class RunningServerInfo {
   final String profileId;
@@ -60,6 +61,7 @@ class ServerManager {
     bool useDeviceIp = false,
     String? passThroughUrl,
     bool autoPassThrough = false,
+    NetworkCondition networkCondition = NetworkCondition.none,
   }) async {
     if (_servers.containsKey(profileId)) return;
 
@@ -79,6 +81,13 @@ class ServerManager {
 
     if (passThroughUrl != null) service.globalPassThroughUrl = passThroughUrl;
     service.autoPassThrough = autoPassThrough;
+    service.profileNetworkCondition = networkCondition;
+
+    // Warm the endpoint cache before accepting any requests — otherwise a
+    // fresh HttpServerService starts with an empty cache and the very first
+    // request races the per-request lazy refresh (onEndpointsNeeded above),
+    // which is fire-and-forget and won't have completed in time. 404.
+    service.updateEndpoints(await onEndpointsNeeded(profileId));
 
     await service.start(port, useDeviceIp: useDeviceIp);
     _servers[profileId] = service;
@@ -101,5 +110,11 @@ class ServerManager {
 
   void updateEndpoints(String profileId, List<Endpoint> endpoints) {
     _servers[profileId]?.updateEndpoints(endpoints);
+  }
+
+  /// Applies a profile's network-throttle setting to its already-running
+  /// server immediately, without needing a restart.
+  void setNetworkCondition(String profileId, NetworkCondition condition) {
+    _servers[profileId]?.profileNetworkCondition = condition;
   }
 }

@@ -67,7 +67,7 @@ class _JsonDocsScreenState extends State<JsonDocsScreen> {
                           children: [
                             for (final doc in _c.docs)
                               JsonDocumentView(
-                                key: ValueKey(doc.path),
+                                key: ValueKey(doc.id),
                                 doc: doc,
                                 onChanged: _c.touch,
                                 onSave: () => _save(doc),

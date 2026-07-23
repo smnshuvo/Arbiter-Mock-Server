@@ -13,6 +13,7 @@ abstract class LogLocalDataSource {
   Future<void> insertLog(RequestLogModel log);
   Future<void> clearLogs();
   Future<void> clearFilteredLogs(LogFilter filter);
+  Future<void> deleteLogsByIds(List<String> ids);
   Stream<RequestLog> get newLogStream;
 }
 
@@ -186,6 +187,17 @@ class LogLocalDataSourceImpl implements LogLocalDataSource {
       'request_logs',
       where: whereClause.isEmpty ? null : whereClause,
       whereArgs: whereArgs.isEmpty ? null : whereArgs,
+    );
+  }
+
+  @override
+  Future<void> deleteLogsByIds(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await databaseHelper.database;
+    await db.delete(
+      'request_logs',
+      where: 'id IN (${List.filled(ids.length, '?').join(',')})',
+      whereArgs: ids,
     );
   }
 }

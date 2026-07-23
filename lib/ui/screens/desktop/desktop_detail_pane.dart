@@ -1,20 +1,40 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/arbiter_tokens.dart';
 import '../../../domain/entities/request_log.dart';
 import '../endpoint_editor/widgets/json_body_viewer.dart';
+import '../json_docs/android_json_editor_screen.dart';
+import '../json_docs/json_docs_controller.dart';
+import '../json_docs/json_docs_screen.dart';
 
 /// Right pane of the wide-layout workspace: request/response detail for the
-/// selected log row, or an empty state when nothing is selected.
-class DesktopDetailPane extends StatelessWidget {
+/// selected log row, or an empty state when nothing is selected. Also reused
+/// as the body of [MobileDetailScreen] on phones.
+class DesktopDetailPane extends StatefulWidget {
   final RequestLog? log;
 
   const DesktopDetailPane({super.key, required this.log});
 
   @override
+  State<DesktopDetailPane> createState() => _DesktopDetailPaneState();
+}
+
+class _DesktopDetailPaneState extends State<DesktopDetailPane> {
+  bool _headersExpanded = true;
+
+  void _openInEditor(String title, String content) {
+    JsonDocsController.instance.openInMemory(title: title, content: content);
+    final screen =
+        Platform.isAndroid ? const AndroidJsonEditorScreen() : const JsonDocsScreen();
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = ArbTokens.of(context);
-    final log = this.log;
+    final log = widget.log;
     if (log == null) {
       return Container(
         color: t.canvas,
@@ -60,16 +80,45 @@ class DesktopDetailPane extends StatelessWidget {
               _deviceChip(t, log),
             ],
             const SizedBox(height: 18),
-            Text('HEADERS', style: t.label),
+            InkWell(
+              onTap: () => setState(() => _headersExpanded = !_headersExpanded),
+              child: Row(
+                children: [
+                  Text('HEADERS', style: t.label),
+                  const SizedBox(width: 4),
+                  Icon(_headersExpanded ? Icons.expand_less : Icons.expand_more,
+                      size: 16, color: t.textMuted),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
-            _plainBox(t, log.headers.entries.map((e) => '${e.key}: ${e.value}').join('\n')),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              alignment: Alignment.topCenter,
+              child: _headersExpanded
+                  ? _plainBox(
+                      t, log.headers.entries.map((e) => '${e.key}: ${e.value}').join('\n'))
+                  : const SizedBox(width: double.infinity),
+            ),
             if (log.requestBody != null && log.requestBody!.isNotEmpty) ...[
               const SizedBox(height: 16),
-              JsonBodyViewer(label: 'REQUEST BODY', jsonString: log.requestBody!),
+              JsonBodyViewer(
+                label: 'REQUEST BODY',
+                jsonString: log.requestBody!,
+                onOpenInEditor: () => _openInEditor(
+                    '${log.method.name.toUpperCase()} ${_displayPath(log.url)} · request',
+                    log.requestBody!),
+              ),
             ],
             const SizedBox(height: 16),
             if (log.responseBody != null && log.responseBody!.isNotEmpty)
-              JsonBodyViewer(label: 'RESPONSE BODY', jsonString: log.responseBody!)
+              JsonBodyViewer(
+                label: 'RESPONSE BODY',
+                jsonString: log.responseBody!,
+                onOpenInEditor: () => _openInEditor(
+                    '${log.method.name.toUpperCase()} ${_displayPath(log.url)} · response',
+                    log.responseBody!),
+              )
             else ...[
               Text('RESPONSE BODY', style: t.label),
               const SizedBox(height: 8),

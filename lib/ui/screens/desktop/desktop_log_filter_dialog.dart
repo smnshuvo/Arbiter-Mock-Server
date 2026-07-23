@@ -4,9 +4,8 @@ import '../../../core/theme/arbiter_tokens.dart';
 import '../../../domain/entities/request_log.dart';
 import '../../../domain/repositories/log_repository.dart';
 
-/// Desktop-styled filter popover for the logs pane. Replaces the mobile
-/// full-screen [LogFilterScreen] route with an ArbTokens dialog so filtering
-/// doesn't navigate away from the 3-pane workspace.
+/// ArbTokens-styled filter dialog for the logs pane — used on both the
+/// desktop 3-pane workspace and [MobileLogsScreen].
 class DesktopLogFilterDialog extends StatefulWidget {
   final LogFilter? currentFilter;
   final List<String> availableIps;

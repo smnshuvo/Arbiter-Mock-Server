@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import '../../../core/services/server_manager.dart';
 import '../../../domain/entities/endpoint.dart';
 import '../../../domain/entities/request_log.dart';
 import '../../../domain/exceptions/endpoint_exceptions.dart';
@@ -150,6 +151,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
   final ExportEndpoints exportEndpoints;
   final ToggleAllEndpoints toggleAllEndpoints;
   final BatchCreateEndpointsFromLogs batchCreateEndpointsFromLogs;
+  final ServerManager serverManager;
 
   EndpointBloc({
     required this.getAllEndpoints,
@@ -160,6 +162,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     required this.exportEndpoints,
     required this.toggleAllEndpoints,
     required this.batchCreateEndpointsFromLogs,
+    required this.serverManager,
   }) : super(EndpointInitial()) {
     on<LoadEndpointsEvent>(_onLoadEndpoints);
     on<CreateEndpointEvent>(_onCreateEndpoint);
@@ -175,6 +178,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     emit(EndpointLoading());
     try {
       final endpoints = await getAllEndpoints(profileId: event.profileId);
+      serverManager.updateEndpoints(event.profileId, endpoints);
       emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
@@ -185,6 +189,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     try {
       await createEndpoint(event.endpoint);
       final endpoints = await getAllEndpoints(profileId: event.endpoint.profileId);
+      serverManager.updateEndpoints(event.endpoint.profileId, endpoints);
       emit(EndpointLoaded(endpoints, event.endpoint.profileId));
     } on DuplicateEndpointException catch (e) {
       emit(EndpointDuplicateFound(existing: e.existing, incoming: event.endpoint));
@@ -197,6 +202,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     try {
       await updateEndpoint(event.endpoint);
       final endpoints = await getAllEndpoints(profileId: event.endpoint.profileId);
+      serverManager.updateEndpoints(event.endpoint.profileId, endpoints);
       emit(EndpointLoaded(endpoints, event.endpoint.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
@@ -207,6 +213,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     try {
       await deleteEndpoint(event.id);
       final endpoints = await getAllEndpoints(profileId: event.profileId);
+      serverManager.updateEndpoints(event.profileId, endpoints);
       emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
@@ -218,6 +225,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     try {
       await importEndpoints(event.endpoints, profileId: event.profileId);
       final endpoints = await getAllEndpoints(profileId: event.profileId);
+      serverManager.updateEndpoints(event.profileId, endpoints);
       emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
@@ -229,6 +237,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
       final jsonData = await exportEndpoints(profileId: event.profileId);
       emit(EndpointExported(jsonData));
       final endpoints = await getAllEndpoints(profileId: event.profileId);
+      serverManager.updateEndpoints(event.profileId, endpoints);
       emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
@@ -239,6 +248,7 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
     try {
       await toggleAllEndpoints(profileId: event.profileId, enabled: event.enabled);
       final endpoints = await getAllEndpoints(profileId: event.profileId);
+      serverManager.updateEndpoints(event.profileId, endpoints);
       emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
@@ -253,6 +263,8 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
         profileId: event.profileId,
         delayMs: event.delayMs,
       );
+      final endpoints = await getAllEndpoints(profileId: event.profileId);
+      serverManager.updateEndpoints(event.profileId, endpoints);
       emit(BatchCreateSuccessState(created, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));

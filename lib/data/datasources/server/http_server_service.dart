@@ -63,6 +63,11 @@ class HttpServerService {
 
   set autoPassThrough(bool value) => _autoPassThrough = value;
 
+  /// Server-wide simulated link speed, applied to every response (mock,
+  /// pass-through, and unmatched) whose matched endpoint doesn't set its own
+  /// throttled [NetworkCondition] — an endpoint's own setting always wins.
+  NetworkCondition profileNetworkCondition = NetworkCondition.none;
+
   Future<void> start(int port, {bool useDeviceIp = false}) async {
     if (_server != null) {
       throw Exception('Server is already running');
@@ -197,7 +202,8 @@ class HttpServerService {
               endpointId: matchedEndpoint.id,
               method: method,
               path: url,
-              candidates: matchedEndpoint.promptCandidates,
+              candidates:
+                  matchedEndpoint.promptCandidates.where((c) => c.isEnabled).toList(),
             );
             mockResponseToUse = choice.body;
             statusCodeToUse = choice.statusCode;
@@ -255,20 +261,26 @@ class HttpServerService {
         logType = LogType.mock;
       }
 
-      // Simulate the endpoint's link speed. Runs once the body exists so the
-      // transfer term can be derived from its real size, and stacks on top of
-      // the endpoint's manual delayMs.
-      if (matchedEndpoint != null &&
-          matchedEndpoint.isEnabled &&
-          matchedEndpoint.networkCondition.isThrottled) {
-        final spec = matchedEndpoint.networkCondition.spec;
+      // Simulate the link speed. Runs once the body exists so the transfer
+      // term can be derived from its real size, and stacks on top of the
+      // endpoint's manual delayMs. An endpoint's own throttled condition wins;
+      // otherwise fall back to the profile-wide condition so it also applies
+      // to pass-through and unmatched (404) traffic.
+      final endpointCondition =
+          (matchedEndpoint != null && matchedEndpoint.isEnabled)
+              ? matchedEndpoint.networkCondition
+              : NetworkCondition.none;
+      final effectiveCondition =
+          endpointCondition.isThrottled ? endpointCondition : profileNetworkCondition;
+      if (effectiveCondition.isThrottled) {
+        final spec = effectiveCondition.spec;
         if (spec.rollTimeout()) {
           // Unstable link: hang, then fail the way a dead connection does.
           await Future.delayed(Duration(milliseconds: spec.timeoutAfterMs));
           responseBody = jsonEncode({
             'error': 'Connection timed out',
             'simulated': true,
-            'networkCondition': matchedEndpoint.networkCondition.name,
+            'networkCondition': effectiveCondition.name,
           });
           statusCode = 504;
           responseHeaders = {'Content-Type': 'application/json'};

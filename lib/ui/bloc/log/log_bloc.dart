@@ -32,6 +32,15 @@ class ClearFilteredLogsEvent extends LogEvent {
   List<Object?> get props => [filter];
 }
 
+class DeleteLogsEvent extends LogEvent {
+  final List<String> ids;
+  final LogFilter? refreshFilter;
+  DeleteLogsEvent(this.ids, {this.refreshFilter});
+
+  @override
+  List<Object?> get props => [ids, refreshFilter];
+}
+
 class ExportLogsEvent extends LogEvent {
   final LogFilter? filter;
   ExportLogsEvent({this.filter});
@@ -122,6 +131,7 @@ class LogBloc extends Bloc<LogEvent, LogState> {
   final GetAllLogs getAllLogs;
   final ClearLogs clearLogs;
   final ClearFilteredLogs clearFilteredLogs;
+  final DeleteLogsByIds deleteLogsByIds;
   final ExportLogs exportLogs;
   final WatchNewLogs watchNewLogs;
 
@@ -131,12 +141,14 @@ class LogBloc extends Bloc<LogEvent, LogState> {
     required this.getAllLogs,
     required this.clearLogs,
     required this.clearFilteredLogs,
+    required this.deleteLogsByIds,
     required this.exportLogs,
     required this.watchNewLogs,
   }) : super(LogInitial()) {
     on<LoadLogsEvent>(_onLoadLogs);
     on<ClearLogsEvent>(_onClearLogs);
     on<ClearFilteredLogsEvent>(_onClearFilteredLogs);
+    on<DeleteLogsEvent>(_onDeleteLogs);
     on<ExportLogsEvent>(_onExportLogs);
     on<ApplyFilterEvent>(_onApplyFilter);
     on<StartWatchingLogsEvent>(_onStartWatching);
@@ -177,6 +189,19 @@ class LogBloc extends Bloc<LogEvent, LogState> {
       final wasStreaming = state is LogLoaded && (state as LogLoaded).isStreaming;
       final logs = await getAllLogs(filter: event.filter);
       emit(LogLoaded(logs, currentFilter: event.filter, isStreaming: wasStreaming));
+    } catch (e) {
+      emit(LogError(e.toString()));
+    }
+  }
+
+  Future<void> _onDeleteLogs(DeleteLogsEvent event, Emitter<LogState> emit) async {
+    try {
+      await deleteLogsByIds(event.ids);
+      final wasStreaming = state is LogLoaded && (state as LogLoaded).isStreaming;
+      final currentFilter =
+          event.refreshFilter ?? (state is LogLoaded ? (state as LogLoaded).currentFilter : null);
+      final logs = await getAllLogs(filter: currentFilter);
+      emit(LogLoaded(logs, currentFilter: currentFilter, isStreaming: wasStreaming));
     } catch (e) {
       emit(LogError(e.toString()));
     }

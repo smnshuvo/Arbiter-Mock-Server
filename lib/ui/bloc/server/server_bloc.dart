@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../core/services/server_manager.dart';
+import '../../../domain/entities/network_condition.dart';
 import '../../../domain/usecases/server_usecases.dart';
 
 // Events
@@ -64,6 +65,7 @@ class StartProfileEvent extends ServerEvent {
   final bool useDeviceIp;
   final String? passThroughUrl;
   final bool autoPassThrough;
+  final NetworkCondition networkCondition;
 
   StartProfileEvent({
     required this.profileId,
@@ -72,10 +74,12 @@ class StartProfileEvent extends ServerEvent {
     this.useDeviceIp = false,
     this.passThroughUrl,
     this.autoPassThrough = false,
+    this.networkCondition = NetworkCondition.none,
   });
 
   @override
-  List<Object?> get props => [profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough];
+  List<Object?> get props =>
+      [profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough, networkCondition];
 }
 
 class StopProfileEvent extends ServerEvent {
@@ -87,6 +91,17 @@ class StopProfileEvent extends ServerEvent {
 }
 
 class StopAllProfilesEvent extends ServerEvent {}
+
+/// Live-applies a profile's network-throttle setting to its already-running
+/// server, so it takes effect immediately without a restart.
+class SetProfileNetworkConditionEvent extends ServerEvent {
+  final String profileId;
+  final NetworkCondition condition;
+  SetProfileNetworkConditionEvent(this.profileId, this.condition);
+
+  @override
+  List<Object?> get props => [profileId, condition];
+}
 
 // States
 abstract class ServerState extends Equatable {
@@ -176,6 +191,7 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
   final StopProfile stopProfile;
   final StopAllProfiles stopAllProfiles;
   final GetRunningServers getRunningServers;
+  final SetProfileNetworkCondition setProfileNetworkCondition;
 
   ServerBloc({
     required this.startServer,
@@ -194,6 +210,7 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     required this.stopProfile,
     required this.stopAllProfiles,
     required this.getRunningServers,
+    required this.setProfileNetworkCondition,
   }) : super(ServerInitial()) {
     on<StartServerEvent>(_onStartServer);
     on<StopServerEvent>(_onStopServer);
@@ -206,6 +223,12 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     on<StartProfileEvent>(_onStartProfile);
     on<StopProfileEvent>(_onStopProfile);
     on<StopAllProfilesEvent>(_onStopAllProfiles);
+    on<SetProfileNetworkConditionEvent>(_onSetProfileNetworkCondition);
+  }
+
+  void _onSetProfileNetworkCondition(
+      SetProfileNetworkConditionEvent event, Emitter<ServerState> emit) {
+    setProfileNetworkCondition(event.profileId, event.condition);
   }
 
   Future<void> _onStartServer(StartServerEvent event, Emitter<ServerState> emit) async {
@@ -413,6 +436,7 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
         useDeviceIp: event.useDeviceIp,
         passThroughUrl: event.passThroughUrl,
         autoPassThrough: event.autoPassThrough,
+        networkCondition: event.networkCondition,
       );
       final running = getRunningServers();
       if (running.length > 1) {

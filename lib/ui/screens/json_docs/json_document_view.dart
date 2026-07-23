@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 
@@ -184,10 +183,11 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
         : Text(doc.dirty ? 'Save' : 'Saved',
             style: t.sans(size: 13, weight: FontWeight.w700, color: Colors.white));
 
-    // macOS: plain Save (in-place always works under the security scope).
-    if (!Platform.isAndroid) {
-      return FilledButton(
-        onPressed: enabled ? _handleSave : null,
+    // No backing file (e.g. a log body opened from RAM) — there's nothing to
+    // overwrite in place, so only "Save as" makes sense, on every platform.
+    if (doc.isInMemory) {
+      return FilledButton.icon(
+        onPressed: doc.saving ? null : _handleSaveAs,
         style: FilledButton.styleFrom(
           backgroundColor: t.accent,
           disabledBackgroundColor: t.accent.withValues(alpha: 0.5),
@@ -196,11 +196,20 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
             borderRadius: BorderRadius.circular(t.radiusSm),
           ),
         ),
-        child: label(),
+        icon: doc.saving
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.save_as_outlined, size: 16, color: Colors.white),
+        label: Text('Save as…',
+            style: t.sans(size: 13, weight: FontWeight.w700, color: Colors.white)),
       );
     }
 
-    // Android: split button — Save (long-press = Save as…) + a caret menu.
+    // Split button on every platform — Save (long-press = Save as…) + a caret
+    // menu, since Save as… now has a real implementation everywhere.
     final r = Radius.circular(t.radiusSm);
     final bg = enabled || doc.saving ? t.accent : t.accent.withValues(alpha: 0.5);
     return Row(

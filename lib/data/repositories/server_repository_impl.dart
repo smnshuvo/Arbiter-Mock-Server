@@ -3,6 +3,7 @@ import '../../core/utils/network_utils.dart';
 import '../../core/services/foreground_service.dart';
 import '../../data/datasources/server/interception_manager.dart';
 import '../../domain/entities/interception_mode.dart';
+import '../../domain/entities/network_condition.dart';
 import '../../domain/repositories/server_repository.dart';
 
 class ServerRepositoryImpl implements ServerRepository {
@@ -94,6 +95,7 @@ class ServerRepositoryImpl implements ServerRepository {
     bool useDeviceIp = false,
     String? passThroughUrl,
     bool autoPassThrough = false,
+    NetworkCondition networkCondition = NetworkCondition.none,
   }) async {
     if (serverManager.getRunningCount() == 0) {
       await foregroundService.startForegroundService();
@@ -105,7 +107,13 @@ class ServerRepositoryImpl implements ServerRepository {
       useDeviceIp: useDeviceIp,
       passThroughUrl: passThroughUrl,
       autoPassThrough: autoPassThrough,
+      networkCondition: networkCondition,
     );
+  }
+
+  @override
+  void setProfileNetworkCondition(String profileId, NetworkCondition condition) {
+    serverManager.setNetworkCondition(profileId, condition);
   }
 
   @override

@@ -72,21 +72,43 @@ class PromptCandidateResponse extends Equatable {
   final int statusCode;
   final String body;
 
+  /// Disabled candidates are hidden from the live picker (and skipped as the
+  /// auto-timeout fallback) without losing the saved draft — same semantic
+  /// as [Endpoint.isEnabled].
+  final bool isEnabled;
+
   const PromptCandidateResponse({
     required this.id,
     required this.label,
     this.statusCode = 200,
     required this.body,
+    this.isEnabled = true,
   });
 
+  PromptCandidateResponse copyWith({
+    String? label,
+    int? statusCode,
+    String? body,
+    bool? isEnabled,
+  }) {
+    return PromptCandidateResponse(
+      id: id,
+      label: label ?? this.label,
+      statusCode: statusCode ?? this.statusCode,
+      body: body ?? this.body,
+      isEnabled: isEnabled ?? this.isEnabled,
+    );
+  }
+
   @override
-  List<Object?> get props => [id, label, statusCode, body];
+  List<Object?> get props => [id, label, statusCode, body, isEnabled];
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'label': label,
     'statusCode': statusCode,
     'body': body,
+    'isEnabled': isEnabled,
   };
 
   factory PromptCandidateResponse.fromJson(Map<String, dynamic> json) {
@@ -95,6 +117,7 @@ class PromptCandidateResponse extends Equatable {
       label: json['label'],
       statusCode: json['statusCode'] ?? 200,
       body: json['body'],
+      isEnabled: json['isEnabled'] ?? true,
     );
   }
 }

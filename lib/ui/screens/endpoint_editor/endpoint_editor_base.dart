@@ -289,8 +289,9 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
   }
 
   void _previewPrompt() {
-    if (promptCandidates.isEmpty) {
-      _snack('Add at least one response to preview the prompt');
+    final enabledCandidates = promptCandidates.where((c) => c.isEnabled).toList();
+    if (enabledCandidates.isEmpty) {
+      _snack('Add at least one enabled response to preview the prompt');
       return;
     }
     showDialog(
@@ -302,7 +303,7 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
           endpointId: widget.endpoint?.id ?? 'preview',
           method: method ?? 'ANY',
           path: patternController.text.trim(),
-          candidates: promptCandidates,
+          candidates: enabledCandidates,
           timestamp: DateTime.now(),
         ),
       ),

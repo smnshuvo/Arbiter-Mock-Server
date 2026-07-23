@@ -29,6 +29,13 @@ class NetworkConditionField extends StatelessWidget {
       tooltip: 'Simulated network',
       initialValue: value,
       onSelected: onChanged,
+      color: t.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 6,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(t.radiusSm),
+        side: BorderSide(color: t.border),
+      ),
       itemBuilder: (_) => [
         for (final c in NetworkCondition.values)
           PopupMenuItem(

@@ -43,6 +43,16 @@ class ClearFilteredLogs {
   }
 }
 
+class DeleteLogsByIds {
+  final LogRepository repository;
+
+  DeleteLogsByIds(this.repository);
+
+  Future<void> call(List<String> ids) async {
+    await repository.deleteLogsByIds(ids);
+  }
+}
+
 class ExportLogs {
   final LogRepository repository;
 

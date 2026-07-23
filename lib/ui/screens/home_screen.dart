@@ -33,9 +33,9 @@ import '../dialog/prompt_resolution_dialog.dart';
 import 'desktop/desktop_workspace_screen.dart';
 import '../widgets/glowing_icon_widget.dart';
 import '../widgets/grey_out_icon_widget.dart';
-import 'endpoint_screen.dart';
 import 'file_server_screen.dart';
-import 'logs_screen.dart';
+import 'mobile/mobile_endpoints_screen.dart';
+import 'mobile/mobile_logs_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -144,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const LogsScreen()),
+          MaterialPageRoute(builder: (context) => const MobileLogsScreen()),
         );
       }
     };
@@ -553,7 +553,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     context.read<ProfileBloc>().add(SwitchActiveProfileEvent(profile.id));
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const EndpointsScreen()),
+      MaterialPageRoute(builder: (context) => const MobileEndpointsScreen()),
     );
     if (!mounted) return;
     final profileState = context.read<ProfileBloc>().state;
@@ -802,7 +802,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           tooltip: 'Logs',
           onPressed: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => const LogsScreen()),
+            MaterialPageRoute(builder: (context) => const MobileLogsScreen()),
           ),
         ),
         IconButton(
@@ -1269,6 +1269,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             useDeviceIp: useDeviceIp,
             passThroughUrl: passThroughUrl,
             autoPassThrough: autoPassThrough,
+            networkCondition: profile.settings.networkCondition,
           ));
           // Full-screen ad on server start, throttled to once per hour.
           sl<AdService>().maybeShowInterstitial(

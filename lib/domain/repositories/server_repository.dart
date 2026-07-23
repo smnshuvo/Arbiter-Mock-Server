@@ -1,4 +1,5 @@
 import '../entities/interception_mode.dart';
+import '../entities/network_condition.dart';
 import '../../core/services/server_manager.dart';
 
 abstract class ServerRepository {
@@ -25,11 +26,13 @@ abstract class ServerRepository {
     bool useDeviceIp,
     String? passThroughUrl,
     bool autoPassThrough,
+    NetworkCondition networkCondition,
   });
   Future<void> stopProfile(String profileId);
   Future<void> stopAllProfiles();
   bool isProfileRunning(String profileId);
   List<RunningServerInfo> getRunningServers();
+  void setProfileNetworkCondition(String profileId, NetworkCondition condition);
 
   // Interception methods
   Future<void> setInterceptionEnabled(bool enabled);

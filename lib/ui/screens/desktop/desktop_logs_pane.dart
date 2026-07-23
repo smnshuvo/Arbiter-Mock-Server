@@ -15,7 +15,7 @@ import 'desktop_log_filter_dialog.dart';
 
 /// Middle pane of the wide-layout workspace: the activity/logs feed for the
 /// selected server, with multi-select → "New collection" / "Add to
-/// collection", mirroring `LogsScreen`'s selection flow in a narrower pane.
+/// collection". Also reused as the body of [MobileLogsScreen] on phones.
 class DesktopLogsPane extends StatefulWidget {
   final String profileId;
   final String? selectedLogId;
@@ -35,10 +35,25 @@ class DesktopLogsPane extends StatefulWidget {
 class _DesktopLogsPaneState extends State<DesktopLogsPane> {
   LogFilter? _currentFilter;
   final Set<String> _selectedLogIds = {};
+  bool _selectionMode = false;
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      _selectedLogIds.clear();
+    });
+  }
+
+  /// Captured up front rather than looked up in [dispose] — by the time this
+  /// pane is torn down (e.g. toggling the middle pane to Endpoints), the
+  /// element is mid-unmount and `context.read` can throw walking back up to
+  /// the provider.
+  late final LogBloc _logBloc;
 
   @override
   void initState() {
     super.initState();
+    _logBloc = context.read<LogBloc>();
     _startWatching();
   }
 
@@ -49,6 +64,7 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
       setState(() {
         _currentFilter = null;
         _selectedLogIds.clear();
+        _selectionMode = false;
       });
       _startWatching();
     }
@@ -56,13 +72,13 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
 
   @override
   void dispose() {
-    context.read<LogBloc>().add(StopWatchingLogsEvent());
+    _logBloc.add(StopWatchingLogsEvent());
     super.dispose();
   }
 
   void _startWatching() {
     final filter = (_currentFilter ?? const LogFilter()).copyWith(profileId: widget.profileId);
-    context.read<LogBloc>().add(StartWatchingLogsEvent(filter: filter));
+    _logBloc.add(StartWatchingLogsEvent(filter: filter));
   }
 
   bool get _filterActive {
@@ -97,8 +113,9 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildToolbar(context, t, logs),
-              if (_selectedLogIds.isNotEmpty) _buildSelectionBar(context, t, logs),
+              _selectionMode
+                  ? _buildSelectionBar(context, t, logs)
+                  : _buildToolbar(context, t, logs),
               Expanded(
                 child: logs.isEmpty
                     ? (loading
@@ -129,6 +146,12 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
                 style: t.sans(size: 13, weight: FontWeight.w600, color: t.textSecondary)),
           ),
           IconButton(
+            tooltip: _selectionMode ? 'Exit selection' : 'Select requests',
+            icon: Icon(_selectionMode ? Icons.close : Icons.checklist,
+                size: 20, color: _selectionMode ? t.accent : t.textSecondary),
+            onPressed: logs.isEmpty && !_selectionMode ? null : _toggleSelectionMode,
+          ),
+          IconButton(
             tooltip: 'Clear logs',
             icon: Icon(Icons.delete_sweep_outlined, size: 20, color: t.textSecondary),
             onPressed: logs.isEmpty ? null : () => _confirmClearLogs(),
@@ -145,6 +168,7 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
   }
 
   Widget _buildSelectionBar(BuildContext context, ArbTokens t, List<RequestLog> logs) {
+    final hasSelection = _selectedLogIds.isNotEmpty;
     return Container(
       color: t.accentSoft,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -154,13 +178,20 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
               style: t.sans(size: 12.5, weight: FontWeight.w700, color: t.accent)),
           const Spacer(),
           TextButton(
-            onPressed: () => setState(_selectedLogIds.clear),
-            child: Text('Clear', style: t.sans(size: 12, color: t.textSecondary)),
+            onPressed: _toggleSelectionMode,
+            child: Text('Cancel', style: t.sans(size: 12, color: t.textSecondary)),
+          ),
+          IconButton(
+            tooltip: 'Delete selected',
+            icon: Icon(Icons.delete_outline, size: 20,
+                color: hasSelection ? const Color(0xFFDC2626) : t.textMuted),
+            onPressed: hasSelection ? () => _confirmDeleteSelected(logs) : null,
           ),
           IconButton(
             tooltip: 'New collection',
-            icon: Icon(Icons.create_new_folder_outlined, size: 20, color: t.accent),
-            onPressed: () => _createCollectionFromSelection(logs),
+            icon: Icon(Icons.create_new_folder_outlined, size: 20,
+                color: hasSelection ? t.accent : t.textMuted),
+            onPressed: hasSelection ? () => _createCollectionFromSelection(logs) : null,
           ),
           BlocBuilder<ProfileBloc, ProfileState>(
             builder: (context, profileState) {
@@ -168,7 +199,15 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
                   profileState is ProfileLoaded ? profileState.profiles : <Profile>[];
               return PopupMenuButton<String>(
                 tooltip: 'Add to collection',
-                icon: Icon(Icons.playlist_add, size: 20, color: t.textSecondary),
+                icon: Icon(Icons.playlist_add, size: 20,
+                    color: hasSelection ? t.textSecondary : t.textMuted),
+                enabled: hasSelection,
+                color: t.surface,
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(t.radiusSm),
+                  side: BorderSide(color: t.border),
+                ),
                 onSelected: (profileId) => _addSelectionToProfile(logs, profileId),
                 itemBuilder: (context) => profiles
                     .map((p) => PopupMenuItem(value: p.id, child: Text(p.name)))
@@ -208,17 +247,19 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
               dense: true,
               shape:
                   RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusSm)),
-              leading: Checkbox(
-                value: selected,
-                activeColor: t.accent,
-                onChanged: (v) => setState(() {
-                  if (v == true) {
-                    _selectedLogIds.add(log.id);
-                  } else {
-                    _selectedLogIds.remove(log.id);
-                  }
-                }),
-              ),
+              leading: _selectionMode
+                  ? Checkbox(
+                      value: selected,
+                      activeColor: t.accent,
+                      onChanged: (v) => setState(() {
+                        if (v == true) {
+                          _selectedLogIds.add(log.id);
+                        } else {
+                          _selectedLogIds.remove(log.id);
+                        }
+                      }),
+                    )
+                  : null,
               title: Row(
                 children: [
                   _methodChip(t, log.method.name.toUpperCase()),
@@ -235,7 +276,19 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
                 '${log.ip != null ? ' · ${log.ip}' : ''}',
                 style: t.mono(size: 10.5, color: t.textMuted),
               ),
-              onTap: () => widget.onLogSelected(log),
+              onTap: () {
+                if (_selectionMode) {
+                  setState(() {
+                    if (selected) {
+                      _selectedLogIds.remove(log.id);
+                    } else {
+                      _selectedLogIds.add(log.id);
+                    }
+                  });
+                } else {
+                  widget.onLogSelected(log);
+                }
+              },
             ),
           ),
         ],
@@ -267,6 +320,37 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
     );
   }
 
+  void _confirmDeleteSelected(List<RequestLog> logs) {
+    final ids = _selectedLogIds.toList();
+    if (ids.isEmpty) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete selected'),
+        content: Text('Delete ${ids.length} selected request${ids.length == 1 ? '' : 's'}? '
+            'This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              _logBloc.add(DeleteLogsEvent(
+                ids,
+                refreshFilter: (_currentFilter ?? const LogFilter())
+                    .copyWith(profileId: widget.profileId),
+              ));
+              setState(() {
+                _selectedLogIds.clear();
+                _selectionMode = false;
+              });
+              Navigator.pop(ctx);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _confirmClearLogs() {
     showDialog(
       context: context,
@@ -277,7 +361,7 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
-              context.read<LogBloc>().add(
+              _logBloc.add(
                     ClearFilteredLogsEvent(LogFilter(profileId: widget.profileId)),
                   );
               Navigator.pop(ctx);
@@ -296,11 +380,9 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
       builder: (context) =>
           DesktopLogFilterDialog(currentFilter: _currentFilter, availableIps: availableIps),
     );
-    if (result != null) {
+    if (result != null && mounted) {
       setState(() => _currentFilter = result);
-      context
-          .read<LogBloc>()
-          .add(ApplyFilterEvent(result.copyWith(profileId: widget.profileId)));
+      _logBloc.add(ApplyFilterEvent(result.copyWith(profileId: widget.profileId)));
     }
   }
 
@@ -337,7 +419,10 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
       }
     });
     profileBloc.add(CreateProfileEvent(name: trimmed));
-    setState(_selectedLogIds.clear);
+    setState(() {
+      _selectedLogIds.clear();
+      _selectionMode = false;
+    });
   }
 
   void _addSelectionToProfile(List<RequestLog> logs, String profileId) {
@@ -348,6 +433,9 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
           profileId: profileId,
           delayMs: 0,
         ));
-    setState(_selectedLogIds.clear);
+    setState(() {
+      _selectedLogIds.clear();
+      _selectionMode = false;
+    });
   }
 }

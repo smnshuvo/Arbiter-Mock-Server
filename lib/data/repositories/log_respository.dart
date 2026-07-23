@@ -39,6 +39,11 @@ class LogRepositoryImpl implements LogRepository {
   }
 
   @override
+  Future<void> deleteLogsByIds(List<String> ids) async {
+    await localDataSource.deleteLogsByIds(ids);
+  }
+
+  @override
   Future<String> exportLogs({LogFilter? filter}) async {
     final models = await localDataSource.getAllLogs(filter: filter);
     final jsonList = models.map((model) => model.toJson()).toList();

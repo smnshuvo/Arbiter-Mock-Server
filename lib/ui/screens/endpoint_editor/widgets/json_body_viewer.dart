@@ -16,10 +16,19 @@ enum _ViewTab { code, form }
 /// with response editing, just non-editable, with expand-all/collapse-all
 /// for the Form view.
 class JsonBodyViewer extends StatefulWidget {
-  const JsonBodyViewer({super.key, required this.label, required this.jsonString});
+  const JsonBodyViewer({
+    super.key,
+    required this.label,
+    required this.jsonString,
+    this.onOpenInEditor,
+  });
 
   final String label;
   final String jsonString;
+
+  /// When set, shows an "Open in editor" button that hands [jsonString] off
+  /// to a fuller, editable view (e.g. the JSON Docs tabbed editor).
+  final VoidCallback? onOpenInEditor;
 
   @override
   State<JsonBodyViewer> createState() => _JsonBodyViewerState();
@@ -82,6 +91,15 @@ class _JsonBodyViewerState extends State<JsonBodyViewer> {
           children: [
             Text(widget.label, style: t.label),
             const Spacer(),
+            if (widget.onOpenInEditor != null) ...[
+              IconButton(
+                tooltip: 'Open in editor',
+                icon: Icon(Icons.open_in_new, size: 16, color: t.textSecondary),
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onOpenInEditor,
+              ),
+              const SizedBox(width: 4),
+            ],
             if (_isJson && _tab == _ViewTab.form) ...[
               _headerButton(t, 'Expand all', _treeController.expandAll),
               _headerButton(t, 'Collapse all', _treeController.collapseAll),

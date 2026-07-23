@@ -2,19 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/arbiter_tokens.dart';
-import '../../../domain/entities/endpoint.dart';
+import '../../../domain/entities/network_condition.dart';
 import '../../../domain/entities/profile.dart';
-import '../../bloc/endpoint/endpoint_bloc.dart';
 import '../../bloc/profile/profile_bloc.dart';
 import '../../bloc/server/server_bloc.dart';
-import '../endpoint_editor/desktop_endpoint_editor.dart';
 import '../endpoint_editor/widgets/arb_section_label.dart';
 import '../endpoint_editor/widgets/arb_segmented.dart';
+import '../endpoint_editor/widgets/network_condition_field.dart';
 
-/// "Manage {server}" overlay: consolidates general settings (name/port/host),
-/// interception config, and the endpoint list + inline editor that used to
-/// live on separate screens — opened from the wide-layout workspace header.
-/// Sections are stacked in one scrollable view (not tabbed).
+/// "Manage {server}" overlay: consolidates general settings (name/port/host)
+/// and interception config — opened from the wide-layout workspace header.
+/// Endpoints have their own "Manage endpoints" view in the workspace itself.
 class ManageProfileDialog extends StatefulWidget {
   final Profile profile;
 
@@ -35,10 +33,7 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
   late TextEditingController _passThroughUrlController;
   late bool _useDeviceIp;
   late bool _autoPassThrough;
-
-  Endpoint? _editingEndpoint;
-  bool _showEditor = false;
-  int _newDraftSeq = 0;
+  late NetworkCondition _networkCondition;
 
   @override
   void initState() {
@@ -50,7 +45,7 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
         TextEditingController(text: _profile.settings.globalPassThroughUrl ?? '');
     _useDeviceIp = _profile.settings.useDeviceIp;
     _autoPassThrough = _profile.settings.autoPassThrough;
-    context.read<EndpointBloc>().add(LoadEndpointsEvent(_profile.id));
+    _networkCondition = _profile.settings.networkCondition;
   }
 
   @override
@@ -78,6 +73,7 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
       settings: _profile.settings.copyWith(
         useDeviceIp: _useDeviceIp,
         autoPassThrough: _autoPassThrough,
+        networkCondition: _networkCondition,
         globalPassThroughUrl: _passThroughUrlController.text.trim().isEmpty
             ? null
             : _passThroughUrlController.text.trim(),
@@ -86,6 +82,11 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
       updatedAt: DateTime.now(),
     );
     context.read<ProfileBloc>().add(UpdateProfileEvent(updated));
+    if (_isRunning(context.read<ServerBloc>().state)) {
+      context
+          .read<ServerBloc>()
+          .add(SetProfileNetworkConditionEvent(_profile.id, _networkCondition));
+    }
     setState(() => _profile = updated);
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Saved')));
@@ -104,44 +105,38 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
             _buildHeader(t),
             Divider(height: 1, color: t.border),
             Expanded(
-              child: _showEditor
-                  ? _buildEndpointEditor()
-                  : SingleChildScrollView(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const ArbSectionLabel('General', padding: EdgeInsets.zero),
-                          const SizedBox(height: 12),
-                          _buildGeneralSection(t, running),
-                          const SizedBox(height: 24),
-                          Divider(color: t.border),
-                          const SizedBox(height: 20),
-                          const ArbSectionLabel('Interception', padding: EdgeInsets.zero),
-                          const SizedBox(height: 12),
-                          _buildInterceptionSection(t),
-                          const SizedBox(height: 20),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: FilledButton(
-                              onPressed: _saveGeneral,
-                              style: FilledButton.styleFrom(backgroundColor: t.accent),
-                              child: const Text('Save changes'),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          Divider(color: t.border),
-                          const SizedBox(height: 20),
-                          const ArbSectionLabel('Endpoints', padding: EdgeInsets.zero),
-                          const SizedBox(height: 12),
-                          _buildEndpointsSection(t),
-                          const SizedBox(height: 24),
-                          Divider(color: t.border),
-                          const SizedBox(height: 20),
-                          _buildDeleteSection(t, running),
-                        ],
-                      ),
-                    ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ArbSectionLabel('General', padding: EdgeInsets.zero),
+                    const SizedBox(height: 12),
+                    _buildGeneralSection(t, running),
+                    const SizedBox(height: 24),
+                    Divider(color: t.border),
+                    const SizedBox(height: 20),
+                    const ArbSectionLabel('Interception', padding: EdgeInsets.zero),
+                    const SizedBox(height: 12),
+                    _buildInterceptionSection(t),
+                  ],
+                ),
+              ),
+            ),
+            Divider(height: 1, color: t.border),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: Row(
+                children: [
+                  _buildDeleteButton(t, running),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _saveGeneral,
+                    style: FilledButton.styleFrom(backgroundColor: t.accent),
+                    child: const Text('Save changes'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -217,6 +212,24 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text('Simulated network', style: t.sans(size: 14, weight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        Text(
+          'Throttles every response from this server — an endpoint with its '
+          'own network condition set overrides this.',
+          style: t.sans(size: 12, weight: FontWeight.w500, color: t.textSecondary),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: 220,
+          child: NetworkConditionField(
+            value: _networkCondition,
+            onChanged: (c) => setState(() => _networkCondition = c),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Divider(color: t.border),
+        const SizedBox(height: 16),
         Row(
           children: [
             Switch(
@@ -265,129 +278,17 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
     );
   }
 
-  Widget _buildEndpointsSection(ArbTokens t) {
-    return BlocBuilder<EndpointBloc, EndpointState>(
-      builder: (context, state) {
-        final endpoints = state is EndpointLoaded ? state.endpoints : <Endpoint>[];
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Text('Endpoints', style: t.sans(size: 14, weight: FontWeight.w700)),
-                const Spacer(),
-                FilledButton.icon(
-                  onPressed: () => setState(() {
-                    _editingEndpoint = null;
-                    _showEditor = true;
-                    _newDraftSeq++;
-                  }),
-                  style: FilledButton.styleFrom(backgroundColor: t.accent),
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Add'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (endpoints.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Center(
-                    child: Text('No endpoints yet', style: t.sans(color: t.textMuted))),
-              )
-            else
-              for (final ep in endpoints) _buildEndpointRow(t, ep),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildEndpointRow(ArbTokens t, Endpoint ep) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
-        color: t.surface,
-        border: Border.all(color: t.border),
-        borderRadius: BorderRadius.circular(t.radiusSm),
-      ),
-      child: ListTile(
-        dense: true,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusSm)),
-        title: Row(
-          children: [
-            _methodChip(t, ep.method ?? 'ANY'),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(ep.pattern, overflow: TextOverflow.ellipsis, style: t.mono(size: 12.5)),
-            ),
-          ],
-        ),
-        subtitle: Text(
-          ep.mode == EndpointMode.mock ? 'Mock · ${ep.statusCode}' : 'Pass-through',
-          style: t.sans(size: 11, weight: FontWeight.w500, color: t.textSecondary),
-        ),
-        onTap: () => setState(() {
-          _editingEndpoint = ep;
-          _showEditor = true;
-        }),
-      ),
-    );
-  }
-
-  Widget _methodChip(ArbTokens t, String method) {
-    final color = t.methodColor(method);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(method, style: t.mono(size: 10, weight: FontWeight.w700, color: color)),
-    );
-  }
-
-  Widget _buildEndpointEditor() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: TextButton.icon(
-            onPressed: () => setState(() => _showEditor = false),
-            icon: const Icon(Icons.chevron_left, size: 18),
-            label: const Text('All endpoints'),
-          ),
-        ),
-        Expanded(
-          child: DesktopEndpointEditor(
-            key: ValueKey(_editingEndpoint?.id ?? 'new-$_newDraftSeq'),
-            endpoint: _editingEndpoint,
-            profileId: _profile.id,
-            onSaved: () {
-              context.read<EndpointBloc>().add(LoadEndpointsEvent(_profile.id));
-              setState(() => _showEditor = false);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDeleteSection(ArbTokens t, bool running) {
+  Widget _buildDeleteButton(ArbTokens t, bool running) {
     const danger = Color(0xFFDC2626);
     final isDefault = _profile.id == 'default';
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: OutlinedButton.icon(
-        onPressed: isDefault ? null : () => _confirmDelete(t, running),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: danger,
-          side: BorderSide(color: isDefault ? t.border : danger),
-        ),
-        icon: const Icon(Icons.delete_outline, size: 18),
-        label: Text(isDefault ? "Can't delete the default server" : 'Delete this server'),
+    return OutlinedButton.icon(
+      onPressed: isDefault ? null : () => _confirmDelete(t, running),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: danger,
+        side: BorderSide(color: isDefault ? t.border : danger),
       ),
+      icon: const Icon(Icons.delete_outline, size: 18),
+      label: Text(isDefault ? "Can't delete" : 'Delete server'),
     );
   }
 

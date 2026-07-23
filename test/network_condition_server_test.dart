@@ -29,6 +29,8 @@ class _FakeLogDataSource implements LogLocalDataSource {
 
   @override
   Future<void> clearFilteredLogs(LogFilter filter) async {}
+  @override
+  Future<void> deleteLogsByIds(List<String> ids) async {}
 
   @override
   Future<List<RequestLogModel>> getAllLogs({LogFilter? filter}) async => logs;

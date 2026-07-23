@@ -4,11 +4,18 @@ import '../../../core/services/json_document_service.dart';
 import '../endpoint_editor/widgets/json_brace_controller.dart';
 import 'recent_files_store.dart';
 
+int _nextDocId = 0;
+
 /// One open .json document (a tab).
 class JsonDoc {
   JsonDoc({required this.path, required this.title, required String content})
-      : controller = JsonBraceController(text: content),
+      : id = _nextDocId++,
+        controller = JsonBraceController(text: content),
         _saved = content;
+
+  /// Stable per-tab identity — [path] alone can't be a widget key since
+  /// multiple in-memory docs (see [isInMemory]) all share an empty path.
+  final int id;
 
   /// File path (macOS) or content:// URI (Android). May change after a Save-As.
   String path;
@@ -26,6 +33,11 @@ class JsonDoc {
 
   String get fileName => title;
   bool get dirty => treeDirty || controller.text != _saved;
+
+  /// True for a document opened straight from in-memory content (e.g. a log
+  /// body) rather than a real file — there's nothing to overwrite in place,
+  /// so only "Save as" applies until it's saved somewhere for the first time.
+  bool get isInMemory => path.isEmpty;
 
   void markSaved() {
     _saved = controller.text;
@@ -97,6 +109,31 @@ class JsonDocsController extends ChangeNotifier {
     }
   }
 
+  /// Opens a new tab backed only by in-memory [content] — e.g. a request/
+  /// response body viewed from a log — with no source file. Activates the
+  /// tab if an equivalent in-memory doc with the same title is already open,
+  /// rather than piling up duplicates every time the same log is reopened.
+  JsonDoc openInMemory({required String title, required String content}) {
+    final existing =
+        docs.indexWhere((d) => d.isInMemory && d.title == title && !d.dirty);
+    if (existing >= 0) {
+      activeIndex = existing;
+      notifyListeners();
+      return docs[existing];
+    }
+    if (singleDocument) {
+      for (final d in docs) {
+        d.dispose();
+      }
+      docs.clear();
+    }
+    final doc = JsonDoc(path: '', title: title, content: content);
+    docs.add(doc);
+    activeIndex = docs.length - 1;
+    notifyListeners();
+    return doc;
+  }
+
   void select(int index) {
     if (index < 0 || index >= docs.length) return;
     activeIndex = index;
@@ -112,6 +149,7 @@ class JsonDocsController extends ChangeNotifier {
   }
 
   Future<bool> save(JsonDoc doc) async {
+    if (doc.isInMemory) return saveAsExplicit(doc);
     doc.saving = true;
     notifyListeners();
     var ok = await _svc.write(doc.path, doc.controller.text);

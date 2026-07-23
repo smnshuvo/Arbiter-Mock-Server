@@ -70,6 +70,7 @@ Future<void> init() async {
       stopProfile: sl(),
       stopAllProfiles: sl(),
       getRunningServers: sl(),
+      setProfileNetworkCondition: sl(),
     ),
   );
 
@@ -83,6 +84,7 @@ Future<void> init() async {
       exportEndpoints: sl(),
       toggleAllEndpoints: sl(),
       batchCreateEndpointsFromLogs: sl(),
+      serverManager: sl(),
     ),
   );
 
@@ -91,6 +93,7 @@ Future<void> init() async {
       getAllLogs: sl(),
       clearLogs: sl(),
       clearFilteredLogs: sl(),
+      deleteLogsByIds: sl(),
       exportLogs: sl(),
       watchNewLogs: sl(),
     ),
@@ -156,6 +159,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => StopAllProfiles(sl()));
   sl.registerLazySingleton(() => GetRunningServers(sl()));
   sl.registerLazySingleton(() => IsProfileRunning(sl()));
+  sl.registerLazySingleton(() => SetProfileNetworkCondition(sl()));
 
   // Use cases - Endpoint
   sl.registerLazySingleton(() => GetAllEndpoints(sl()));
@@ -172,6 +176,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => CreateLog(sl()));
   sl.registerLazySingleton(() => ClearLogs(sl()));
   sl.registerLazySingleton(() => ClearFilteredLogs(sl()));
+  sl.registerLazySingleton(() => DeleteLogsByIds(sl()));
   sl.registerLazySingleton(() => ExportLogs(sl()));
   sl.registerLazySingleton(() => WatchNewLogs(sl()));
 

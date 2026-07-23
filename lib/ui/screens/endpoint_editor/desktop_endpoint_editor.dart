@@ -67,6 +67,11 @@ class _DesktopEndpointEditorState
       ];
     }
 
+    // Prompt mode serves its response from the candidate list, not the single
+    // mockResponse field below — showing that editor here would be misleading
+    // since it's never actually used once a prompt match fires.
+    final isPromptMode = useConditionalMock && conditionalMode == ConditionalMode.prompt;
+
     return [
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(22, 18, 22, 0),
@@ -106,14 +111,16 @@ class _DesktopEndpointEditorState
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          buildResponseBodyHeader(),
-          const SizedBox(height: 10),
+          if (!isPromptMode) ...[
+            const SizedBox(height: 18),
+            buildResponseBodyHeader(),
+            const SizedBox(height: 10),
+          ],
         ]),
       ),
-      SliverPadding(padding: hPad, sliver: buildResponseBodySliver()),
+      if (!isPromptMode) SliverPadding(padding: hPad, sliver: buildResponseBodySliver()),
       SliverPadding(
-        padding: const EdgeInsets.fromLTRB(22, 0, 22, 26),
+        padding: EdgeInsets.fromLTRB(22, isPromptMode ? 18 : 0, 22, 26),
         sliver: _box([
           if (useConditionalMock) ...[
             const SizedBox(height: 14),

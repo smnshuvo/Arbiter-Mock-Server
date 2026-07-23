@@ -52,6 +52,7 @@ abstract class LogRepository {
   Future<void> createLog(RequestLog log);
   Future<void> clearLogs();
   Future<void> clearFilteredLogs(LogFilter filter);
+  Future<void> deleteLogsByIds(List<String> ids);
   Future<String> exportLogs({LogFilter? filter});
   Stream<RequestLog> get newLogStream;
 }

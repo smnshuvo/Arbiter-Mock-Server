@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'network_condition.dart';
+
 enum ServerType { http, ftp }
 
 class ProfileSettings extends Equatable {
@@ -7,27 +9,37 @@ class ProfileSettings extends Equatable {
   final bool autoPassThrough;
   final bool useDeviceIp;
 
+  /// Server-wide simulated link speed, applied to every response the server
+  /// sends (mock, pass-through, and unmatched) unless the matched endpoint
+  /// sets its own [NetworkCondition], which takes priority. See
+  /// [NetworkCondition] for the per-endpoint equivalent.
+  final NetworkCondition networkCondition;
+
   const ProfileSettings({
     this.globalPassThroughUrl,
     this.autoPassThrough = false,
     this.useDeviceIp = false,
+    this.networkCondition = NetworkCondition.none,
   });
 
   ProfileSettings copyWith({
     String? globalPassThroughUrl,
     bool? autoPassThrough,
     bool? useDeviceIp,
+    NetworkCondition? networkCondition,
     bool clearPassThroughUrl = false,
   }) {
     return ProfileSettings(
       globalPassThroughUrl: clearPassThroughUrl ? null : (globalPassThroughUrl ?? this.globalPassThroughUrl),
       autoPassThrough: autoPassThrough ?? this.autoPassThrough,
       useDeviceIp: useDeviceIp ?? this.useDeviceIp,
+      networkCondition: networkCondition ?? this.networkCondition,
     );
   }
 
   @override
-  List<Object?> get props => [globalPassThroughUrl, autoPassThrough, useDeviceIp];
+  List<Object?> get props =>
+      [globalPassThroughUrl, autoPassThrough, useDeviceIp, networkCondition];
 }
 
 class Profile extends Equatable {

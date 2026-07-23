@@ -6,8 +6,7 @@ import '../../../domain/entities/profile.dart';
 import '../../bloc/profile/profile_bloc.dart';
 
 /// Left-hand rail of the wide-layout workspace: lists every [Profile], with
-/// a running-state dot and endpoint count, mirroring
-/// `EndpointsScreen._buildProfileRail` but adapted for the workspace shell.
+/// a running-state dot and endpoint count.
 class ServerRail extends StatelessWidget {
   final String selectedProfileId;
   final Map<String, ({String url, int port})> runningMap;

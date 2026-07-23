@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:json_annotation/json_annotation.dart';
+import '../../domain/entities/network_condition.dart';
 import '../../domain/entities/profile.dart';
 
 part 'profile_model.g.dart';
@@ -11,11 +12,16 @@ class ProfileSettingsModel {
   final bool passThroughAll;
   final bool useDeviceIp;
 
+  /// [NetworkCondition] name. Nullable so settings JSON persisted before this
+  /// field existed still decodes cleanly, falling back to [NetworkCondition.none].
+  final String? networkCondition;
+
   ProfileSettingsModel({
     this.globalPassThroughUrl,
     required this.autoPassThrough,
     required this.passThroughAll,
     required this.useDeviceIp,
+    this.networkCondition,
   });
 
   factory ProfileSettingsModel.fromJson(Map<String, dynamic> json) =>
@@ -29,6 +35,7 @@ class ProfileSettingsModel {
       autoPassThrough: settings.autoPassThrough,
       passThroughAll: false,
       useDeviceIp: settings.useDeviceIp,
+      networkCondition: settings.networkCondition.name,
     );
   }
 
@@ -37,6 +44,7 @@ class ProfileSettingsModel {
       globalPassThroughUrl: globalPassThroughUrl,
       autoPassThrough: autoPassThrough,
       useDeviceIp: useDeviceIp,
+      networkCondition: NetworkConditionX.fromName(networkCondition),
     );
   }
 }

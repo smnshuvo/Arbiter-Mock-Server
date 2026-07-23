@@ -13,6 +13,7 @@ ProfileSettingsModel _$ProfileSettingsModelFromJson(
       autoPassThrough: json['autoPassThrough'] as bool,
       passThroughAll: json['passThroughAll'] as bool,
       useDeviceIp: json['useDeviceIp'] as bool,
+      networkCondition: json['networkCondition'] as String?,
     );
 
 Map<String, dynamic> _$ProfileSettingsModelToJson(
@@ -22,6 +23,7 @@ Map<String, dynamic> _$ProfileSettingsModelToJson(
       'autoPassThrough': instance.autoPassThrough,
       'passThroughAll': instance.passThroughAll,
       'useDeviceIp': instance.useDeviceIp,
+      'networkCondition': instance.networkCondition,
     };
 
 ProfileModel _$ProfileModelFromJson(Map<String, dynamic> json) => ProfileModel(

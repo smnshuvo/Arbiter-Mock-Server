@@ -69,7 +69,7 @@ class _AndroidJsonEditorScreenState extends State<AndroidJsonEditorScreen> {
   Widget _body(JsonDoc? doc) {
     if (doc != null) {
       return JsonDocumentView(
-        key: ValueKey(doc.path),
+        key: ValueKey(doc.id),
         doc: doc,
         onChanged: _c.touch,
         onSave: () => _save(doc),

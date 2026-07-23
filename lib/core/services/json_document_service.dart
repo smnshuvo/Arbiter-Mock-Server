@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 
 /// Bridges macOS "open .json" events and security-scoped read/write to Dart.
@@ -73,13 +75,28 @@ class JsonDocumentService {
     return ok ?? false;
   }
 
-  /// Fallback when in-place write is denied (Android read-only opens): shows the
-  /// system "create document" picker and writes [content] there. Returns the
-  /// new path/URI, or null if unavailable/cancelled.
+  /// Fallback when in-place write is denied (Android read-only opens), and the
+  /// only option for documents with no backing file (e.g. a log body opened
+  /// from RAM): shows a "save to…" picker and writes [content] there. Returns
+  /// the new path/URI, or null if unavailable/cancelled.
   Future<String?> saveAs(String content, String suggestedName) async {
-    if (!Platform.isAndroid) return null;
-    return _channel.invokeMethod<String>(
-        'saveAs', {'content': content, 'name': suggestedName});
+    if (Platform.isAndroid) {
+      return _channel.invokeMethod<String>(
+          'saveAs', {'content': content, 'name': suggestedName});
+    }
+    if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+      final fileName =
+          suggestedName.toLowerCase().endsWith('.json') ? suggestedName : '$suggestedName.json';
+      // saveFile writes the bytes itself — no separate write() call needed.
+      return FilePicker.platform.saveFile(
+        dialogTitle: 'Save JSON',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        bytes: utf8.encode(content),
+      );
+    }
+    return null;
   }
 
   /// Android: pick a .json via the system document picker (persistable grant, so
