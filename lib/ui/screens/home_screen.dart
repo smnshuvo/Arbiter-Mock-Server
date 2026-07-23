@@ -34,6 +34,7 @@ import 'desktop/desktop_workspace_screen.dart';
 import '../widgets/glowing_icon_widget.dart';
 import '../widgets/grey_out_icon_widget.dart';
 import 'file_server_screen.dart';
+import 'mobile/manage_profile_sheet.dart';
 import 'mobile/mobile_endpoints_screen.dart';
 import 'mobile/mobile_logs_screen.dart';
 import 'mobile/start_profile_sheet.dart';
@@ -58,16 +59,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Map<String, int> _endpointCounts = {};
   bool _loadingCounts = false;
 
-  /// Wi-Fi File Server traffic, shown in the home screen's NETWORK/DISK cards.
-  final FileServerService _fileServerSvc = FileServerService();
-  Timer? _fsStatsTimer;
-  int? _fsLastPollBytes;
-  bool _fsRunning = false;
-  bool _fsHasData = false;
-  int _fsTotalBytes = 0;
-  int _fsRequestCount = 0;
-  double _fsSpeedBps = 0;
-  double _fsAvgBps = 0;
+  /// Which server's card is enlarged/centered in the home screen's stack.
+  String? _selectedProfileId;
+
+  /// Direction of the last selection change, so the stack's slide transition
+  /// matches which way the user moved (arrow/leaned-card tap direction).
+  bool _stackMoveForward = true;
 
   @override
   void initState() {
@@ -178,31 +175,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (profileState is ProfileLoaded) {
         _loadEndpointCounts(profileState.profiles);
       }
-    });
-
-    if (FileServerService.isSupported) {
-      _refreshFileServerStats();
-      _fsStatsTimer =
-          Timer.periodic(const Duration(seconds: 2), (_) => _refreshFileServerStats());
-    }
-  }
-
-  /// Polls the Wi-Fi File Server for the NETWORK/DISK stat cards: live speed
-  /// while running, average speed of the last session once stopped.
-  Future<void> _refreshFileServerStats() async {
-    final status = await _fileServerSvc.getStatus();
-    final traffic = await _fileServerSvc.getTrafficStats();
-    if (!mounted) return;
-    setState(() {
-      _fsRunning = status.running;
-      _fsRequestCount = status.requestCount;
-      _fsTotalBytes = traffic.totalBytes;
-      _fsHasData = traffic.sessionStartedAtMs >= 0;
-      _fsAvgBps = traffic.averageBps;
-      _fsSpeedBps = (status.running && _fsLastPollBytes != null)
-          ? (traffic.totalBytes - _fsLastPollBytes!).clamp(0, 1 << 62) / 2.0
-          : 0;
-      _fsLastPollBytes = traffic.totalBytes;
     });
   }
 
@@ -319,7 +291,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _portController.dispose();
-    _fsStatsTimer?.cancel();
     super.dispose();
   }
 
@@ -525,6 +496,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Opens a profile's endpoints. Switches the active profile first so the
+  /// endpoints screen (which follows the active profile) shows the right set.
+  Future<void> _openEndpoints(Profile profile) async {
+    context.read<ProfileBloc>().add(SwitchActiveProfileEvent(profile.id));
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const MobileEndpointsScreen()),
+    );
+    if (!mounted) return;
+    final profileState = context.read<ProfileBloc>().state;
+    if (profileState is ProfileLoaded) {
+      _loadEndpointCounts(profileState.profiles);
+    }
+  }
+
   /// Maps each running profile id to its live url/port for the current state.
   Map<String, ({String url, int port})> _runningMap(ServerState state) {
     if (state is MultiServerRunning) {
@@ -546,21 +532,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       port++;
     }
     return port;
-  }
-
-  /// Opens a profile's endpoints. Switches the active profile first so the
-  /// endpoints screen (which follows the active profile) shows the right set.
-  Future<void> _openProfile(Profile profile) async {
-    context.read<ProfileBloc>().add(SwitchActiveProfileEvent(profile.id));
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const MobileEndpointsScreen()),
-    );
-    if (!mounted) return;
-    final profileState = context.read<ProfileBloc>().state;
-    if (profileState is ProfileLoaded) {
-      _loadEndpointCounts(profileState.profiles);
-    }
   }
 
   @override
@@ -644,10 +615,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildContent(ServerState state) {
-    final interceptionState = context.watch<InterceptionBloc>().state;
-    final interceptionOn = interceptionState is InterceptionEnabled ||
-        interceptionState is InterceptionPending;
-
     return BlocBuilder<ProfileBloc, ProfileState>(
       builder: (context, profileState) {
         final profiles =
@@ -664,25 +631,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _buildHeader(state),
               const SizedBox(height: 20),
               _buildTitle(profiles.length, runningCount),
-              const SizedBox(height: 16),
-              _buildStatsStrip(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               if (profileState is! ProfileLoaded)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 48),
                   child: Center(child: CircularProgressIndicator()),
                 )
               else ...[
-                ...profiles.map((profile) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _buildServerCard(
-                        profile,
-                        running[profile.id],
-                        state,
-                        interceptionOn,
-                      ),
-                    )),
-                _buildNewServerButton(state),
+                _buildServerStack(profiles, running),
                 if (FileServerService.isSupported) ...[
                   const SizedBox(height: 12),
                   _buildFileServerEntry(),
@@ -852,362 +808,281 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Splits a byte count into a display value + unit, auto-scaling KB→TB.
-  static (String, String) _splitBytes(num bytes) {
-    if (bytes < 1024) return (bytes.toStringAsFixed(0), 'B');
-    const units = ['KB', 'MB', 'GB', 'TB'];
-    var value = bytes / 1024;
-    var i = 0;
-    while (value >= 1024 && i < units.length - 1) {
-      value /= 1024;
-      i++;
+  /// Card stack: the selected server plus its immediate neighbors, centered
+  /// one upright and painted on top, the other two scaled down, tilted, and
+  /// peeking out from behind it — matching the reference design. Left/right
+  /// arrows (or tapping a leaned card) move the selection, sliding the stack
+  /// in the direction of travel. Tapping the centered card opens its
+  /// endpoints list; the Start/Stop button below opens the Manage sheet (or
+  /// stops it instantly if already running).
+  Widget _buildServerStack(
+    List<Profile> profiles,
+    Map<String, ({String url, int port})> running,
+  ) {
+    if (profiles.isEmpty) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Text('No servers yet',
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ),
+          ),
+          _buildNewServerLink(running),
+        ],
+      );
     }
-    return (value.toStringAsFixed(1), units[i]);
-  }
 
-  // NETWORK + DISK reflect the Wi-Fi File Server's traffic (see
-  // _refreshFileServerStats): live speed and cumulative bytes while running,
-  // last-session average/total once stopped. Both read 0 on non-Android,
-  // where the file server does not exist.
-  Widget _buildStatsStrip() {
-    final (speedValue, speedUnit) =
-        _splitBytes(_fsRunning ? _fsSpeedBps : _fsAvgBps);
-    final (totalValue, totalUnit) = _splitBytes(_fsTotalBytes);
+    var selectedIndex = profiles.indexWhere((p) => p.id == _selectedProfileId);
+    if (selectedIndex < 0) selectedIndex = 0;
+    _selectedProfileId = profiles[selectedIndex].id;
+    final selectedProfile = profiles[selectedIndex];
+    final isRunning = running.containsKey(selectedProfile.id);
+    final prev = selectedIndex > 0 ? profiles[selectedIndex - 1] : null;
+    final next = selectedIndex < profiles.length - 1 ? profiles[selectedIndex + 1] : null;
 
-    return Row(
+    void select(String id, {required bool forward}) {
+      setState(() {
+        _selectedProfileId = id;
+        _stackMoveForward = forward;
+      });
+    }
+
+    return Column(
       children: [
-        Expanded(
-          child: _statCard(
-            icon: Icons.swap_vert,
-            iconColor: AppColors.info,
-            label: 'NETWORK',
-            value: speedValue,
-            unit: '$speedUnit/s',
-            footer: Row(
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _fsRunning ? AppColors.running : AppColors.info,
-                  ),
+        SizedBox(
+          width: double.infinity,
+          height: 240,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) {
+              final offset = Tween<Offset>(
+                begin: Offset(_stackMoveForward ? 0.3 : -0.3, 0),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut));
+              return ClipRect(
+                child: SlideTransition(
+                  position: offset,
+                  child: FadeTransition(opacity: animation, child: child),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  _fsRunning
-                      ? 'live'
-                      : (_fsHasData ? 'avg (last session)' : 'file server off'),
-                  style: monoTextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.info,
+              );
+            },
+            child: Stack(
+              key: ValueKey(selectedProfile.id),
+              clipBehavior: Clip.none,
+              children: [
+                // Leaned neighbors are pinned to the stack's own left/right
+                // edges (not offset from the center card) so they always
+                // render regardless of the center card's intrinsic size, and
+                // paint first so the centered card stacks on top of them.
+                if (prev != null)
+                  Positioned(
+                    left: 0,
+                    top: 30,
+                    child: _buildLeanedCard(prev, running.containsKey(prev.id),
+                        toLeft: true, onTap: () => select(prev.id, forward: false)),
                   ),
+                if (next != null)
+                  Positioned(
+                    right: 0,
+                    top: 30,
+                    child: _buildLeanedCard(next, running.containsKey(next.id),
+                        toLeft: false, onTap: () => select(next.id, forward: true)),
+                  ),
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: _buildCenterCard(selectedProfile, isRunning),
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _statCard(
-            icon: Icons.storage_outlined,
-            iconColor: AppColors.interception,
-            label: 'DISK',
-            value: totalValue,
-            unit: totalUnit,
-            footer: Text(
-              '$_fsRequestCount requests served',
-              style: monoTextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.interception,
-              ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              onPressed: prev != null ? () => select(prev.id, forward: false) : null,
+              icon: const Icon(Icons.arrow_back_ios_new, size: 18),
             ),
-          ),
+            const SizedBox(width: 28),
+            IconButton(
+              onPressed: next != null ? () => select(next.id, forward: true) : null,
+              icon: const Icon(Icons.arrow_forward_ios, size: 18),
+            ),
+          ],
         ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: _startStopButton(selectedProfile, isRunning),
+        ),
+        _buildNewServerLink(running),
       ],
     );
   }
 
-  Widget _statCard({
-    required IconData icon,
-    required Color iconColor,
-    required String label,
-    required String value,
-    required String unit,
-    required Widget footer,
-  }) {
-    final cs = Theme.of(context).colorScheme;
+  Widget _buildLeanedCard(Profile profile, bool isRunning,
+      {required bool toLeft, required VoidCallback onTap}) {
+    return Transform.rotate(
+      angle: toLeft ? -0.13 : 0.13,
+      child: GestureDetector(
+        onTap: onTap,
+        child: SizedBox(
+          width: 148,
+          child: _serverCardFace(profile, isRunning, selected: false),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCenterCard(Profile profile, bool isRunning) {
+    return GestureDetector(
+      onTap: () => _openEndpoints(profile),
+      child: SizedBox(
+        width: 210,
+        child: _serverCardFace(profile, isRunning, selected: true),
+      ),
+    );
+  }
+
+  /// Terminal-window styled card face: dark background, macOS-style
+  /// traffic-light title bar, monospace "$ port" readout.
+  Widget _serverCardFace(Profile profile, bool isRunning, {required bool selected}) {
+    final statusColor = isRunning ? const Color(0xFF2ECC71) : const Color(0xFF8B8F98);
     return Container(
-      padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: cs.surface,
+        color: const Color(0xFF1B1D23),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          color: selected
+              ? AppColors.accent.withValues(alpha: 0.55)
+              : Colors.white.withValues(alpha: 0.08),
+          width: selected ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: selected ? 0.35 : 0.18),
+            blurRadius: selected ? 22 : 10,
+            offset: Offset(0, selected ? 10 : 6),
+          ),
+        ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 22,
-                height: 22,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(7),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: selected ? 10 : 7),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.04),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+            ),
+            child: Row(
+              children: [
+                _trafficDot(const Color(0xFFFF5F57)),
+                const SizedBox(width: 5),
+                _trafficDot(const Color(0xFFFEBC2E)),
+                const SizedBox(width: 5),
+                _trafficDot(const Color(0xFF28C840)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(profile.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: monoTextStyle(
+                          fontSize: selected ? 12 : 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white70)),
                 ),
-                child: Icon(icon, size: 13, color: iconColor),
-              ),
-              const SizedBox(width: 7),
-              Text(
-                label,
-                style: monoTextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.6,
-                  color: cs.onSurfaceVariant,
+              ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(selected ? 16 : 11),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('\$ port',
+                    style:
+                        monoTextStyle(fontSize: selected ? 11 : 9, color: Colors.white38)),
+                const SizedBox(height: 2),
+                Text('${profile.port}',
+                    style: monoTextStyle(
+                        fontSize: selected ? 26 : 16,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white)),
+                SizedBox(height: selected ? 12 : 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(isRunning ? 'active' : 'inactive',
+                        style: monoTextStyle(
+                            fontSize: selected ? 12.5 : 10,
+                            fontWeight: FontWeight.w700,
+                            color: statusColor)),
+                  ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 11),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(value,
-                  style: monoTextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-              const SizedBox(width: 5),
-              Text(unit,
-                  style: monoTextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: cs.onSurfaceVariant)),
-            ],
-          ),
-          const SizedBox(height: 9),
-          footer,
         ],
       ),
     );
   }
 
-  Widget _buildServerCard(
-    Profile profile,
-    ({String url, int port})? info,
-    ServerState state,
-    bool interceptionOn,
-  ) {
-    final cs = Theme.of(context).colorScheme;
-    final isRunning = info != null;
-    final isFtp = profile.type == ServerType.ftp;
-    final scheme = isFtp ? 'ftp' : 'http';
-    final urlText = isRunning ? info.url : '$scheme://localhost:${profile.port}';
-    final epCount = _endpointCounts[profile.id];
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => _openProfile(profile),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        decoration: BoxDecoration(
-          color: cs.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      _statusDot(isRunning),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          profile.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.1,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _typeChip(isFtp),
-                    ],
-                  ),
-                  const SizedBox(height: 11),
-                  Text(
-                    urlText,
-                    style: monoTextStyle(fontSize: 12.5, color: cs.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _statusChip(isRunning),
-                      if (epCount != null)
-                        _infoChip('$epCount endpoint${epCount == 1 ? '' : 's'}'),
-                      if (isRunning && interceptionOn) _interceptionChip(),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            _runButton(
-              isRunning,
-              () => isRunning
-                  ? context.read<ServerBloc>().add(StopProfileEvent(profile.id))
-                  : _showStartProfileSheet(
-                      defaultPort: _nextFreePort(
-                        profile.port,
-                        _runningMap(state).values.map((e) => e.port).toSet(),
-                      ),
-                      defaultUseDeviceIp: profile.settings.useDeviceIp,
-                      initialProfileId: profile.id,
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statusDot(bool running) {
-    final color =
-        running ? AppColors.running : Theme.of(context).colorScheme.onSurfaceVariant;
+  Widget _trafficDot(Color color) {
     return Container(
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
     );
   }
 
-  Widget _typeChip(bool isFtp) {
-    final color = isFtp ? AppColors.interception : AppColors.info;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        isFtp ? 'FTP' : 'HTTP',
-        style: monoTextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color),
-      ),
-    );
-  }
-
-  Widget _runButton(bool running, VoidCallback onTap) {
-    final color = running ? AppColors.error : AppColors.running;
+  Widget _startStopButton(Profile profile, bool isRunning) {
     return ElevatedButton.icon(
-      onPressed: onTap,
-      icon: Icon(running ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 18),
-      label: Text(
-        running ? 'Stop' : 'Run',
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-      ),
+      onPressed: () {
+        if (isRunning) {
+          context.read<ServerBloc>().add(StopProfileEvent(profile.id));
+        } else {
+          showManageProfileSheet(context: context, profile: profile);
+        }
+      },
+      icon: Icon(isRunning ? Icons.stop_rounded : Icons.play_arrow_rounded),
+      label: Text(isRunning ? 'Stop Server' : 'Start Server',
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
       style: ElevatedButton.styleFrom(
         elevation: 2,
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        backgroundColor: color,
+        backgroundColor: isRunning ? AppColors.error : AppColors.running,
         foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        minimumSize: const Size.fromHeight(50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }
 
-  Widget _statusChip(bool running) {
-    final color =
-        running ? AppColors.running : Theme.of(context).colorScheme.onSurfaceVariant;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Text(
-        running ? 'running' : 'stopped',
-        style: monoTextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
-      ),
-    );
-  }
-
-  Widget _infoChip(String text) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Text(
-        text,
-        style: monoTextStyle(
-            fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant),
-      ),
-    );
-  }
-
-  Widget _interceptionChip() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.interception.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Text(
-        'intercepting',
-        style: monoTextStyle(
-            fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.interception),
-      ),
-    );
-  }
-
-  Widget _buildNewServerButton(ServerState state) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: () {
-        final usedPorts = _runningMap(state).values.map((e) => e.port).toSet();
-        _showStartProfileSheet(defaultPort: _nextFreePort(8080, usedPorts));
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.accent.withValues(alpha: 0.4),
-            width: 1.5,
-          ),
-        ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.add, color: AppColors.accent, size: 20),
-            SizedBox(width: 8),
-            Text(
-              'New server',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppColors.accent,
-              ),
-            ),
-          ],
-        ),
+  /// Compact link (not a standalone card) for creating another profile —
+  /// lives directly under the Start/Stop button so profile creation stays a
+  /// bottom-sheet flow rather than its own persistent block on the screen.
+  Widget _buildNewServerLink(Map<String, ({String url, int port})> running) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: TextButton.icon(
+        onPressed: () {
+          final usedPorts = running.values.map((e) => e.port).toSet();
+          _showStartProfileSheet(defaultPort: _nextFreePort(8080, usedPorts));
+        },
+        icon: const Icon(Icons.add, size: 18, color: AppColors.accent),
+        label: const Text('New server',
+            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.accent)),
       ),
     );
   }

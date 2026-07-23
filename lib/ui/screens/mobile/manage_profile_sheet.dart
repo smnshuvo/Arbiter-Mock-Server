@@ -9,6 +9,7 @@ import '../../bloc/server/server_bloc.dart';
 import '../desktop/endpoint_import_export_actions.dart';
 import '../endpoint_editor/widgets/network_condition_field.dart';
 import 'arb_bottom_sheet.dart';
+import 'mobile_endpoints_screen.dart';
 import 'profile_settings_fields.dart';
 
 /// Mobile equivalent of the desktop `ManageProfileDialog`, shown as a bottom
@@ -132,6 +133,15 @@ class _ManageProfileSheetBodyState extends State<_ManageProfileSheetBody> {
     Navigator.pop(context);
   }
 
+  void _openEndpoints() {
+    context.read<ProfileBloc>().add(SwitchActiveProfileEvent(_profile.id));
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MobileEndpointsScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = ArbTokens.of(context);
@@ -187,6 +197,18 @@ class _ManageProfileSheetBodyState extends State<_ManageProfileSheetBody> {
           const SizedBox(height: 20),
           Text('Endpoints', style: t.sans(size: 13, weight: FontWeight.w700)),
           const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _openEndpoints,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: t.textSecondary,
+              side: BorderSide(color: t.border),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusSm)),
+              minimumSize: const Size.fromHeight(44),
+            ),
+            icon: const Icon(Icons.rule, size: 18),
+            label: const Text('Manage endpoints'),
+          ),
+          const SizedBox(height: 10),
           EndpointImportExportActions(profileId: _profile.id, profileName: _profile.name),
           const SizedBox(height: 22),
           FilledButton(
