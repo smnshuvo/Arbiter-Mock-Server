@@ -48,7 +48,16 @@ class _JsonDocsScreenState extends State<JsonDocsScreen> {
         if (_c.opening && _c.isEmpty) {
           return Scaffold(
             backgroundColor: t.canvas,
-            body: const SafeArea(child: OpeningIndicator()),
+            body: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _header(t),
+                  Divider(height: 1, color: t.border),
+                  const Expanded(child: OpeningIndicator()),
+                ],
+              ),
+            ),
           );
         }
         return Scaffold(
@@ -57,6 +66,7 @@ class _JsonDocsScreenState extends State<JsonDocsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _header(t),
                 _tabStrip(t),
                 Divider(height: 1, color: t.border),
                 Expanded(
@@ -81,6 +91,31 @@ class _JsonDocsScreenState extends State<JsonDocsScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _header(ArbTokens t) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 10, 14, 10),
+      child: Row(
+        children: [
+          if (Navigator.canPop(context))
+            IconButton(
+              tooltip: 'Back',
+              icon: Icon(Icons.arrow_back, size: 20, color: t.textSecondary),
+              onPressed: () => Navigator.maybePop(context),
+            )
+          else
+            const SizedBox(width: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Image.asset('assets/app_icon/app_icon.png',
+                width: 22, height: 22, fit: BoxFit.cover),
+          ),
+          const SizedBox(width: 10),
+          Text('Arbiter JSON Editor', style: t.sans(size: 15, weight: FontWeight.w700)),
+        ],
+      ),
     );
   }
 

@@ -134,38 +134,56 @@ class _JsonDocumentViewState extends State<JsonDocumentView> {
     );
   }
 
+  /// Below this width there isn't room for title + Form/Code toggle + save
+  /// control on one row, so the toggle wraps to a row of its own.
+  static const double _kWrapBreakpoint = 480;
+
   Widget _toolbar(ArbTokens t) {
     final doc = widget.doc;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-      child: Row(
-        children: [
-          Icon(Icons.description_outlined, size: 16, color: t.textMuted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Tooltip(
-              message: doc.path,
-              child: Text(
-                doc.title,
-                overflow: TextOverflow.ellipsis,
-                style: t.mono(size: 12, color: t.textSecondary),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 168,
-            child: ArbSegmented(
-              compact: true,
-              segments: const [ArbSegment('▦ Form'), ArbSegment('</> Code')],
-              selectedIndex: _tab.index,
-              onChanged: (i) => _switchTab(_BodyTab.values[i]),
-            ),
-          ),
-          const SizedBox(width: 12),
-          _saveControl(t),
-        ],
+    final segmented = SizedBox(
+      width: 168,
+      child: ArbSegmented(
+        compact: true,
+        segments: const [ArbSegment('▦ Form'), ArbSegment('</> Code')],
+        selectedIndex: _tab.index,
+        onChanged: (i) => _switchTab(_BodyTab.values[i]),
       ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < _kWrapBreakpoint;
+        return Container(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.description_outlined, size: 16, color: t.textMuted),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Tooltip(
+                      message: doc.path,
+                      child: Text(
+                        doc.title,
+                        overflow: TextOverflow.ellipsis,
+                        style: t.mono(size: 12, color: t.textSecondary),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (!narrow) ...[segmented, const SizedBox(width: 12)],
+                  _saveControl(t),
+                ],
+              ),
+              if (narrow) ...[
+                const SizedBox(height: 10),
+                segmented,
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 

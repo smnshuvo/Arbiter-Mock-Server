@@ -36,6 +36,7 @@ import '../widgets/grey_out_icon_widget.dart';
 import 'file_server_screen.dart';
 import 'mobile/mobile_endpoints_screen.dart';
 import 'mobile/mobile_logs_screen.dart';
+import 'mobile/start_profile_sheet.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -1238,50 +1239,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ? <String>{serverState.profileId}
             : const <String>{};
 
-    showModalBottomSheet(
+    showStartProfileSheet(
       context: context,
-      isScrollControlled: true,
-      builder: (ctx) => _StartProfileSheet(
-        profiles: loaded.profiles,
-        runningProfileIds: runningProfileIds,
-        defaultPort: defaultPort,
-        defaultUseDeviceIp: defaultUseDeviceIp,
-        initialProfileId: initialProfileId,
-        onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough) async {
-          final hasPermission = await _checkAndRequestNotificationPermission();
-          if (!hasPermission || !mounted) return;
-          Navigator.pop(ctx);
-          // Save pass-through settings back to the profile so the URL persists
-          final profile = loaded.profiles.firstWhere((p) => p.id == profileId);
-          final updatedProfile = profile.copyWith(
-            settings: profile.settings.copyWith(
-              globalPassThroughUrl: passThroughUrl,
-              clearPassThroughUrl: passThroughUrl == null,
-              autoPassThrough: autoPassThrough,
-            ),
-            updatedAt: DateTime.now(),
-          );
-          context.read<ProfileBloc>().add(UpdateProfileEvent(updatedProfile));
-          context.read<ServerBloc>().add(StartProfileEvent(
-            profileId: profileId,
-            profileName: profileName,
-            port: port,
-            useDeviceIp: useDeviceIp,
-            passThroughUrl: passThroughUrl,
+      profiles: loaded.profiles,
+      runningProfileIds: runningProfileIds,
+      defaultPort: defaultPort,
+      defaultUseDeviceIp: defaultUseDeviceIp,
+      initialProfileId: initialProfileId,
+      onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough) async {
+        final hasPermission = await _checkAndRequestNotificationPermission();
+        if (!hasPermission || !mounted) return false;
+        // Save pass-through settings back to the profile so the URL persists
+        final profile = loaded.profiles.firstWhere((p) => p.id == profileId);
+        final updatedProfile = profile.copyWith(
+          settings: profile.settings.copyWith(
+            globalPassThroughUrl: passThroughUrl,
+            clearPassThroughUrl: passThroughUrl == null,
             autoPassThrough: autoPassThrough,
-            networkCondition: profile.settings.networkCondition,
-          ));
-          // Full-screen ad on server start, throttled to once per hour.
-          sl<AdService>().maybeShowInterstitial(
-            'ad_gate_start_server',
-            AdConfig.interstitialStartServer,
-          );
-        },
-        onCreateProfile: () {
-          Navigator.pop(ctx);
-          _showCreateProfileThenStartSheet(defaultPort: defaultPort);
-        },
-      ),
+          ),
+          updatedAt: DateTime.now(),
+        );
+        context.read<ProfileBloc>().add(UpdateProfileEvent(updatedProfile));
+        context.read<ServerBloc>().add(StartProfileEvent(
+          profileId: profileId,
+          profileName: profileName,
+          port: port,
+          useDeviceIp: useDeviceIp,
+          passThroughUrl: passThroughUrl,
+          autoPassThrough: autoPassThrough,
+          networkCondition: profile.settings.networkCondition,
+        ));
+        // Full-screen ad on server start, throttled to once per hour.
+        sl<AdService>().maybeShowInterstitial(
+          'ad_gate_start_server',
+          AdConfig.interstitialStartServer,
+        );
+        return true;
+      },
+      onCreateProfile: () => _showCreateProfileThenStartSheet(defaultPort: defaultPort),
     );
   }
 
@@ -1314,190 +1309,3 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 }
 
-class _StartProfileSheet extends StatefulWidget {
-  final List<Profile> profiles;
-  final Set<String> runningProfileIds;
-  final int defaultPort;
-  final bool defaultUseDeviceIp;
-  final String? initialProfileId;
-  final void Function(String profileId, String profileName, int port, bool useDeviceIp, String? passThroughUrl, bool autoPassThrough) onStart;
-  final VoidCallback? onCreateProfile;
-
-  const _StartProfileSheet({
-    required this.profiles,
-    required this.onStart,
-    this.runningProfileIds = const {},
-    this.defaultPort = 8080,
-    this.defaultUseDeviceIp = false,
-    this.initialProfileId,
-    this.onCreateProfile,
-  });
-
-  @override
-  State<_StartProfileSheet> createState() => _StartProfileSheetState();
-}
-
-class _StartProfileSheetState extends State<_StartProfileSheet> {
-  String? _selectedProfileId;
-  late TextEditingController _portController;
-  late bool _useDeviceIp;
-  bool _autoPassThrough = false;
-  late TextEditingController _passThroughUrlController;
-
-  List<Profile> get _availableProfiles =>
-      widget.profiles.where((p) => !widget.runningProfileIds.contains(p.id)).toList();
-
-  @override
-  void initState() {
-    super.initState();
-    _portController = TextEditingController(text: widget.defaultPort.toString());
-    _useDeviceIp = widget.defaultUseDeviceIp;
-    final available = _availableProfiles;
-    if (available.isNotEmpty) {
-      final initial = widget.initialProfileId != null
-          ? available.firstWhere(
-              (p) => p.id == widget.initialProfileId,
-              orElse: () => available.first,
-            )
-          : available.first;
-      _selectedProfileId = initial.id;
-      _autoPassThrough = initial.settings.autoPassThrough;
-      _passThroughUrlController = TextEditingController(
-        text: initial.settings.globalPassThroughUrl ?? '',
-      );
-    } else {
-      _passThroughUrlController = TextEditingController();
-    }
-  }
-
-  void _onProfileSelected(String? profileId) {
-    if (profileId == null) return;
-    final profile = widget.profiles.firstWhere((p) => p.id == profileId);
-    setState(() {
-      _selectedProfileId = profileId;
-      _autoPassThrough = profile.settings.autoPassThrough;
-      _passThroughUrlController.text = profile.settings.globalPassThroughUrl ?? '';
-    });
-  }
-
-  @override
-  void dispose() {
-    _portController.dispose();
-    _passThroughUrlController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final available = _availableProfiles;
-    final allRunning = available.isEmpty;
-
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16, right: 16, top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text('Start Server', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          if (allRunning) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
-              ),
-              child: const Text(
-                'All profiles are already running. Create a new profile to start another server instance.',
-                style: TextStyle(fontSize: 13),
-              ),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.add),
-              label: const Text('Create New Profile'),
-              onPressed: widget.onCreateProfile,
-            ),
-          ] else ...[
-            DropdownButtonFormField<String>(
-              decoration: const InputDecoration(
-                labelText: 'Profile',
-                border: OutlineInputBorder(),
-              ),
-              initialValue: _selectedProfileId,
-              items: available
-                  .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
-                  .toList(),
-              onChanged: (val) => _onProfileSelected(val),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _portController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Port',
-                border: OutlineInputBorder(),
-                helperText: 'Each running profile must use a unique port',
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              title: const Text('Use Device IP'),
-              subtitle: const Text('Allow other devices to connect'),
-              value: _useDeviceIp,
-              onChanged: (val) => setState(() => _useDeviceIp = val),
-              contentPadding: EdgeInsets.zero,
-            ),
-            SwitchListTile(
-              title: const Text('Auto Pass-Through'),
-              subtitle: const Text('Forward unmatched requests to base URL'),
-              value: _autoPassThrough,
-              onChanged: (val) => setState(() => _autoPassThrough = val),
-              contentPadding: EdgeInsets.zero,
-            ),
-            if (_autoPassThrough) ...[
-              TextField(
-                controller: _passThroughUrlController,
-                decoration: const InputDecoration(
-                  labelText: 'Pass-Through Base URL',
-                  border: OutlineInputBorder(),
-                  hintText: 'https://api.example.com',
-                  helperText: 'Unmatched requests forward to: base_url + path',
-                ),
-                keyboardType: TextInputType.url,
-              ),
-              const SizedBox(height: 8),
-            ],
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: _selectedProfileId == null ? null : () {
-                final port = int.tryParse(_portController.text) ?? widget.defaultPort;
-                final profile = widget.profiles.firstWhere((p) => p.id == _selectedProfileId);
-                final url = _autoPassThrough && _passThroughUrlController.text.trim().isNotEmpty
-                    ? _passThroughUrlController.text.trim()
-                    : null;
-                widget.onStart(_selectedProfileId!, profile.name, port, _useDeviceIp, url, _autoPassThrough);
-              },
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: const Text('Start'),
-            ),
-            if (widget.onCreateProfile != null) ...[
-              const SizedBox(height: 4),
-              TextButton.icon(
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Or create a new profile'),
-                onPressed: widget.onCreateProfile,
-              ),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-}

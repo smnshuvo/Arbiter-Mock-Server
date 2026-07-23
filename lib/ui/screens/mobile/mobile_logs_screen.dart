@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/ads/ad_banner.dart';
+import '../../../core/ads/ad_config.dart';
 import '../../../domain/entities/profile.dart';
 import '../../bloc/profile/profile_bloc.dart';
 import '../desktop/desktop_logs_pane.dart';
@@ -75,6 +77,7 @@ class _MobileLogsScreenState extends State<MobileLogsScreen> {
           );
         },
       ),
+      bottomNavigationBar: AdBanner(adUnitId: AdConfig.bannerEndpoint),
     );
   }
 }

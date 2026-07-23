@@ -8,8 +8,12 @@ int _nextDocId = 0;
 
 /// One open .json document (a tab).
 class JsonDoc {
-  JsonDoc({required this.path, required this.title, required String content})
-      : id = _nextDocId++,
+  JsonDoc({
+    required this.path,
+    required this.title,
+    required String content,
+    this.filenameBase,
+  })  : id = _nextDocId++,
         controller = JsonBraceController(text: content),
         _saved = content;
 
@@ -22,6 +26,11 @@ class JsonDoc {
 
   /// Friendly document name (content-URI safe); shown on the tab and toolbar.
   String title;
+
+  /// Suggested base name (no extension/timestamp) for "Save as" on in-memory
+  /// docs — e.g. the endpoint path a log body was opened from. Falls back to
+  /// a sanitized [title] when not provided.
+  final String? filenameBase;
   final TextEditingController controller;
   String _saved;
   bool saving = false;
@@ -113,7 +122,7 @@ class JsonDocsController extends ChangeNotifier {
   /// response body viewed from a log — with no source file. Activates the
   /// tab if an equivalent in-memory doc with the same title is already open,
   /// rather than piling up duplicates every time the same log is reopened.
-  JsonDoc openInMemory({required String title, required String content}) {
+  JsonDoc openInMemory({required String title, required String content, String? filenameBase}) {
     final existing =
         docs.indexWhere((d) => d.isInMemory && d.title == title && !d.dirty);
     if (existing >= 0) {
@@ -127,11 +136,26 @@ class JsonDocsController extends ChangeNotifier {
       }
       docs.clear();
     }
-    final doc = JsonDoc(path: '', title: title, content: content);
+    final doc = JsonDoc(path: '', title: title, content: content, filenameBase: filenameBase);
     docs.add(doc);
     activeIndex = docs.length - 1;
     notifyListeners();
     return doc;
+  }
+
+  /// Suggested "Save as" filename (no extension) for [doc] — a fresh
+  /// timestamp suffix for in-memory docs (no natural name of their own) so
+  /// repeated saves don't collide; the existing title for real files.
+  String _suggestedSaveName(JsonDoc doc) {
+    if (!doc.isInMemory) return doc.title;
+    final base =
+        (doc.filenameBase ?? doc.title).replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .split('.')
+        .first
+        .replaceAll(RegExp(r'[:T]'), '-');
+    return '${base}_$stamp';
   }
 
   void select(int index) {
@@ -156,7 +180,7 @@ class JsonDocsController extends ChangeNotifier {
     if (!ok) {
       // In-place write denied (common with read-only content:// opens on
       // Android) — let the user choose a writable location instead.
-      final newPath = await _svc.saveAs(doc.controller.text, doc.title);
+      final newPath = await _svc.saveAs(doc.controller.text, _suggestedSaveName(doc));
       if (newPath != null) {
         doc.path = newPath;
         doc.title = await _svc.displayName(newPath);
@@ -174,7 +198,7 @@ class JsonDocsController extends ChangeNotifier {
   Future<bool> saveAsExplicit(JsonDoc doc) async {
     doc.saving = true;
     notifyListeners();
-    final newPath = await _svc.saveAs(doc.controller.text, doc.title);
+    final newPath = await _svc.saveAs(doc.controller.text, _suggestedSaveName(doc));
     var ok = false;
     if (newPath != null) {
       doc.path = newPath;

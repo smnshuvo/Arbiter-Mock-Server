@@ -24,11 +24,20 @@ class DesktopDetailPane extends StatefulWidget {
 class _DesktopDetailPaneState extends State<DesktopDetailPane> {
   bool _headersExpanded = true;
 
-  void _openInEditor(String title, String content) {
-    JsonDocsController.instance.openInMemory(title: title, content: content);
+  void _openInEditor(String title, String content, String filenameBase) {
+    JsonDocsController.instance
+        .openInMemory(title: title, content: content, filenameBase: filenameBase);
     final screen =
         Platform.isAndroid ? const AndroidJsonEditorScreen() : const JsonDocsScreen();
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  /// Filename-safe stand-in for "endpoint name" — the request path is the
+  /// closest thing a log has to one.
+  String _filenameBase(RequestLog log, String suffix) {
+    final path = _displayPath(log.url).replaceFirst(RegExp(r'^/'), '');
+    final safe = path.isEmpty ? 'root' : path.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    return '${safe}_$suffix';
   }
 
   @override
@@ -107,7 +116,8 @@ class _DesktopDetailPaneState extends State<DesktopDetailPane> {
                 jsonString: log.requestBody!,
                 onOpenInEditor: () => _openInEditor(
                     '${log.method.name.toUpperCase()} ${_displayPath(log.url)} · request',
-                    log.requestBody!),
+                    log.requestBody!,
+                    _filenameBase(log, 'request')),
               ),
             ],
             const SizedBox(height: 16),
@@ -117,7 +127,8 @@ class _DesktopDetailPaneState extends State<DesktopDetailPane> {
                 jsonString: log.responseBody!,
                 onOpenInEditor: () => _openInEditor(
                     '${log.method.name.toUpperCase()} ${_displayPath(log.url)} · response',
-                    log.responseBody!),
+                    log.responseBody!,
+                    _filenameBase(log, 'response')),
               )
             else ...[
               Text('RESPONSE BODY', style: t.label),

@@ -100,11 +100,6 @@ class _JsonBodyViewerState extends State<JsonBodyViewer> {
               ),
               const SizedBox(width: 4),
             ],
-            if (_isJson && _tab == _ViewTab.form) ...[
-              _headerButton(t, 'Expand all', _treeController.expandAll),
-              _headerButton(t, 'Collapse all', _treeController.collapseAll),
-              const SizedBox(width: 8),
-            ],
             if (_isJson)
               SizedBox(
                 width: 148,
@@ -117,6 +112,17 @@ class _JsonBodyViewerState extends State<JsonBodyViewer> {
               ),
           ],
         ),
+        if (_isJson && _tab == _ViewTab.form)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _headerButton(t, 'Expand all', _treeController.expandAll),
+                _headerButton(t, 'Collapse all', _treeController.collapseAll),
+              ],
+            ),
+          ),
         const SizedBox(height: 8),
         if (!_isJson || _tab == _ViewTab.code)
           JsonCodeEditor(controller: _codeController, readOnly: true)

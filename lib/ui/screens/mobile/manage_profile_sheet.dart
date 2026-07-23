@@ -6,9 +6,10 @@ import '../../../domain/entities/network_condition.dart';
 import '../../../domain/entities/profile.dart';
 import '../../bloc/profile/profile_bloc.dart';
 import '../../bloc/server/server_bloc.dart';
-import '../endpoint_editor/widgets/arb_segmented.dart';
+import '../desktop/endpoint_import_export_actions.dart';
 import '../endpoint_editor/widgets/network_condition_field.dart';
 import 'arb_bottom_sheet.dart';
+import 'profile_settings_fields.dart';
 
 /// Mobile equivalent of the desktop `ManageProfileDialog`, shown as a bottom
 /// sheet from the endpoints screen's gear icon.
@@ -150,27 +151,6 @@ class _ManageProfileSheetBodyState extends State<_ManageProfileSheetBody> {
             },
           ),
           const SizedBox(height: 14),
-          TextField(
-            controller: _portController,
-            enabled: !running,
-            keyboardType: TextInputType.number,
-            style: t.mono(size: 14),
-            decoration: InputDecoration(
-              labelText: 'Port',
-              border: const OutlineInputBorder(),
-              helperText: running ? 'Stop the server to change the port' : null,
-            ),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text('Use Device IP', style: t.sans(size: 14, weight: FontWeight.w600)),
-            subtitle: Text('Allow other devices to connect',
-                style: t.sans(size: 12, color: t.textSecondary)),
-            value: _useDeviceIp,
-            activeThumbColor: t.accent,
-            onChanged: running ? null : (v) => setState(() => _useDeviceIp = v),
-          ),
-          const SizedBox(height: 10),
           Text('Simulated network', style: t.sans(size: 13, weight: FontWeight.w700)),
           const SizedBox(height: 4),
           Text(
@@ -190,43 +170,24 @@ class _ManageProfileSheetBodyState extends State<_ManageProfileSheetBody> {
             ),
           ),
           const SizedBox(height: 16),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title:
-                Text('Auto pass-through', style: t.sans(size: 14, weight: FontWeight.w600)),
-            subtitle: Text('Forward unmatched requests to a base URL',
-                style: t.sans(size: 12, color: t.textSecondary)),
-            value: _autoPassThrough,
-            activeThumbColor: t.accent,
-            onChanged: (v) {
+          ProfileSettingsFields(
+            portController: _portController,
+            portEnabled: !running,
+            portHelperText: running ? 'Stop the server to change the port' : null,
+            useDeviceIp: _useDeviceIp,
+            onUseDeviceIpChanged: running ? null : (v) => setState(() => _useDeviceIp = v),
+            autoPassThrough: _autoPassThrough,
+            onAutoPassThroughChanged: (v) {
               setState(() => _autoPassThrough = v);
               if (running) _saveLive();
             },
+            passThroughUrlController: _passThroughUrlController,
+            onFieldCommitted: running ? _saveLive : null,
           ),
-          if (_autoPassThrough) ...[
-            const SizedBox(height: 8),
-            ArbSegmented(
-              segments: const [
-                ArbSegment('All requests'),
-                ArbSegment('Specific endpoints', enabled: false, badge: 'Soon'),
-              ],
-              selectedIndex: 0,
-              onChanged: (_) {},
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _passThroughUrlController,
-              style: t.mono(size: 13),
-              decoration: const InputDecoration(
-                labelText: 'Base URL',
-                hintText: 'https://api.example.com',
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (_) {
-                if (running) _saveLive();
-              },
-            ),
-          ],
+          const SizedBox(height: 20),
+          Text('Endpoints', style: t.sans(size: 13, weight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          EndpointImportExportActions(profileId: _profile.id, profileName: _profile.name),
           const SizedBox(height: 22),
           FilledButton(
             onPressed: running ? _stop : _start,

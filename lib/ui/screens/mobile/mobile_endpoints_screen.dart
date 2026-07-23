@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/ads/ad_banner.dart';
+import '../../../core/ads/ad_config.dart';
 import '../../../core/theme/arbiter_tokens.dart';
 import '../../../domain/entities/endpoint.dart';
 import '../../../domain/entities/profile.dart';
@@ -116,6 +118,7 @@ class _MobileEndpointsScreenState extends State<MobileEndpointsScreen> {
             onEndpointSelected: (ep) => _openEditor(endpoint: ep),
             onAddEndpoint: () => _openEditor(),
           ),
+          bottomNavigationBar: AdBanner(adUnitId: AdConfig.bannerEndpoint),
         );
       },
     );

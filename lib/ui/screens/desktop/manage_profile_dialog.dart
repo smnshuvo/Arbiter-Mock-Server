@@ -9,10 +9,12 @@ import '../../bloc/server/server_bloc.dart';
 import '../endpoint_editor/widgets/arb_section_label.dart';
 import '../endpoint_editor/widgets/arb_segmented.dart';
 import '../endpoint_editor/widgets/network_condition_field.dart';
+import 'endpoint_import_export_actions.dart';
 
-/// "Manage {server}" overlay: consolidates general settings (name/port/host)
-/// and interception config — opened from the wide-layout workspace header.
-/// Endpoints have their own "Manage endpoints" view in the workspace itself.
+/// "Manage {server}" overlay: consolidates general settings (name/port/host),
+/// interception config, and endpoint import/export — opened from the
+/// wide-layout workspace header. The endpoint list itself has its own
+/// "Manage endpoints" view in the workspace.
 class ManageProfileDialog extends StatefulWidget {
   final Profile profile;
 
@@ -119,6 +121,13 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
                     const ArbSectionLabel('Interception', padding: EdgeInsets.zero),
                     const SizedBox(height: 12),
                     _buildInterceptionSection(t),
+                    const SizedBox(height: 24),
+                    Divider(color: t.border),
+                    const SizedBox(height: 20),
+                    const ArbSectionLabel('Endpoints', padding: EdgeInsets.zero),
+                    const SizedBox(height: 12),
+                    EndpointImportExportActions(
+                        profileId: _profile.id, profileName: _profile.name),
                   ],
                 ),
               ),
