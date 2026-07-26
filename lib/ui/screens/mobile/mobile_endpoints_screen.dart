@@ -17,21 +17,29 @@ import 'manage_profile_sheet.dart';
 /// phones push a new screen for the endpoint list, and another for the
 /// editor, instead of the desktop's side-by-side panes (no room for both on
 /// a phone). Opened by tapping a server card on [HomeScreen].
+///
+/// The server is passed in explicitly rather than read from [ProfileBloc]'s
+/// active profile. Callers dispatch `SwitchActiveProfileEvent` before pushing
+/// this screen, but that handler is async (it awaits the settings write and a
+/// profile reload), so the active id in state is still the *previous* one when
+/// this screen's `initState` runs — reading it there opened whichever server
+/// happened to be active before, which showed up as landing on the wrong
+/// endpoint list right after creating or deleting a server.
 class MobileEndpointsScreen extends StatefulWidget {
-  const MobileEndpointsScreen({super.key});
+  final String profileId;
+
+  const MobileEndpointsScreen({super.key, required this.profileId});
 
   @override
   State<MobileEndpointsScreen> createState() => _MobileEndpointsScreenState();
 }
 
 class _MobileEndpointsScreenState extends State<MobileEndpointsScreen> {
-  late final String _profileId;
+  String get _profileId => widget.profileId;
 
   @override
   void initState() {
     super.initState();
-    final profileState = context.read<ProfileBloc>().state;
-    _profileId = profileState is ProfileLoaded ? profileState.activeProfileId : 'default';
     context.read<EndpointBloc>().add(LoadEndpointsEvent(_profileId));
   }
 
@@ -107,7 +115,12 @@ class _MobileEndpointsScreenState extends State<MobileEndpointsScreen> {
               IconButton(
                 tooltip: 'Manage server',
                 icon: const Icon(Icons.settings_outlined),
-                onPressed: () => showManageProfileSheet(context: context, profile: profile),
+                onPressed: () => showManageProfileSheet(
+                  context: context,
+                  profile: profile,
+                  // Already on the endpoints screen — don't offer a button back to it.
+                  showEndpointsAction: false,
+                ),
               ),
             ],
           ),

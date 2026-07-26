@@ -9,11 +9,13 @@ import 'package:arbiter_mock_server/core/services/foreground_service.dart';
 import 'package:arbiter_mock_server/core/services/overlay_service.dart';
 import 'package:arbiter_mock_server/core/services/menu_bar_activity_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme_data.dart';
 import '../../domain/entities/interception_mode.dart';
+import '../../domain/entities/network_condition.dart';
 import '../../domain/entities/profile.dart';
 import '../../domain/entities/prompt.dart';
 import '../../domain/repositories/endpoint_repository.dart';
@@ -34,7 +36,6 @@ import 'desktop/desktop_workspace_screen.dart';
 import '../widgets/glowing_icon_widget.dart';
 import '../widgets/grey_out_icon_widget.dart';
 import 'file_server_screen.dart';
-import 'mobile/manage_profile_sheet.dart';
 import 'mobile/mobile_endpoints_screen.dart';
 import 'mobile/mobile_logs_screen.dart';
 import 'mobile/start_profile_sheet.dart';
@@ -53,18 +54,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   static const iconAssetPath = 'assets/app_icon/app_icon.png';
 
-  /// Per-profile endpoint counts, shown as a chip on each server card. Loaded
-  /// lazily (best-effort) whenever the profile list changes or we return from
-  /// the endpoints screen.
+  /// Per-profile endpoint counts, shown on each server card. Loaded lazily
+  /// (best-effort) whenever the profile list changes or we return from the
+  /// endpoints screen.
   Map<String, int> _endpointCounts = {};
   bool _loadingCounts = false;
 
-  /// Which server's card is enlarged/centered in the home screen's stack.
-  String? _selectedProfileId;
-
-  /// Direction of the last selection change, so the stack's slide transition
-  /// matches which way the user moved (arrow/leaned-card tap direction).
-  bool _stackMoveForward = true;
+  /// Whether the server list is expanded past [_collapsedServerCount].
+  bool _showAllServers = false;
 
   @override
   void initState() {
@@ -496,13 +493,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Opens a profile's endpoints. Switches the active profile first so the
-  /// endpoints screen (which follows the active profile) shows the right set.
+  /// Opens a profile's endpoints. The id is handed to the screen directly —
+  /// the `SwitchActiveProfileEvent` below only keeps the rest of the app in
+  /// sync and lands too late to be read as the destination (see
+  /// [MobileEndpointsScreen]).
   Future<void> _openEndpoints(Profile profile) async {
     context.read<ProfileBloc>().add(SwitchActiveProfileEvent(profile.id));
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const MobileEndpointsScreen()),
+      MaterialPageRoute(builder: (context) => MobileEndpointsScreen(profileId: profile.id)),
     );
     if (!mounted) return;
     final profileState = context.read<ProfileBloc>().state;
@@ -638,7 +637,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: Center(child: CircularProgressIndicator()),
                 )
               else ...[
-                _buildServerStack(profiles, running),
+                _buildServerList(profiles, running),
                 if (FileServerService.isSupported) ...[
                   const SizedBox(height: 12),
                   _buildFileServerEntry(),
@@ -808,234 +807,291 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Card stack: the selected server plus its immediate neighbors, centered
-  /// one upright and painted on top, the other two scaled down, tilted, and
-  /// peeking out from behind it — matching the reference design. Left/right
-  /// arrows (or tapping a leaned card) move the selection, sliding the stack
-  /// in the direction of travel. Tapping the centered card opens its
-  /// endpoints list; the Start/Stop button below opens the Manage sheet (or
-  /// stops it instantly if already running).
-  Widget _buildServerStack(
+  /// Vertical list of servers, one full-width terminal-styled card each.
+  ///
+  /// Every row carries its own Start/Stop button, so each action names the
+  /// server it acts on — there is no "selected" card. The row has exactly one
+  /// tap target beyond that button: anywhere on the card, as well as its
+  /// "endpoints" CTA, opens that server's endpoints and nothing else. Past
+  /// [_collapsedServerCount] the tail is folded behind a "show all" toggle so
+  /// the screen stays scannable; a single "New server" row closes the list.
+  Widget _buildServerList(
     List<Profile> profiles,
     Map<String, ({String url, int port})> running,
   ) {
-    if (profiles.isEmpty) {
-      return Column(
-        children: [
+    final collapsed = !_showAllServers && profiles.length > _collapsedServerCount;
+    final visible = collapsed ? profiles.take(_collapsedServerCount) : profiles;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (profiles.isEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 32),
+            padding: const EdgeInsets.symmetric(vertical: 28),
             child: Center(
               child: Text('No servers yet',
                   style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ),
-          ),
-          _buildNewServerLink(running),
-        ],
-      );
-    }
-
-    var selectedIndex = profiles.indexWhere((p) => p.id == _selectedProfileId);
-    if (selectedIndex < 0) selectedIndex = 0;
-    _selectedProfileId = profiles[selectedIndex].id;
-    final selectedProfile = profiles[selectedIndex];
-    final isRunning = running.containsKey(selectedProfile.id);
-    final prev = selectedIndex > 0 ? profiles[selectedIndex - 1] : null;
-    final next = selectedIndex < profiles.length - 1 ? profiles[selectedIndex + 1] : null;
-
-    void select(String id, {required bool forward}) {
-      setState(() {
-        _selectedProfileId = id;
-        _stackMoveForward = forward;
-      });
-    }
-
-    return Column(
-      children: [
-        SizedBox(
-          width: double.infinity,
-          height: 240,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            transitionBuilder: (child, animation) {
-              final offset = Tween<Offset>(
-                begin: Offset(_stackMoveForward ? 0.3 : -0.3, 0),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut));
-              return ClipRect(
-                child: SlideTransition(
-                  position: offset,
-                  child: FadeTransition(opacity: animation, child: child),
-                ),
-              );
-            },
-            child: Stack(
-              key: ValueKey(selectedProfile.id),
-              clipBehavior: Clip.none,
-              children: [
-                // Leaned neighbors are pinned to the stack's own left/right
-                // edges (not offset from the center card) so they always
-                // render regardless of the center card's intrinsic size, and
-                // paint first so the centered card stacks on top of them.
-                if (prev != null)
-                  Positioned(
-                    left: 0,
-                    top: 30,
-                    child: _buildLeanedCard(prev, running.containsKey(prev.id),
-                        toLeft: true, onTap: () => select(prev.id, forward: false)),
-                  ),
-                if (next != null)
-                  Positioned(
-                    right: 0,
-                    top: 30,
-                    child: _buildLeanedCard(next, running.containsKey(next.id),
-                        toLeft: false, onTap: () => select(next.id, forward: true)),
-                  ),
-                Align(
-                  alignment: Alignment.topCenter,
-                  child: _buildCenterCard(selectedProfile, isRunning),
-                ),
-              ],
+          )
+        else
+          for (final profile in visible) ...[
+            _serverCard(
+              profile,
+              running.containsKey(profile.id),
+              address: _addressFor(profile.id, running),
+              running: running,
             ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              onPressed: prev != null ? () => select(prev.id, forward: false) : null,
-              icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-            ),
-            const SizedBox(width: 28),
-            IconButton(
-              onPressed: next != null ? () => select(next.id, forward: true) : null,
-              icon: const Icon(Icons.arrow_forward_ios, size: 18),
-            ),
+            const SizedBox(height: 12),
           ],
-        ),
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: _startStopButton(selectedProfile, isRunning),
-        ),
-        _buildNewServerLink(running),
+        if (profiles.length > _collapsedServerCount) ...[
+          _buildShowAllToggle(profiles.length, collapsed),
+          const SizedBox(height: 12),
+        ],
+        _buildNewServerRow(),
       ],
     );
   }
 
-  Widget _buildLeanedCard(Profile profile, bool isRunning,
-      {required bool toLeft, required VoidCallback onTap}) {
-    return Transform.rotate(
-      angle: toLeft ? -0.13 : 0.13,
-      child: GestureDetector(
-        onTap: onTap,
-        child: SizedBox(
-          width: 148,
-          child: _serverCardFace(profile, isRunning, selected: false),
+  /// How many servers the list shows before folding the rest away.
+  static const int _collapsedServerCount = 2;
+
+  Widget _buildShowAllToggle(int total, bool collapsed) {
+    final hidden = total - _collapsedServerCount;
+    return Align(
+      alignment: Alignment.center,
+      child: TextButton.icon(
+        onPressed: () => setState(() => _showAllServers = !_showAllServers),
+        icon: Icon(collapsed ? Icons.add_rounded : Icons.remove_rounded, size: 18),
+        label: Text(collapsed ? 'Show all ($hidden more)' : 'Show less'),
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.accent,
+          textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
         ),
       ),
     );
   }
 
-  Widget _buildCenterCard(Profile profile, bool isRunning) {
-    return GestureDetector(
-      onTap: () => _openEndpoints(profile),
-      child: SizedBox(
-        width: 210,
-        child: _serverCardFace(profile, isRunning, selected: true),
-      ),
+  /// "host:port" for a running profile — localhost or the LAN IP, whichever
+  /// the server was actually bound to — or null while stopped.
+  String? _addressFor(String profileId, Map<String, ({String url, int port})> running) {
+    final info = running[profileId];
+    if (info == null) return null;
+    final host = Uri.tryParse(info.url)?.host;
+    return '${host?.isNotEmpty == true ? host : 'localhost'}:${info.port}';
+  }
+
+  void _copyAddress(String address) {
+    Clipboard.setData(ClipboardData(text: address));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copied $address'), duration: const Duration(seconds: 1)),
     );
   }
 
-  /// Terminal-window styled card face: dark background, macOS-style
-  /// traffic-light title bar, monospace "$ port" readout.
-  Widget _serverCardFace(Profile profile, bool isRunning, {required bool selected}) {
+  /// One server as a terminal window: a macOS-style traffic-light title bar
+  /// holding only the endpoints CTA, then inside the window the server name as
+  /// a prompt line, a monospace port/address readout, status + endpoint count,
+  /// and its own Start/Stop button. While running the readout becomes the
+  /// actual bound address (localhost or LAN IP, whichever the server used)
+  /// with a copy button.
+  Widget _serverCard(
+    Profile profile,
+    bool isRunning, {
+    String? address,
+    required Map<String, ({String url, int port})> running,
+  }) {
     final statusColor = isRunning ? const Color(0xFF2ECC71) : const Color(0xFF8B8F98);
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1D23),
+    final showAddress = isRunning && address != null;
+    final endpointCount = _endpointCounts[profile.id];
+    final hasBadges = profile.settings.autoPassThrough ||
+        profile.settings.networkCondition != NetworkCondition.none;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: selected
-              ? AppColors.accent.withValues(alpha: 0.55)
-              : Colors.white.withValues(alpha: 0.08),
-          width: selected ? 1.5 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: selected ? 0.35 : 0.18),
-            blurRadius: selected ? 22 : 10,
-            offset: Offset(0, selected ? 10 : 6),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 12, vertical: selected ? 10 : 7),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.04),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+        onTap: () => _openEndpoints(profile),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1B1D23),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isRunning
+                  ? AppColors.running.withValues(alpha: 0.45)
+                  : Colors.white.withValues(alpha: 0.08),
             ),
-            child: Row(
-              children: [
-                _trafficDot(const Color(0xFFFF5F57)),
-                const SizedBox(width: 5),
-                _trafficDot(const Color(0xFFFEBC2E)),
-                const SizedBox(width: 5),
-                _trafficDot(const Color(0xFF28C840)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(profile.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: monoTextStyle(
-                          fontSize: selected ? 12 : 10,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white70)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
                 ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.all(selected ? 16 : 11),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('\$ port',
-                    style:
-                        monoTextStyle(fontSize: selected ? 11 : 9, color: Colors.white38)),
-                const SizedBox(height: 2),
-                Text('${profile.port}',
-                    style: monoTextStyle(
-                        fontSize: selected ? 26 : 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white)),
-                SizedBox(height: selected ? 12 : 8),
-                Row(
+                child: Row(
                   children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(isRunning ? 'active' : 'inactive',
-                        style: monoTextStyle(
-                            fontSize: selected ? 12.5 : 10,
-                            fontWeight: FontWeight.w700,
-                            color: statusColor)),
+                    _trafficDot(const Color(0xFFFF5F57)),
+                    const SizedBox(width: 5),
+                    _trafficDot(const Color(0xFFFEBC2E)),
+                    const SizedBox(width: 5),
+                    _trafficDot(const Color(0xFF28C840)),
+                    const Spacer(),
+                    _manageEndpointsCta(profile),
                   ],
                 ),
-              ],
-            ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // The name reads as the window's first prompt line rather
+                    // than a chrome title, so the terminal metaphor holds.
+                    Text('>_ \$: ${profile.name}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: monoTextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                    const SizedBox(height: 12),
+                    Text(showAddress ? '\$ curl' : '\$ port',
+                        style: monoTextStyle(fontSize: 10.5, color: Colors.white38)),
+                    const SizedBox(height: 3),
+                    if (showAddress)
+                      Row(
+                        children: [
+                          Expanded(
+                            // FittedBox rather than a fixed size + ellipsis: the
+                            // full address must stay readable (and copyable)
+                            // whatever the host string's length turns out to be.
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(address,
+                                  style: monoTextStyle(
+                                      fontSize: 21,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white)),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => _copyAddress(address),
+                            child: const Padding(
+                              padding: EdgeInsets.only(left: 8),
+                              child: Icon(Icons.copy_rounded, size: 16, color: Colors.white54),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text('${profile.port}',
+                          style: monoTextStyle(
+                              fontSize: 24, fontWeight: FontWeight.w700, color: Colors.white)),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration:
+                              BoxDecoration(shape: BoxShape.circle, color: statusColor),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(isRunning ? 'active' : 'inactive',
+                            style: monoTextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: statusColor)),
+                        if (endpointCount != null) ...[
+                          Text('  ·  ',
+                              style: monoTextStyle(fontSize: 12, color: Colors.white24)),
+                          Expanded(
+                            child: Text(
+                                '$endpointCount endpoint${endpointCount == 1 ? '' : 's'}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: monoTextStyle(fontSize: 12, color: Colors.white38)),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (hasBadges) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          if (profile.settings.autoPassThrough) _infoBadge('pass-through'),
+                          if (profile.settings.networkCondition != NetworkCondition.none)
+                            _infoBadge('throttled'),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    _startStopButton(profile, isRunning, running),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
+    );
+  }
+
+  /// Labelled call to action in the card's title bar. It goes to the same
+  /// place as a tap on the card body — its job is to caption that gesture so
+  /// the card doesn't rely on the user guessing it's tappable.
+  Widget _manageEndpointsCta(Profile profile) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => _openEndpoints(profile),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('endpoints',
+                  style: monoTextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.accent)),
+              const SizedBox(width: 3),
+              const Icon(Icons.chevron_right_rounded, size: 14, color: AppColors.accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _infoBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
+      ),
+      child: Text(label,
+          style:
+              monoTextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: AppColors.accent)),
     );
   }
 
@@ -1047,42 +1103,67 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _startStopButton(Profile profile, bool isRunning) {
+  /// Per-card Start/Stop. Starting opens the same "Start server" sheet as the
+  /// new-server flow, just with this profile pre-selected.
+  Widget _startStopButton(Profile profile, bool isRunning,
+      Map<String, ({String url, int port})> running) {
     return ElevatedButton.icon(
       onPressed: () {
         if (isRunning) {
           context.read<ServerBloc>().add(StopProfileEvent(profile.id));
         } else {
-          showManageProfileSheet(context: context, profile: profile);
+          final usedPorts = running.values.map((e) => e.port).toSet();
+          _showStartProfileSheet(
+            defaultPort: _nextFreePort(profile.port, usedPorts),
+            defaultUseDeviceIp: profile.settings.useDeviceIp,
+            initialProfileId: profile.id,
+          );
         }
       },
-      icon: Icon(isRunning ? Icons.stop_rounded : Icons.play_arrow_rounded),
+      icon: Icon(isRunning ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 20),
       label: Text(isRunning ? 'Stop Server' : 'Start Server',
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
       style: ElevatedButton.styleFrom(
-        elevation: 2,
+        elevation: 0,
         backgroundColor: isRunning ? AppColors.error : AppColors.running,
         foregroundColor: Colors.white,
-        minimumSize: const Size.fromHeight(50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        minimumSize: const Size.fromHeight(44),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
 
-  /// Compact link (not a standalone card) for creating another profile —
-  /// lives directly under the Start/Stop button so profile creation stays a
-  /// bottom-sheet flow rather than its own persistent block on the screen.
-  Widget _buildNewServerLink(Map<String, ({String url, int port})> running) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: TextButton.icon(
-        onPressed: () {
-          final usedPorts = running.values.map((e) => e.port).toSet();
-          _showStartProfileSheet(defaultPort: _nextFreePort(8080, usedPorts));
-        },
-        icon: const Icon(Icons.add, size: 18, color: AppColors.accent),
-        label: const Text('New server',
-            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.accent)),
+  /// Closes the server list — the single create-server affordance. Goes
+  /// straight to the name prompt: naming it is the only thing needed to get a
+  /// server into the list, and everything else (port, host, pass-through) is
+  /// decided later on its own card's Start button.
+  Widget _buildNewServerRow() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: _showCreateProfileDialog,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.add_rounded, size: 20, color: AppColors.accent),
+                const SizedBox(width: 8),
+                Text('New server',
+                    style: monoTextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.accent)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1121,16 +1202,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       defaultPort: defaultPort,
       defaultUseDeviceIp: defaultUseDeviceIp,
       initialProfileId: initialProfileId,
-      onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough) async {
+      onStart: (profileId, profileName, port, useDeviceIp, passThroughUrl, autoPassThrough,
+          networkCondition) async {
         final hasPermission = await _checkAndRequestNotificationPermission();
         if (!hasPermission || !mounted) return false;
-        // Save pass-through settings back to the profile so the URL persists
+        // Save what the sheet edited back to the profile so it persists — the
+        // sheet now carries the same settings as the Manage sheet, so all of
+        // them have to survive the start, not just the pass-through URL.
         final profile = loaded.profiles.firstWhere((p) => p.id == profileId);
         final updatedProfile = profile.copyWith(
+          port: port,
           settings: profile.settings.copyWith(
             globalPassThroughUrl: passThroughUrl,
             clearPassThroughUrl: passThroughUrl == null,
             autoPassThrough: autoPassThrough,
+            useDeviceIp: useDeviceIp,
+            networkCondition: networkCondition,
           ),
           updatedAt: DateTime.now(),
         );
@@ -1142,7 +1229,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           useDeviceIp: useDeviceIp,
           passThroughUrl: passThroughUrl,
           autoPassThrough: autoPassThrough,
-          networkCondition: profile.settings.networkCondition,
+          networkCondition: networkCondition,
         ));
         // Full-screen ad on server start, throttled to once per hour.
         sl<AdService>().maybeShowInterstitial(
@@ -1151,36 +1238,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         return true;
       },
-      onCreateProfile: () => _showCreateProfileThenStartSheet(defaultPort: defaultPort),
+      onCreateProfile: _showCreateProfileDialog,
     );
   }
 
-  void _showCreateProfileThenStartSheet({int defaultPort = 8080}) {
+  /// The whole create-server flow: name it, and it lands in the list stopped,
+  /// ready for its own Start button. Also reachable from the "Start server"
+  /// sheet's create option.
+  void _showCreateProfileDialog() {
     final controller = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('New Profile'),
+        title: const Text('New Server'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: 'Profile name'),
+          decoration: const InputDecoration(labelText: 'Server name'),
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _createProfileFrom(controller, ctx),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) {
-                context.read<ProfileBloc>().add(CreateProfileEvent(name: name));
-                Navigator.pop(ctx);
-              }
-            },
+            onPressed: () => _createProfileFrom(controller, ctx),
             child: const Text('Create'),
           ),
         ],
       ),
     );
+  }
+
+  void _createProfileFrom(TextEditingController controller, BuildContext dialogContext) {
+    final name = controller.text.trim();
+    if (name.isEmpty) return;
+    context.read<ProfileBloc>().add(CreateProfileEvent(name: name));
+    // A newly created server sits at the end of the list, so make sure it is
+    // actually visible rather than hidden behind the "show all" fold.
+    setState(() => _showAllServers = true);
+    Navigator.pop(dialogContext);
   }
 }
 

@@ -49,7 +49,14 @@ class _DesktopEndpointsPaneState extends State<DesktopEndpointsPane> {
         }
       },
       builder: (context, state) {
-        final endpoints = state is EndpointLoaded ? state.endpoints : <Endpoint>[];
+        // EndpointBloc is shared across servers, so its last EndpointLoaded can
+        // still belong to the previously opened one while this pane's own
+        // LoadEndpointsEvent is in flight. Render only what matches this pane,
+        // otherwise the wrong server's endpoints flash up — and tapping one
+        // during that window opens an endpoint from a different server.
+        final endpoints = state is EndpointLoaded && state.profileId == widget.profileId
+            ? state.endpoints
+            : <Endpoint>[];
         return Container(
           color: t.canvas,
           child: Stack(

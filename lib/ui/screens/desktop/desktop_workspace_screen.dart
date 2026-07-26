@@ -322,6 +322,16 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
       builder: (context, profileState) {
         final profiles = profileState is ProfileLoaded ? profileState.profiles : <Profile>[];
         final selectedId = _selectedProfileId ?? (profiles.isNotEmpty ? profiles.first.id : 'default');
+        // initState fires before the profiles finish loading, so it can only
+        // load 'default' as a guess. Once the real list arrives and resolves to
+        // a different first/active profile, adopt it and load its endpoints —
+        // otherwise the pane asks for one server's endpoints while the bloc
+        // holds another's. Runs once: after this, _selectedProfileId == selectedId.
+        if (_selectedProfileId != selectedId) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _selectedProfileId == null) _selectProfile(selectedId);
+          });
+        }
         final selectedProfile = profiles.firstWhere(
           (p) => p.id == selectedId,
           orElse: () => Profile(
