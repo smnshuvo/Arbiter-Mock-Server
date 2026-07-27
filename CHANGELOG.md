@@ -1,5 +1,44 @@
 # Changelog
 
+## Version 3.2.0 (Build 11)
+
+**Home screen**
+• Servers are now a plain list of terminal-window cards instead of a stack you swipe through — every server shows its status, port or live address, and endpoint count at a glance
+• Each card carries its own Start/Stop button and an "endpoints" shortcut, so an action always names the server it applies to
+• Past two servers the list folds behind a "Show all" toggle
+• "New server" goes straight to naming it; the server appears in the list ready to start
+• The Start server sheet now carries every option the Manage sheet does — simulated network, port, host, pass-through, endpoints, import/export
+
+**Desktop & tablet**
+• New wide-layout workspace: server rail, live logs feed, and request/response detail side by side, with a Manage overlay for server settings
+• Phones now push full screens for endpoints, the editor, logs, and log detail instead of the old cramped narrow layouts
+
+**Prompt mode**
+• New "Prompt" conditional mode — when a request matches, pick which of several candidate responses to return, live
+• The macOS menu bar Live Activity and the Android floating overlay show the same picker, so a response can be chosen without switching back to the app
+
+**Network simulation**
+• Server-wide network throttle (GPRS through 5G, plus unstable 2G) that also covers pass-through and unmatched traffic; an endpoint with its own condition still overrides it
+
+**JSON editor**
+• Large documents no longer stutter while typing — the tree renders only visible rows and serializes on save instead of on every keystroke
+• Open .json files in a tabbed document window on macOS and Android, with recent files and Save-as
+• Color-coded nesting: tree guides and rainbow braces
+
+**Logs**
+• Client IP is captured for every request and can be filtered on
+• Desktop filter dialog, clear-logs action, and per-log delete
+
+**Android overlay**
+• Bubble outline is colored by status code (green 2xx, amber 3xx, red 4xx/5xx), and red persists for 3 seconds after an error so a quick failure isn't missed
+• Minimize button collapses the bubble to a small icon; tap to restore
+
+**Fixes**
+• Tapping a server could open a different server's endpoint list, most often right after adding or deleting a server
+• Endpoint editor opens on the Code tab and loads the form lazily, so large endpoints open faster
+
+---
+
 ## Version 3.1.0 (Build 10)
 
 **Interception**
