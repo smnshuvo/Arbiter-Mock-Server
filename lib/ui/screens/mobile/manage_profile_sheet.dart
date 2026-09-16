@@ -11,6 +11,7 @@ import '../endpoint_editor/widgets/network_condition_field.dart';
 import 'arb_bottom_sheet.dart';
 import 'mobile_endpoints_screen.dart';
 import 'profile_settings_fields.dart';
+import '../../widgets/pass_through_url_field.dart';
 
 /// Mobile equivalent of the desktop `ManageProfileDialog`, shown as a bottom
 /// sheet from the endpoints screen's gear icon.
@@ -113,6 +114,14 @@ class _ManageProfileSheetBodyState extends State<_ManageProfileSheetBody> {
   /// Persists live-appliable fields while the server is already running —
   /// only called when `running`, never while stopped (Start saves everything
   /// there instead).
+  Future<void> _commitLive() async {
+    if (_autoPassThrough) {
+      await rememberPassThroughUrl(context, _passThroughUrlController.text);
+      if (!mounted) return;
+    }
+    _saveLive();
+  }
+
   void _saveLive() {
     final updated = _buildUpdatedProfile(_profile.port);
     context.read<ProfileBloc>().add(UpdateProfileEvent(updated));
@@ -127,7 +136,11 @@ class _ManageProfileSheetBodyState extends State<_ManageProfileSheetBody> {
     }
   }
 
-  void _start() {
+  Future<void> _start() async {
+    if (_autoPassThrough) {
+      await rememberPassThroughUrl(context, _passThroughUrlController.text);
+      if (!mounted) return;
+    }
     final port = int.tryParse(_portController.text.trim()) ?? _profile.port;
     final updated = _buildUpdatedProfile(port);
     context.read<ProfileBloc>().add(UpdateProfileEvent(updated));
@@ -212,7 +225,7 @@ class _ManageProfileSheetBodyState extends State<_ManageProfileSheetBody> {
                     if (running) _saveLive();
                   },
                   passThroughUrlController: _passThroughUrlController,
-                  onFieldCommitted: running ? _saveLive : null,
+                  onFieldCommitted: running ? _commitLive : null,
                 ),
                 const SizedBox(height: 20),
                 Text('Endpoints', style: t.sans(size: 13, weight: FontWeight.w700)),

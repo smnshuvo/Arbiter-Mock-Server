@@ -53,6 +53,7 @@ dependencies:
 
   # Dependency Injection
   get_it: ^7.6.4
+  mobile_scanner: ^7.4.2
 
 dev_dependencies:
   flutter_test:

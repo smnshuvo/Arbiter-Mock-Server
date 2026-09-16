@@ -56,5 +56,9 @@
     <true/>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>Arbiter uses the camera to scan share codes from nearby devices.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Arbiter uses your local network to find nearby devices for sharing and receiving mock collections.</string>
   </dict>
 </plist>

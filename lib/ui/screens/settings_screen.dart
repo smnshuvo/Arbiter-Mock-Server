@@ -11,6 +11,7 @@ import '../bloc/interception/interception_state.dart';
 import '../bloc/settings/settings_bloc.dart';
 import '../dialog/overlay_priming_sheet.dart';
 import 'overlay_settings_screen.dart';
+import 'share/nearby_sharing_actions.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -79,6 +80,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 _buildInterceptionCard(),
+                const SizedBox(height: 16),
+                _buildNearbySharingCard(),
                 const SizedBox(height: 16),
                 _buildNotificationSettingsCard(state.settings),
                 const SizedBox(height: 16),
@@ -328,6 +331,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildNearbySharingCard() {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.wifi_tethering,
+                    color: Theme.of(context).colorScheme.primary, size: 24),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Nearby sharing',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text(
+                        'Send a collection to another Arbiter user on the same Wi-Fi, or receive one',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const NearbySharingActions(),
+          ],
+        ),
+      ),
     );
   }
 

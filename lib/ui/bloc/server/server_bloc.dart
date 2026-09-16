@@ -92,6 +92,18 @@ class StopProfileEvent extends ServerEvent {
 
 class StopAllProfilesEvent extends ServerEvent {}
 
+/// Stops then starts a running profile with new options (e.g. switching the
+/// bind host between localhost and the network). One event rather than a
+/// Stop + Start pair, because bloc handlers for different event types run
+/// concurrently and the start could race the stop and hit "already running".
+class RestartProfileEvent extends ServerEvent {
+  final StartProfileEvent start;
+  RestartProfileEvent(this.start);
+
+  @override
+  List<Object?> get props => [start];
+}
+
 /// Live-applies a profile's network-throttle setting to its already-running
 /// server, so it takes effect immediately without a restart.
 class SetProfileNetworkConditionEvent extends ServerEvent {
@@ -223,6 +235,7 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     on<StartProfileEvent>(_onStartProfile);
     on<StopProfileEvent>(_onStopProfile);
     on<StopAllProfilesEvent>(_onStopAllProfiles);
+    on<RestartProfileEvent>(_onRestartProfile);
     on<SetProfileNetworkConditionEvent>(_onSetProfileNetworkCondition);
   }
 
@@ -465,6 +478,16 @@ class ServerBloc extends Bloc<ServerEvent, ServerState> {
     } catch (e) {
       emit(ServerError(e.toString()));
     }
+  }
+
+  Future<void> _onRestartProfile(RestartProfileEvent event, Emitter<ServerState> emit) async {
+    try {
+      await stopProfile(event.start.profileId);
+    } catch (e) {
+      emit(ServerError(e.toString()));
+      return;
+    }
+    await _onStartProfile(event.start, emit);
   }
 
   Future<void> _onStopAllProfiles(StopAllProfilesEvent event, Emitter<ServerState> emit) async {

@@ -15,10 +15,14 @@ class LoadProfilesEvent extends ProfileEvent {}
 class CreateProfileEvent extends ProfileEvent {
   final String name;
   final String? description;
-  CreateProfileEvent({required this.name, this.description});
+
+  /// Caller-chosen id, for flows that must add endpoints to the new profile
+  /// straight away (e.g. receiving a nearby share). Generated when null.
+  final String? id;
+  CreateProfileEvent({required this.name, this.description, this.id});
 
   @override
-  List<Object?> get props => [name, description];
+  List<Object?> get props => [name, description, id];
 }
 
 class UpdateProfileEvent extends ProfileEvent {
@@ -116,7 +120,7 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
     try {
       final now = DateTime.now();
       final profile = Profile(
-        id: const Uuid().v4(),
+        id: event.id ?? const Uuid().v4(),
         name: event.name,
         description: event.description,
         port: 8080,

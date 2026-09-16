@@ -9,6 +9,7 @@ import '../../bloc/server/server_bloc.dart';
 import '../endpoint_editor/widgets/arb_section_label.dart';
 import '../endpoint_editor/widgets/arb_segmented.dart';
 import '../endpoint_editor/widgets/network_condition_field.dart';
+import '../../widgets/pass_through_url_field.dart';
 import 'endpoint_import_export_actions.dart';
 
 /// "Manage {server}" overlay: consolidates general settings (name/port/host),
@@ -66,7 +67,11 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
     return false;
   }
 
-  void _saveGeneral() {
+  Future<void> _saveGeneral() async {
+    if (_autoPassThrough) {
+      await rememberPassThroughUrl(context, _passThroughUrlController.text);
+      if (!mounted) return;
+    }
     final name = _nameController.text.trim();
     final port = int.tryParse(_portController.text.trim()) ?? _profile.port;
     final updated = _profile.copyWith(
@@ -89,9 +94,11 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
           .read<ServerBloc>()
           .add(SetProfileNetworkConditionEvent(_profile.id, _networkCondition));
     }
-    setState(() => _profile = updated);
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Saved')));
+    // Close the dialog on save — the snackbar goes to the workspace's
+    // messenger (captured before popping) so it's still seen afterwards.
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.pop(context);
+    messenger.showSnackBar(SnackBar(content: Text('Saved ${updated.name}')));
   }
 
   @override
@@ -273,15 +280,7 @@ class _ManageProfileDialogState extends State<ManageProfileDialog> {
             style: t.sans(size: 11.5, weight: FontWeight.w500, color: t.textMuted),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _passThroughUrlController,
-            style: t.mono(size: 13),
-            decoration: const InputDecoration(
-              labelText: 'Base URL',
-              hintText: 'https://api.example.com',
-              border: OutlineInputBorder(),
-            ),
-          ),
+          PassThroughUrlField(controller: _passThroughUrlController),
         ],
       ],
     );

@@ -13,16 +13,20 @@ import '../../data/datasources/local/log_local_datasource.dart';
 import '../../data/datasources/local/profile_local_datasource.dart';
 import '../../data/datasources/server/interception_manager.dart';
 import '../../data/datasources/server/prompt_interception_manager.dart';
+import '../../data/datasources/share/nearby_share_service.dart';
 import '../../data/repositories/endpoint_repository.dart';
 import '../../data/repositories/log_respository.dart';
 import '../../data/repositories/interception_repository_impl.dart';
 import '../../data/repositories/prompt_repository_impl.dart';
 import '../../data/repositories/profile_repository_impl.dart';
+import '../../data/repositories/saved_base_url_repository_impl.dart';
 import '../../data/repositories/server_repository_impl.dart';
 import '../../data/repositories/settings_repository_impl.dart';
 import '../../domain/repositories/endpoint_repository.dart';
 import '../../domain/repositories/log_repository.dart';
+import '../../domain/repositories/nearby_share_repository.dart';
 import '../../domain/repositories/profile_repository.dart';
+import '../../domain/repositories/saved_base_url_repository.dart';
 import '../../domain/repositories/server_repository.dart';
 import '../../domain/repositories/interception_repository.dart';
 import '../../domain/repositories/prompt_repository.dart';
@@ -236,6 +240,10 @@ Future<void> init() async {
   sl.registerLazySingleton<ProfileRepository>(
         () => ProfileRepositoryImpl(sl(), sl()),
   );
+
+  sl.registerLazySingleton<NearbyShareRepository>(() => NearbyShareService());
+
+  sl.registerLazySingleton<SavedBaseUrlRepository>(() => SavedBaseUrlRepositoryImpl(sl()));
 
   // Data sources
   sl.registerLazySingleton<EndpointLocalDataSource>(

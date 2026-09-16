@@ -10,6 +10,7 @@ import '../endpoint_editor/widgets/network_condition_field.dart';
 import 'arb_bottom_sheet.dart';
 import 'mobile_endpoints_screen.dart';
 import 'profile_settings_fields.dart';
+import '../../widgets/pass_through_url_field.dart';
 
 /// ArbTokens-styled "Start Server" sheet, shown from the home screen when
 /// running a stopped profile or creating a new one. Same save-then-start
@@ -150,6 +151,10 @@ class _StartProfileSheetBodyState extends State<_StartProfileSheetBody> {
   Future<void> _start() async {
     final port = int.tryParse(_portController.text) ?? widget.defaultPort;
     final profile = widget.profiles.firstWhere((p) => p.id == _selectedProfileId);
+    if (_autoPassThrough) {
+      await rememberPassThroughUrl(context, _passThroughUrlController.text);
+      if (!mounted) return;
+    }
     final url = _autoPassThrough && _passThroughUrlController.text.trim().isNotEmpty
         ? _passThroughUrlController.text.trim()
         : null;

@@ -32,12 +32,17 @@ abstract class EndpointEditorBase extends StatefulWidget {
   const EndpointEditorBase({
     super.key,
     this.endpoint,
+    this.template,
     this.profileId = 'default',
     this.onSaved,
   });
 
   /// Null → create mode; non-null → edit mode.
   final Endpoint? endpoint;
+
+  /// Create-mode starting values (e.g. built from a request log). Ignored
+  /// when [endpoint] is set; saving still creates a new endpoint.
+  final Endpoint? template;
   final String profileId;
 
   /// Called after a successful save. When provided (desktop pane) the editor
@@ -81,7 +86,7 @@ abstract class EndpointEditorStateBase<T extends EndpointEditorBase>
   @override
   void initState() {
     super.initState();
-    final e = widget.endpoint;
+    final e = widget.endpoint ?? widget.template;
     patternController = TextEditingController(text: e?.pattern ?? '');
     mockResponseController =
         JsonBraceController(text: e?.mockResponse ?? '{}');

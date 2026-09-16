@@ -21,11 +21,17 @@ class DesktopLogsPane extends StatefulWidget {
   final String? selectedLogId;
   final ValueChanged<RequestLog?> onLogSelected;
 
+  /// When set, every log row gets a trailing "more" menu with "Create
+  /// endpoint", which hands that log over to prefill the endpoint editor.
+  /// Left null on phones, where endpoints are created from their own screen.
+  final ValueChanged<RequestLog>? onCreateEndpoint;
+
   const DesktopLogsPane({
     super.key,
     required this.profileId,
     required this.selectedLogId,
     required this.onLogSelected,
+    this.onCreateEndpoint,
   });
 
   @override
@@ -271,6 +277,9 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
                   _statusChip(t, log.statusCode),
                 ],
               ),
+              trailing: widget.onCreateEndpoint == null || _selectionMode
+                  ? null
+                  : _buildRowMenu(t, log),
               subtitle: Text(
                 '${log.logType == LogType.mock ? 'mock' : 'pass-through'} · ${log.responseTimeMs}ms'
                 '${log.ip != null ? ' · ${log.ip}' : ''}',
@@ -293,6 +302,32 @@ class _DesktopLogsPaneState extends State<DesktopLogsPane> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildRowMenu(ArbTokens t, RequestLog log) {
+    return PopupMenuButton<void>(
+      tooltip: 'More',
+      icon: Icon(Icons.more_vert, size: 18, color: t.textSecondary),
+      padding: EdgeInsets.zero,
+      color: t.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(t.radiusSm),
+        side: BorderSide(color: t.border),
+      ),
+      itemBuilder: (context) => [
+        PopupMenuItem<void>(
+          onTap: () => widget.onCreateEndpoint!(log),
+          child: Row(
+            children: [
+              Icon(Icons.add, size: 18, color: t.textSecondary),
+              const SizedBox(width: 10),
+              Text('Create endpoint', style: t.sans(size: 13)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

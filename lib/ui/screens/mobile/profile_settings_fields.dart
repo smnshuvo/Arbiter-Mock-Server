@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/arbiter_tokens.dart';
 import '../endpoint_editor/widgets/arb_segmented.dart';
+import '../../widgets/pass_through_url_field.dart';
 
 /// Shared field group for a profile's port/host/pass-through settings —
 /// reused by [ManageProfileSheet] (editing an existing, possibly-running
@@ -89,15 +90,9 @@ class ProfileSettingsFields extends StatelessWidget {
             onChanged: (_) {},
           ),
           const SizedBox(height: 10),
-          TextField(
+          PassThroughUrlField(
             controller: passThroughUrlController,
-            style: t.mono(size: 13),
-            decoration: const InputDecoration(
-              labelText: 'Base URL',
-              hintText: 'https://api.example.com',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: onFieldCommitted == null ? null : (_) => onFieldCommitted!(),
+            onCommitted: onFieldCommitted,
           ),
         ],
       ],

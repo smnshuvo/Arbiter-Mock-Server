@@ -40,6 +40,10 @@ class _JsonBodyViewerState extends State<JsonBodyViewer> {
   _ViewTab _tab = _ViewTab.code;
   bool _isJson = false;
 
+  /// Code view shows the body pretty-printed rather than as received
+  /// (proxied responses are often minified onto a single line).
+  bool _formatted = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,8 +56,8 @@ class _JsonBodyViewerState extends State<JsonBodyViewer> {
   void didUpdateWidget(JsonBodyViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.jsonString != widget.jsonString) {
-      _codeController.text = widget.jsonString;
       _load(widget.jsonString);
+      _syncCodeText();
     }
   }
 
@@ -67,6 +71,23 @@ class _JsonBodyViewerState extends State<JsonBodyViewer> {
   void _load(String raw) {
     _isJson = _looksLikeJson(raw);
     if (_isJson) _treeController.parse(raw);
+  }
+
+  void _syncCodeText() {
+    _codeController.text = _formatted && _isJson ? _pretty(widget.jsonString) : widget.jsonString;
+  }
+
+  String _pretty(String raw) {
+    try {
+      return const JsonEncoder.withIndent('  ').convert(jsonDecode(raw.trim()));
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  void _toggleFormatted() {
+    setState(() => _formatted = !_formatted);
+    _syncCodeText();
   }
 
   bool _looksLikeJson(String raw) {
@@ -99,6 +120,24 @@ class _JsonBodyViewerState extends State<JsonBodyViewer> {
                 onPressed: widget.onOpenInEditor,
               ),
               const SizedBox(width: 4),
+            ],
+            if (_isJson && _tab == _ViewTab.code) ...[
+              TextButton.icon(
+                onPressed: _toggleFormatted,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: Icon(_formatted ? Icons.notes : Icons.format_align_left,
+                    size: 15, color: _formatted ? t.accent : t.textSecondary),
+                label: Text(_formatted ? 'Raw' : 'Format',
+                    style: t.sans(
+                        size: 11.5,
+                        weight: FontWeight.w700,
+                        color: _formatted ? t.accent : t.textSecondary)),
+              ),
+              const SizedBox(width: 6),
             ],
             if (_isJson)
               SizedBox(

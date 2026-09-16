@@ -43,5 +43,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Arbiter uses your local network to find nearby devices for sharing and receiving mock collections.</string>
 </dict>
 </plist>

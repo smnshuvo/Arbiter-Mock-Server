@@ -9,10 +9,13 @@ import 'widgets/arb_section_label.dart';
 /// Desktop pane layout of the endpoint editor: a header row plus sections
 /// arranged in horizontal groupings (match+mode, status+delay+conditional).
 /// Embedded in the endpoints workspace right pane; saving keeps the pane open.
+/// The header (title + save button) is pinned above the scroll view so saving
+/// never requires scrolling back up past a long response body.
 class DesktopEndpointEditor extends EndpointEditorBase {
   const DesktopEndpointEditor({
     super.key,
     super.endpoint,
+    super.template,
     super.profileId,
     super.onSaved,
   });
@@ -28,7 +31,17 @@ class _DesktopEndpointEditorState
     final t = ArbTokens.of(context);
     return Container(
       color: t.canvas,
-      child: CustomScrollView(slivers: _slivers()),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 14, 22, 14),
+            child: _header(t),
+          ),
+          Divider(height: 1, color: t.border),
+          Expanded(child: CustomScrollView(slivers: _slivers())),
+        ],
+      ),
     );
   }
 
@@ -40,11 +53,8 @@ class _DesktopEndpointEditorState
       );
 
   List<Widget> _slivers() {
-    final t = ArbTokens.of(context);
     const hPad = EdgeInsets.symmetric(horizontal: 22);
     final top = <Widget>[
-      _header(t),
-      const SizedBox(height: 18),
       buildMethodPathRow(),
       const SizedBox(height: 16),
       _matchAndMode(),

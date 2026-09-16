@@ -13,6 +13,7 @@ class ServerRail extends StatelessWidget {
   final Map<String, int> endpointCounts;
   final ValueChanged<String> onSelect;
   final VoidCallback onCreateProfile;
+  final VoidCallback onOpenSettings;
 
   const ServerRail({
     super.key,
@@ -21,6 +22,7 @@ class ServerRail extends StatelessWidget {
     required this.endpointCounts,
     required this.onSelect,
     required this.onCreateProfile,
+    required this.onOpenSettings,
   });
 
   @override
@@ -35,8 +37,17 @@ class ServerRail extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text('SERVERS', style: t.label),
+                padding: const EdgeInsets.fromLTRB(16, 8, 6, 0),
+                child: Row(
+                  children: [
+                    Expanded(child: Text('SERVERS', style: t.label)),
+                    IconButton(
+                      tooltip: 'Share or receive endpoints nearby',
+                      icon: Icon(Icons.wifi_tethering, size: 19, color: t.textSecondary),
+                      onPressed: onOpenSettings,
+                    ),
+                  ],
+                ),
               ),
               Expanded(
                 child: ListView(

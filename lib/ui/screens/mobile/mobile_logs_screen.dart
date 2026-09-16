@@ -14,7 +14,12 @@ import 'profile_switch_sheet.dart';
 /// a bottom sheet to switch which server's activity is shown. Tapping a log
 /// pushes [MobileDetailScreen] instead of swapping in a side pane.
 class MobileLogsScreen extends StatefulWidget {
-  const MobileLogsScreen({super.key});
+  /// Server whose logs to show. Null falls back to the active profile (the
+  /// header's generic logs button); server cards pass their own id so they
+  /// don't depend on the active-profile switch having landed yet.
+  final String? profileId;
+
+  const MobileLogsScreen({super.key, this.profileId});
 
   @override
   State<MobileLogsScreen> createState() => _MobileLogsScreenState();
@@ -27,7 +32,8 @@ class _MobileLogsScreenState extends State<MobileLogsScreen> {
   void initState() {
     super.initState();
     final profileState = context.read<ProfileBloc>().state;
-    _profileId = profileState is ProfileLoaded ? profileState.activeProfileId : 'default';
+    _profileId = widget.profileId ??
+        (profileState is ProfileLoaded ? profileState.activeProfileId : 'default');
   }
 
   Future<void> _switchProfile() async {

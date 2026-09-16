@@ -4,17 +4,25 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/arbiter_tokens.dart';
 import '../../../domain/entities/endpoint.dart';
+import '../../../domain/entities/interception_mode.dart';
 import '../../../domain/entities/network_condition.dart';
 import '../../../domain/entities/profile.dart';
 import '../../../domain/entities/request_log.dart';
+import '../../../domain/usecases/server_usecases.dart';
+import '../../bloc/dependency_container.dart';
 import '../../bloc/endpoint/endpoint_bloc.dart';
+import '../../bloc/interception/interception_bloc.dart';
+import '../../bloc/interception/interception_state.dart';
 import '../../bloc/profile/profile_bloc.dart';
 import '../../bloc/server/server_bloc.dart';
+import '../../widgets/pass_through_url_field.dart';
 import '../endpoint_editor/desktop_endpoint_editor.dart';
 import '../endpoint_editor/widgets/arb_segmented.dart';
 import '../endpoint_editor/widgets/network_condition_field.dart';
 import 'desktop_detail_pane.dart';
 import 'desktop_endpoints_pane.dart';
+import 'desktop_interception_dialog.dart';
+import 'desktop_settings_dialog.dart';
 import 'desktop_logs_pane.dart';
 import 'manage_profile_dialog.dart';
 import 'server_rail.dart';
@@ -72,6 +80,13 @@ class _QuickSettingsPanelState extends State<_QuickSettingsPanel> {
           ),
           updatedAt: DateTime.now(),
         )));
+  }
+
+  /// Enter in the base URL field / picking a saved one: remember the URL
+  /// (asking for a name if it's new), then persist.
+  Future<void> _commitPassThroughUrl() async {
+    await rememberPassThroughUrl(context, _passThroughUrlController.text);
+    if (mounted) _save();
   }
 
   void _saveNetworkCondition(NetworkCondition c) {
@@ -155,16 +170,10 @@ class _QuickSettingsPanelState extends State<_QuickSettingsPanel> {
               padding: const EdgeInsets.only(left: 4),
               child: SizedBox(
                 width: 320,
-                child: TextField(
+                child: PassThroughUrlField(
                   controller: _passThroughUrlController,
-                  style: t.mono(size: 12.5),
-                  onSubmitted: (_) => _save(),
-                  decoration: const InputDecoration(
-                    labelText: 'Base URL',
-                    hintText: 'https://api.example.com',
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                  ),
+                  dense: true,
+                  onCommitted: _commitPassThroughUrl,
                 ),
               ),
             ),
@@ -200,7 +209,23 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
   Endpoint? _selectedEndpoint;
   bool _creatingEndpoint = false;
   int _newEndpointSeq = 0;
+
+  /// Prefill for the create-mode editor when it was opened from a log row.
+  Endpoint? _endpointTemplate;
   bool _showQuickSettings = false;
+
+  /// LAN address shown in the header URL while a server set to "Network" is
+  /// stopped, so the Local/Network toggle previews the real URL immediately.
+  String? _deviceIp;
+
+  Future<void> _refreshDeviceIp() async {
+    try {
+      final ip = await sl<GetDeviceIpAddress>()();
+      if (mounted && ip != _deviceIp) setState(() => _deviceIp = ip);
+    } catch (_) {
+      // Preview only — the server itself reports an error if it can't bind.
+    }
+  }
 
   void _copyUrl(String url) {
     Clipboard.setData(ClipboardData(text: url));
@@ -218,6 +243,7 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
       _selectedProfileId = profileState.activeProfileId;
     }
     context.read<EndpointBloc>().add(LoadEndpointsEvent(_selectedProfileId ?? 'default'));
+    _refreshDeviceIp();
   }
 
   Map<String, ({String url, int port})> _runningMap(ServerState state) {
@@ -243,12 +269,50 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
     context.read<EndpointBloc>().add(LoadEndpointsEvent(profileId));
   }
 
-  void _addEndpoint() {
+  void _addEndpoint({Endpoint? template}) {
     setState(() {
+      _endpointTemplate = template;
       _selectedEndpoint = null;
       _creatingEndpoint = true;
       _newEndpointSeq++;
     });
+  }
+
+  /// Opens the endpoints view, reloading that server's list first: the shared
+  /// EndpointBloc may be holding a stale list (e.g. after "Add to collection"
+  /// from the logs), which previously only cleared by switching servers.
+  void _showEndpointsPane(String profileId) {
+    context.read<EndpointBloc>().add(LoadEndpointsEvent(profileId));
+    setState(() => _middlePane = _MiddlePane.endpoints);
+  }
+
+  /// "Create endpoint" from a log row's more-menu: jump to the endpoints view
+  /// with the editor prefilled from that request/response.
+  void _createEndpointFromLog(String profileId, RequestLog log) {
+    _showEndpointsPane(profileId);
+    setState(() => _selectedLog = null);
+    _addEndpoint(template: _templateFromLog(profileId, log));
+  }
+
+  /// Same pattern rules as [BatchCreateEndpointsFromLogs]: path only, no query
+  /// string or leading slash.
+  Endpoint _templateFromLog(String profileId, RequestLog log) {
+    var pattern = log.url.split('?').first;
+    if (pattern.startsWith('/')) pattern = pattern.substring(1);
+    final method = log.method.name.toUpperCase();
+    final now = DateTime.now();
+    return Endpoint(
+      id: '',
+      profileId: profileId,
+      pattern: pattern,
+      method: kEndpointMethods.contains(method) ? method : null,
+      matchType: MatchType.exact,
+      mode: EndpointMode.mock,
+      mockResponse: (log.responseBody?.isNotEmpty ?? false) ? log.responseBody : '{}',
+      statusCode: log.statusCode,
+      createdAt: now,
+      updatedAt: now,
+    );
   }
 
   void _onEndpointSaved(String profileId) {
@@ -259,20 +323,45 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
     });
   }
 
+  StartProfileEvent _startEventFor(Profile profile) => StartProfileEvent(
+        profileId: profile.id,
+        profileName: profile.name,
+        port: profile.port,
+        useDeviceIp: profile.settings.useDeviceIp,
+        passThroughUrl: profile.settings.globalPassThroughUrl,
+        autoPassThrough: profile.settings.autoPassThrough,
+        networkCondition: profile.settings.networkCondition,
+      );
+
   void _toggleRun(Profile profile, bool running) {
     if (running) {
       context.read<ServerBloc>().add(StopProfileEvent(profile.id));
     } else {
-      context.read<ServerBloc>().add(StartProfileEvent(
-            profileId: profile.id,
-            profileName: profile.name,
-            port: profile.port,
-            useDeviceIp: profile.settings.useDeviceIp,
-            passThroughUrl: profile.settings.globalPassThroughUrl,
-            autoPassThrough: profile.settings.autoPassThrough,
-            networkCondition: profile.settings.networkCondition,
-          ));
+      context.read<ServerBloc>().add(_startEventFor(profile));
     }
+  }
+
+  /// Header Local/Network switch. Persists the choice and, since the bind
+  /// address is fixed at start, restarts a running server so the new URL is
+  /// live straight away.
+  void _setUseDeviceIp(Profile profile, bool useDeviceIp, bool running) {
+    if (profile.settings.useDeviceIp == useDeviceIp) return;
+    final updated = profile.copyWith(
+      settings: profile.settings.copyWith(useDeviceIp: useDeviceIp),
+      updatedAt: DateTime.now(),
+    );
+    context.read<ProfileBloc>().add(UpdateProfileEvent(updated));
+    if (running) {
+      context.read<ServerBloc>().add(RestartProfileEvent(_startEventFor(updated)));
+    }
+    if (useDeviceIp) _refreshDeviceIp();
+  }
+
+  void _openInterception() {
+    showDialog(
+      context: context,
+      builder: (_) => const DesktopInterceptionDialog(),
+    );
   }
 
   void _openManage(Profile profile) {
@@ -356,6 +445,10 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
                 endpointCounts: widget.endpointCounts,
                 onSelect: _selectProfile,
                 onCreateProfile: _showCreateProfileDialog,
+                onOpenSettings: () => showDialog(
+                  context: context,
+                  builder: (_) => DesktopSettingsDialog(selectedProfileId: selectedId),
+                ),
               ),
             ),
             VerticalDivider(width: 1, color: t.border),
@@ -398,6 +491,7 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
                                     profileId: selectedProfile.id,
                                     selectedLogId: _selectedLog?.id,
                                     onLogSelected: (log) => setState(() => _selectedLog = log),
+                                    onCreateEndpoint: (log) => _createEndpointFromLog(selectedProfile.id, log),
                                   )
                                 : DesktopEndpointsPane(
                                     profileId: selectedProfile.id,
@@ -422,6 +516,7 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
                                         key: ValueKey(
                                             _selectedEndpoint?.id ?? 'new-$_newEndpointSeq'),
                                         endpoint: _selectedEndpoint,
+                                        template: _endpointTemplate,
                                         profileId: selectedProfile.id,
                                         onSaved: () => _onEndpointSaved(selectedProfile.id),
                                       )
@@ -458,8 +553,22 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
   }
 
   Widget _buildHeader(Profile profile, bool running, ({String url, int port})? runningInfo) {
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          _buildHeaderRow(profile, running, runningInfo, compact: constraints.maxWidth < 1000),
+    );
+  }
+
+  Widget _buildHeaderRow(
+    Profile profile,
+    bool running,
+    ({String url, int port})? runningInfo, {
+    required bool compact,
+  }) {
     final t = ArbTokens.of(context);
-    final url = runningInfo?.url ?? 'http://localhost:${profile.port}';
+    final useDeviceIp = profile.settings.useDeviceIp;
+    final previewHost = useDeviceIp ? (_deviceIp ?? '0.0.0.0') : 'localhost';
+    final url = runningInfo?.url ?? 'http://$previewHost:${profile.port}';
     final inEndpoints = _middlePane == _MiddlePane.endpoints;
     return Container(
       color: t.surface,
@@ -500,10 +609,26 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
                 Text(profile.name,
                     overflow: TextOverflow.ellipsis,
                     style: t.sans(size: 16, weight: FontWeight.w700)),
-                const SizedBox(height: 3),
+                const SizedBox(height: 5),
                 Row(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Flexible(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 170),
+                        child: Tooltip(
+                          message: running
+                              ? 'Switching restarts the server on the new address'
+                              : 'Bind to localhost only, or to the network (0.0.0.0)',
+                          child: ArbSegmented(
+                            compact: true,
+                            segments: const [ArbSegment('Local'), ArbSegment('Network')],
+                            selectedIndex: useDeviceIp ? 1 : 0,
+                            onChanged: (i) => _setUseDeviceIp(profile, i == 1, running),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
                     Flexible(
                       child: Text(url,
                           overflow: TextOverflow.ellipsis, style: t.mono(size: 11.5, color: t.textMuted)),
@@ -544,18 +669,27 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
               onPressed: () => setState(() => _showQuickSettings = !_showQuickSettings),
             ),
             const SizedBox(width: 4),
-            OutlinedButton.icon(
-              onPressed: () => setState(() => _middlePane = _MiddlePane.endpoints),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: t.textSecondary,
-                side: BorderSide(color: t.border),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusSm)),
+            if (compact)
+              IconButton(
+                tooltip: 'Manage endpoints',
+                icon: Icon(Icons.rule, color: t.textSecondary),
+                onPressed: () => _showEndpointsPane(profile.id),
+              )
+            else
+              OutlinedButton.icon(
+                onPressed: () => _showEndpointsPane(profile.id),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: t.textSecondary,
+                  side: BorderSide(color: t.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusSm)),
+                ),
+                icon: const Icon(Icons.rule, size: 18),
+                label: Text('Manage endpoints', style: t.sans(size: 12.5)),
               ),
-              icon: const Icon(Icons.rule, size: 18),
-              label: Text('Manage endpoints', style: t.sans(size: 12.5)),
-            ),
           ],
           const SizedBox(width: 8),
+          _buildInterceptionButton(t, compact: compact),
+          const SizedBox(width: 4),
           IconButton(
             tooltip: 'Manage server',
             icon: Icon(Icons.settings_outlined, color: t.textSecondary),
@@ -563,6 +697,43 @@ class _DesktopWorkspaceScreenState extends State<DesktopWorkspaceScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Always-visible interception control: shows whether requests are being
+  /// held (and which direction) and opens [DesktopInterceptionDialog].
+  Widget _buildInterceptionButton(ArbTokens t, {required bool compact}) {
+    return BlocBuilder<InterceptionBloc, InterceptionState>(
+      builder: (context, state) {
+        final mode = currentInterceptionMode(state);
+        final on = mode != InterceptionMode.none;
+        final label = switch (mode) {
+          InterceptionMode.none => 'Intercept off',
+          InterceptionMode.requestOnly => 'Intercepting requests',
+          InterceptionMode.responseOnly => 'Intercepting responses',
+          InterceptionMode.both => 'Intercepting',
+        };
+        final color = on ? t.accent : t.textSecondary;
+        final icon = Icon(on ? Icons.pause_circle : Icons.pause_circle_outline, size: 18, color: color);
+        if (compact) {
+          return IconButton(
+            tooltip: label,
+            icon: Icon(icon.icon, color: color),
+            onPressed: _openInterception,
+          );
+        }
+        return OutlinedButton.icon(
+          onPressed: _openInterception,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: color,
+            backgroundColor: on ? t.accentSoft : null,
+            side: BorderSide(color: on ? t.accent : t.border),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusSm)),
+          ),
+          icon: icon,
+          label: Text(label, style: t.sans(size: 12.5, color: color)),
+        );
+      },
     );
   }
 }

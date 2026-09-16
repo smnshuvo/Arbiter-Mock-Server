@@ -21,6 +21,7 @@ import '../../domain/entities/prompt.dart';
 import '../../domain/repositories/endpoint_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../bloc/dependency_container.dart';
+import '../bloc/endpoint/endpoint_bloc.dart';
 import '../bloc/interception/interception_bloc.dart';
 import '../bloc/interception/interception_event.dart';
 import '../bloc/interception/interception_state.dart';
@@ -59,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// endpoints screen.
   Map<String, int> _endpointCounts = {};
   bool _loadingCounts = false;
+  bool _countsReloadQueued = false;
 
   /// Whether the server list is expanded past [_collapsedServerCount].
   bool _showAllServers = false;
@@ -476,7 +478,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Best-effort load of per-profile endpoint counts for the card chips.
   Future<void> _loadEndpointCounts(List<Profile> profiles) async {
-    if (_loadingCounts) return;
+    // A change landing mid-load would otherwise be dropped and leave a stale
+    // count, so remember it and run once more when the current load finishes.
+    if (_loadingCounts) {
+      _countsReloadQueued = true;
+      return;
+    }
     _loadingCounts = true;
     try {
       final repo = sl<EndpointRepository>();
@@ -490,6 +497,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Counts are decorative; ignore failures.
     } finally {
       _loadingCounts = false;
+    }
+    if (_countsReloadQueued && mounted) {
+      _countsReloadQueued = false;
+      final profileState = context.read<ProfileBloc>().state;
+      if (profileState is ProfileLoaded) _loadEndpointCounts(profileState.profiles);
     }
   }
 
@@ -508,6 +520,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (profileState is ProfileLoaded) {
       _loadEndpointCounts(profileState.profiles);
     }
+  }
+
+  void _openLogs(Profile profile) {
+    context.read<ProfileBloc>().add(SwitchActiveProfileEvent(profile.id));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => MobileLogsScreen(profileId: profile.id)),
+    );
   }
 
   /// Maps each running profile id to its live url/port for the current state.
@@ -589,6 +609,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 BlocListener<ProfileBloc, ProfileState>(
                   listener: (context, profileState) {
+                    if (profileState is ProfileLoaded) {
+                      _loadEndpointCounts(profileState.profiles);
+                    }
+                  },
+                ),
+                // Endpoint create/update/delete/import all end in EndpointLoaded;
+                // refresh the per-server counts (desktop rail, mobile cards).
+                BlocListener<EndpointBloc, EndpointState>(
+                  listenWhen: (_, current) => current is EndpointLoaded,
+                  listener: (context, _) {
+                    final profileState = context.read<ProfileBloc>().state;
                     if (profileState is ProfileLoaded) {
                       _loadEndpointCounts(profileState.profiles);
                     }
@@ -944,7 +975,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     const SizedBox(width: 5),
                     _trafficDot(const Color(0xFF28C840)),
                     const Spacer(),
-                    _manageEndpointsCta(profile),
+                    _titleBarCta('logs', () => _openLogs(profile)),
+                    const SizedBox(width: 6),
+                    _titleBarCta('endpoints', () => _openEndpoints(profile)),
                   ],
                 ),
               ),
@@ -1048,15 +1081,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Labelled call to action in the card's title bar. It goes to the same
-  /// place as a tap on the card body — its job is to caption that gesture so
-  /// the card doesn't rely on the user guessing it's tappable.
-  Widget _manageEndpointsCta(Profile profile) {
+  /// Labelled call to action in the card's title bar. "endpoints" goes to the
+  /// same place as a tap on the card body — captioning that gesture so the
+  /// card doesn't rely on the user guessing it's tappable; "logs" opens that
+  /// server's request log.
+  Widget _titleBarCta(String label, VoidCallback onTap) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => _openEndpoints(profile),
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -1067,7 +1101,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('endpoints',
+              Text(label,
                   style: monoTextStyle(
                       fontSize: 10.5,
                       fontWeight: FontWeight.w700,

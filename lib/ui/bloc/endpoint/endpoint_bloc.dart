@@ -266,6 +266,9 @@ class EndpointBloc extends Bloc<EndpointEvent, EndpointState> {
       final endpoints = await getAllEndpoints(profileId: event.profileId);
       serverManager.updateEndpoints(event.profileId, endpoints);
       emit(BatchCreateSuccessState(created, event.profileId));
+      // Follow up with the list itself so anything showing endpoints (and the
+      // per-server counts) refreshes without needing a server switch.
+      emit(EndpointLoaded(endpoints, event.profileId));
     } catch (e) {
       emit(EndpointError(e.toString()));
     }

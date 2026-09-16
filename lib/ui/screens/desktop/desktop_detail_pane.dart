@@ -22,7 +22,8 @@ class DesktopDetailPane extends StatefulWidget {
 }
 
 class _DesktopDetailPaneState extends State<DesktopDetailPane> {
-  bool _headersExpanded = true;
+  // Headers are usually noise next to the body — start collapsed.
+  bool _headersExpanded = false;
 
   void _openInEditor(String title, String content, String filenameBase) {
     JsonDocsController.instance
